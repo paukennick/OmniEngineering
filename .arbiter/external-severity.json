@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated": "2026-09-26T14:18:06Z",
+  "generated": "2026-09-27T15:09:24Z",
   "repos_scanned": 41,
   "repos_timed_out": [],
   "repos_failed": [],
@@ -8404,7 +8404,7 @@
     "semgrep/semgrep-rules.go.lang.security.audit.crypto.math-random-used": {
       "tool": "semgrep",
       "title": "Do not use `math/rand`. Use `crypto/rand` instead.",
-      "clean_hits": 12,
+      "clean_hits": 11,
       "vulnerable_hits": 0,
       "example_hits": 0,
       "languages": [

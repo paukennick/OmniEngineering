@@ -1431,9 +1431,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:e21a4380732f",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:68d3d29a01fd",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:20",
@@ -1442,9 +1442,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:68d3d29a01fd",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:e21a4380732f",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:20",
@@ -1464,9 +1464,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:17c44cd4997e",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:5a97206f36c0",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:39",
@@ -1475,9 +1475,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:5a97206f36c0",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:17c44cd4997e",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:39",
@@ -1497,9 +1497,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:7d1f101a6774",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:147d9bd4e587",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:58",
@@ -1508,9 +1508,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:147d9bd4e587",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:7d1f101a6774",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:58",
@@ -1530,9 +1530,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:88672c0e88f7",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:d5a56348c8e5",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:77",
@@ -1541,9 +1541,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:d5a56348c8e5",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:88672c0e88f7",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:77",
@@ -1563,9 +1563,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:e60440a974a3",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:9e11f2586682",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:96",
@@ -1574,9 +1574,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:9e11f2586682",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:e60440a974a3",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:96",
@@ -1596,9 +1596,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:9133dc0cee85",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "id": "f:68aea2e19478",
+      "rule": "checkov/CKV_AZURE_24",
+      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:115",
@@ -1607,9 +1607,9 @@
       "only": "checkov"
     },
     {
-      "id": "f:68aea2e19478",
-      "rule": "checkov/CKV_AZURE_24",
-      "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "id": "f:9133dc0cee85",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/mssql.tf:115",
@@ -1629,17 +1629,6 @@
       "only": "checkov"
     },
     {
-      "id": "f:799b88e74708",
-      "rule": "checkov/CKV_AZURE_23",
-      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
-      "severity": "low",
-      "family": "logging",
-      "where": "terraform/azure/mssql.tf:134",
-      "tool": "checkov",
-      "other_side": [],
-      "only": "checkov"
-    },
-    {
       "id": "f:bc9fb384f631",
       "rule": "checkov/CKV_AZURE_24",
       "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
@@ -1651,12 +1640,12 @@
       "only": "checkov"
     },
     {
-      "id": "f:a5df54915ad4",
+      "id": "f:799b88e74708",
       "rule": "checkov/CKV_AZURE_23",
       "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
-      "where": "terraform/azure/sql.tf:9",
+      "where": "terraform/azure/mssql.tf:134",
       "tool": "checkov",
       "other_side": [],
       "only": "checkov"
@@ -1665,6 +1654,17 @@
       "id": "f:06e21fc0efec",
       "rule": "checkov/CKV_AZURE_24",
       "title": "Ensure that 'Auditing' Retention is 'greater than 90 days' for SQL servers",
+      "severity": "low",
+      "family": "logging",
+      "where": "terraform/azure/sql.tf:9",
+      "tool": "checkov",
+      "other_side": [],
+      "only": "checkov"
+    },
+    {
+      "id": "f:a5df54915ad4",
+      "rule": "checkov/CKV_AZURE_23",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
       "severity": "low",
       "family": "logging",
       "where": "terraform/azure/sql.tf:9",

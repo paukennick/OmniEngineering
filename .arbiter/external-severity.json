@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated": "2026-10-02T16:08:11Z",
+  "generated": "2026-10-03T14:43:56Z",
   "repos_scanned": 41,
   "repos_timed_out": [],
   "repos_failed": [],
@@ -9872,9 +9872,9 @@
     },
     "semgrep/semgrep-rules.javascript.lang.security.audit.detect-non-literal-regexp": {
       "tool": "semgrep",
-      "title": "RegExp() called with a `t` function argument, this might allow an attacker to cause a Regular Expression Denial-of-Servi",
+      "title": "RegExp() called with a `$` function argument, this might allow an attacker to cause a Regular Expression Denial-of-Servi",
       "clean_hits": 13,
-      "vulnerable_hits": 11,
+      "vulnerable_hits": 10,
       "example_hits": 3,
       "languages": [
         "javascript",
@@ -9883,7 +9883,7 @@
       "repos_seen": 10,
       "clean_kloc": 179.2,
       "vulnerable_kloc": 175.7,
-      "ratio": 0.86,
+      "ratio": 0.78,
       "severity": "info",
       "basis": "measured"
     },

@@ -2685,11 +2685,11 @@
       "only": "checkov"
     },
     {
-      "id": "f:0235c5c1d811",
-      "rule": "checkov/CKV2_K8S_1",
-      "title": "RoleBinding should not allow privilege escalation to a ServiceAccount or Node on other RoleBinding",
+      "id": "f:0a490355569b",
+      "rule": "checkov/CKV2_K8S_5",
+      "title": "No ServiceAccount/Node should be able to read all secrets",
       "severity": "medium",
-      "family": "privilege",
+      "family": "secret",
       "where": "infrastructure/helm-tiller/pwnchart/templates/clusterrolebinding.yaml:3",
       "tool": "checkov",
       "other_side": [],
@@ -2707,11 +2707,11 @@
       "only": "checkov"
     },
     {
-      "id": "f:0a490355569b",
-      "rule": "checkov/CKV2_K8S_5",
-      "title": "No ServiceAccount/Node should be able to read all secrets",
+      "id": "f:0235c5c1d811",
+      "rule": "checkov/CKV2_K8S_1",
+      "title": "RoleBinding should not allow privilege escalation to a ServiceAccount or Node on other RoleBinding",
       "severity": "medium",
-      "family": "secret",
+      "family": "privilege",
       "where": "infrastructure/helm-tiller/pwnchart/templates/clusterrolebinding.yaml:3",
       "tool": "checkov",
       "other_side": [],
@@ -5476,18 +5476,6 @@
       ]
     },
     {
-      "id": "f:59fae9198f06",
-      "rule": "checkov/CKV2_AWS_6",
-      "title": "Ensure that S3 bucket has a Public Access block",
-      "severity": "medium",
-      "family": "public-access",
-      "where": "terraform/aws/ec2.tf:271",
-      "tool": "checkov",
-      "other_side": [
-        "arbiter/resource.unrestricted-ingress"
-      ]
-    },
-    {
       "id": "f:0218c062406c",
       "rule": "checkov/CKV_AWS_18",
       "title": "Ensure the S3 bucket has access logging enabled",
@@ -5497,6 +5485,18 @@
       "tool": "checkov",
       "other_side": [
         "arbiter/resource.no-object-store-logging"
+      ]
+    },
+    {
+      "id": "f:59fae9198f06",
+      "rule": "checkov/CKV2_AWS_6",
+      "title": "Ensure that S3 bucket has a Public Access block",
+      "severity": "medium",
+      "family": "public-access",
+      "where": "terraform/aws/ec2.tf:271",
+      "tool": "checkov",
+      "other_side": [
+        "arbiter/resource.unrestricted-ingress"
       ]
     },
     {

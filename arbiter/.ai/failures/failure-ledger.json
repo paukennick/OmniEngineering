@@ -1206,7 +1206,7 @@
       "id": "FAIL-046",
       "date": "2026-10-09",
       "title": "pr-check.yml and train.yml pin their actions to mutable major tags",
-      "status": "open",
+      "status": "fixed",
       "severity": "medium",
       "symptom": "Every `uses:` in .github/workflows (actions/checkout@v4, actions/setup-python@v5, actions/cache@v4, actions/upload-artifact@v4, github/codeql-action/upload-sarif@v3) names a tag the action owner can repoint. At .github/workflows/pr-check.yml:66.",
       "how_detected": "arbiter arbiter/supply.unpinned-action finding f:f351df511ecf and semgrep github-actions-mutable-action-tag finding f:6450363da7ac, adjudicated true positive in the ARB-049 sweep",
@@ -1216,10 +1216,10 @@
         ".github/workflows/pr-check.yml",
         ".github/workflows/train.yml"
       ],
-      "fix_summary": "",
+      "fix_summary": "pr-check.yml and train.yml name each action's commit SHA with the tag in a trailing comment (checkout 11d5960a v4, setup-python a26af69b v5, cache 0057852b v4, upload-artifact ea165f8d v4, upload-sarif 9f759ee6 v3), resolved with git ls-remote --tags.",
       "fix_commits": [],
       "regression_tests": [],
-      "no_test_reason": "A workflow file is not exercised by the test suite; arbiter's own supply.unpinned-action rule is the check, and the self-gate reports it until the refs are commit SHAs.",
+      "no_test_reason": "A workflow file has no unit test; the self-gate's supply.unpinned-action rule is the check that catches a return to tags.",
       "prevention_rules": [],
       "prevention_notes": "Fix is to pin each action to a commit SHA with the version in a trailing comment and let Dependabot move it; outside the ARB-049 scope (src, tests, arbiter.yaml, baseline, ledger), left open.",
       "recurrence_of": ""
@@ -1297,6 +1297,31 @@
         "completion.regression_test"
       ],
       "prevention_notes": "Manifest formats put several requirements on one line; a reader anchored to line starts is a reader of the first column only.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-050",
+      "date": "2026-10-09",
+      "title": "An environment-variable name assigned to a credential-named symbol was reported as a hardcoded credential",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "Code scanning on upstream OmniEngineering PR #3: 'Hardcoded credential assigned to SEMANTIC_API_KEY_ENV' (arbiter/secrets.assigned-credential) for SEMANTIC_API_KEY_ENV = \"OMNI_GRAPH_SEMANTIC_API_KEY\" in omni_graph.py.",
+      "how_detected": "code scanning alert on upstream OmniEngineering PR #3, from the SARIF omni gate uploaded",
+      "root_cause": "_credential_finding judged the value by entropy and character classes; an upper-case identifier with underscores has two classes and enough entropy to pass, and nothing looked at the shape of the value or at a symbol suffix (_ENV, _VAR, _NAME) that says the symbol holds a name rather than a secret.",
+      "requirement": "ARB-048",
+      "affected": [
+        "src/arbiter/probes.py"
+      ],
+      "fix_summary": "_credential_finding returns None for a value shaped like an environment-variable name (^[A-Z][A-Z0-9_]{2,}$) and for a symbol whose suffix is _env, _env_var, _envvar, _var, _name or _key_name; a real credential beside it still fires.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_secrets_env_name.py::test_an_env_var_name_is_not_a_credential"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "The regression test holds three name-holding assignments that must be silent and a live-looking key beside them that must fire.",
       "recurrence_of": ""
     }
   ]

@@ -249,8 +249,9 @@ format reprints a planted secret.
 
 - This repository: `README.md` ("Arbiter alongside the workspace", "Code
   Graph", "Trace an Arbiter finding", "Daily Use"), `CHANGELOG.md`,
-  `.ai/failures/failure-ledger.json` (FAIL-010 to FAIL-014 are the defects
-  the integration surfaced and fixed).
+  `.ai/failures/failure-ledger.json` (FAIL-010 to FAIL-015 are the defects
+  the integration surfaced and fixed). The release notes end with a table of
+  every path the integration added to the tree and the requirement each came by.
 - Arbiter: `docs/probes.md` (the governance probe and probe scopes),
   `docs/ci.md` (annotations, step summary, SARIF, scanning only what
   changed), `docs/cli.md` (formats, cache, history, dashboard),

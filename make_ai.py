@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -3619,12 +3620,26 @@ def run_requirement_update(args: argparse.Namespace) -> int:
     return 0
 
 
-DEFECT_CATEGORY = re.compile(r"defect|bug|fix|regress|incident|failure", re.IGNORECASE)
+DEFAULT_DEFECT_CATEGORY_PATTERN = r"defect|bug|fix|regress|incident|failure"
+DEFECT_CATEGORY = re.compile(DEFAULT_DEFECT_CATEGORY_PATTERN, re.IGNORECASE)
+
+
+def defect_category_pattern() -> re.Pattern[str]:
+    """Which requirement categories count as defect work, and so need a failure-ledger entry to complete.
+    Projects name their categories as they like (`developer-tooling`, `Defect`, `incident`), so the ruleset's
+    `configuration.defect_category_pattern` overrides the default; an invalid pattern falls back to it."""
+    value = project_configuration().get("defect_category_pattern")
+    if isinstance(value, str) and value.strip():
+        try:
+            return re.compile(value, re.IGNORECASE)
+        except re.error:
+            pass
+    return DEFECT_CATEGORY
 
 
 def run_requirement_complete(args: argparse.Namespace) -> int:
     found = find_requirement(args.id)
-    if found is not None and DEFECT_CATEGORY.search(str(found[2].get("category", ""))):
+    if found is not None and defect_category_pattern().search(str(found[2].get("category", ""))):
         requirement_id = str(found[2].get("id"))
         reason = (getattr(args, "no_failure_entry", None) or "").strip()
         if not failures_referencing(requirement_id):
@@ -3793,7 +3808,7 @@ def gate_changed_paths(base: str | None) -> set[str]:
 # Kept in step with every validation type a check function below actually implements. A rule can declare a
 # validation the gate does not (yet) execute; gate_rules() silently skips those rather than crashing on them,
 # but "declared and silently never checked" is exactly the trap this set exists to avoid falling into by accident.
-EXECUTABLE_VALIDATION_TYPES = {"co_changed", "requirement_registry_entry", "content_forbidden"}
+EXECUTABLE_VALIDATION_TYPES = {"co_changed", "requirement_registry_entry", "content_forbidden", "command"}
 
 
 def gate_rules() -> list[dict[str, Any]]:
@@ -3897,6 +3912,49 @@ def _gate_check_content_forbidden(rule: dict[str, Any], validation: dict[str, An
     return f"{rule_id}: {example}"
 
 
+def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], changed: set[str], base: str | None) -> str | None:
+    """Run the project's own check -- a scanner, a test suite, a linter -- as a gate. The command runs only
+    when a changed path matches `when_changed` (minus `ignore`), `{base}` in `run` is the gate's base commit,
+    and a non-zero exit, a timeout, or an executable that is not on PATH all fail the rule: an unrunnable
+    check is not a pass. The last lines of its output ride along so the failure says why, not just that."""
+    when = [str(p) for p in validation.get("when_changed", ["**"])]
+    ignore = [str(p) for p in validation.get("ignore", [])]
+    if not any(matches_any(p, when) and not matches_any(p, ignore) for p in changed):
+        return None
+    rule_id = str(rule["id"])
+    run = str(validation.get("run", "")).strip()
+    if not run:
+        return f"{rule_id}: command validation has no `run` to execute"
+    rendered = run.replace("{base}", base or "HEAD")
+    try:
+        argv = shlex.split(rendered)
+    except ValueError as exc:
+        return f"{rule_id}: cannot parse `{rendered}`: {exc}"
+    if not argv:
+        return f"{rule_id}: command validation has no `run` to execute"
+    executable = shutil.which(argv[0])
+    if executable is None:
+        return f"{rule_id}: `{argv[0]}` is not on PATH, so `{rendered}` could not run (an unrunnable check is not a pass)"
+    try:
+        timeout = float(validation.get("timeout", 600))
+    except (TypeError, ValueError):
+        timeout = 600.0
+    try:
+        completed = subprocess.run(
+            [executable, *argv[1:]], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return f"{rule_id}: `{rendered}` did not finish within {timeout:.0f}s"
+    except OSError as exc:
+        return f"{rule_id}: `{rendered}` could not start: {exc}"
+    if completed.returncode == 0:
+        return None
+    output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+    tail = [line for line in output.strip().splitlines() if line.strip()][-5:]
+    detail = "".join(f"\n    {line}" for line in tail)
+    return f"{rule_id}: `{rendered}` exited {completed.returncode}{detail}"
+
+
 def gate_waivers(base: str | None) -> dict[str, str]:
     if not GATE_WAIVERS_PATH.is_file():
         return {}
@@ -3932,6 +3990,8 @@ def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None =
             failure = _gate_check_requirement_registry_entry(rule, validation, changed, base)
         elif vtype == "content_forbidden":
             failure = _gate_check_content_forbidden(rule, validation, changed)
+        elif vtype == "command":
+            failure = _gate_check_command(rule, validation, changed, base)
         else:
             continue
         if failure is None:

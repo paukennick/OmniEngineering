@@ -1084,13 +1084,14 @@ cognitive load," "prefer composition," "use clear names" -- and stay that way
 on purpose: mechanizing them would mean checking a shallow proxy and letting
 the real judgment slide, which is worse than an honest "not machine-checked."
 A rule earns a `validation` block only when there is a real, non-fake check
-for it. Three types exist today:
+for it. Four types exist today:
 
 | `validation.type` | What it actually checks |
 | --- | --- |
 | `co_changed` | When any changed path matches `when_changed` (and not `ignore`), at least one changed path must also match `must_also_change` -- e.g. touching anything requires touching `CHANGELOG.md`. |
 | `requirement_registry_entry` | Every `REQ-###`-shaped ID cited in a commit message since the base, or newly added to `CHANGELOG.md`, must actually exist in the requirements registry -- catches a typo'd or invented ID that `omni doctor`'s registry-schema check cannot see, since that only validates the registry's own shape, never what other files claim about it. |
 | `content_forbidden` | Changed files are scanned for a short list of regex patterns (a private-key header, an AWS-shaped access key, an obviously hardcoded credential). A bounded, honest safety net for the most common accidental leaks, not a claim of exhaustive secret scanning. |
+| `command` | Runs the project's own check as the gate -- a scanner, a test suite, a linter -- when a changed path matches `when_changed` (minus `ignore`). `run` is split like a shell line, `{base}` becomes the gate's base commit, and `timeout` (seconds, default 600) bounds it. A non-zero exit, a timeout, or an executable missing from `PATH` fails the rule with the last lines of output attached: an unrunnable check is not a pass. `gate_status` over MCP runs it too, so keep it to checks that only read. |
 
 Add a rule to a rulepack:
 

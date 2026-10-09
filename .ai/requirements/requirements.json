@@ -1097,6 +1097,39 @@
         "which is not probed.",
         "Also: exclude_code_globs for the graph's code layer, dated ### sections under an Unreleased heading parsed as entries, and the doctor's partially-readable registry warning scoped to its own errors."
       ]
+    },
+    {
+      "id": "REQ-032",
+      "category": "Feature",
+      "title": "A command validation type for the gate, and a configurable defect-category pattern",
+      "description": "omni gate could only check co-change, registry citations and forbidden content; a project's own scanner or test suite had to be wired into CI separately. The command validation type runs it inside the gate when a changed path matches, with {base} substituted, a timeout, and failure on non-zero exit or a missing executable. omni requirement complete recognised defect work by a hardcoded regex over the category name; configuration.defect_category_pattern now overrides it.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_gate_rules.py",
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "a command rule passes on exit 0 and fails with the output tail on non-zero",
+        "missing executable and timeout are failures",
+        "when_changed and ignore gate whether it runs",
+        "defect_category_pattern from configuration is honoured and an invalid one falls back"
+      ],
+      "validation_required": [
+        "python3 -m unittest discover -s tests",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "gate_status over MCP evaluates the same rules",
+        "so a command rule runs there too; keep it to checks that only read."
+      ]
     }
   ]
 }

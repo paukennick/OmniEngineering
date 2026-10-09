@@ -4,6 +4,20 @@
 
 ### Completed
 
+- `REQ-032` | Feature | The gate can run the project's own check, and defect work is recognised by a
+  configurable pattern.
+  - A fourth validation type, `command`: `{"type": "command", "run": "arbiter gate --changed {base}",
+    "when_changed": ["src/**"], "timeout": 600}` runs a scanner, a test suite or a linter as part of
+    `omni gate` whenever a changed path matches. `run` is split like a shell line, `{base}` is the gate's
+    base commit, and a non-zero exit, a timeout, or an executable missing from `PATH` all fail the rule with
+    the last lines of output attached -- an unrunnable check is not a pass. The first consumer is the arbiter
+    adopter, whose `arbiter gate` now runs inside `omni gate`, so the workspace enforces the product's own
+    standard instead of only the changelog and registry co-change.
+  - `omni requirement complete` decided whether a requirement was defect work (and so needs a failure-ledger
+    entry) with a hardcoded regex over the category name. A project whose categories are `developer-tooling`
+    or `compliance` never triggered it. `configuration.defect_category_pattern` in the ruleset now overrides
+    that regex; the default is unchanged and an invalid pattern falls back to it.
+
 - `REQ-031` | Feature | Two improvements ported back from the arbiter adopter's fork of `make_ai.py`.
   - A requirement can now be `withdrawn`: a terminal status like `completed`, for work that was decided
     against rather than finished. `omni requirement archive` moves every withdrawn entry along with the

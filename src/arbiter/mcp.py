@@ -254,7 +254,7 @@ def dispatch(name: str, arguments: dict, caller: dict | None = None,
     except ServiceError:
         log.record(event, caller, status=400, started=started)
         raise
-    except Exception:
+    except Exception:  # audited as a 500, then re-raised unchanged
         log.record(event, caller, status=500, started=started)
         raise
     log.record(event, caller, status=200, started=started)

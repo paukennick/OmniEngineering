@@ -274,7 +274,7 @@ def requirement_ids_by_path(repo_path: str, ref: str, prefix: str = "REQ",
                             f"--format={_RS}%H{_FS}%B{_FS}"],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=120)
-    except Exception:  # noqa: BLE001 - no git, or a hung one, both mean "unknown"
+    except (OSError, subprocess.SubprocessError):  # no git, or a hung one: both mean "unknown"
         return by_path, all_ids
     if r.returncode != 0:
         return by_path, all_ids

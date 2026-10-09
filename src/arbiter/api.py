@@ -825,7 +825,7 @@ def create_app(key_path: Path | None = None,
         except ServiceError as exc:
             audit.record(event, key, status=400, bytes_in=size, started=started)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception:
+        except Exception:  # audited as a 500, then re-raised unchanged
             audit.record(event, key, status=500, bytes_in=size, started=started)
             raise
         audit.record(event, key, status=200, bytes_in=size, started=started)

@@ -81,7 +81,7 @@ def apply_baseline(findings: list[Finding], baseline_path: str | None) -> None:
         return
     try:
         known = set(json.loads(p.read_text(encoding="utf-8")).get("ids", []))
-    except Exception:
+    except (OSError, ValueError, AttributeError, TypeError):
         return
     for f in findings:
         f.status = "existing" if f.id in known else "new"
@@ -192,7 +192,7 @@ def _run_external_probes(
                 continue
             try:
                 replay = [Finding.from_dict(d) for d in cached]
-            except Exception:  # noqa: BLE001 - a malformed entry is a miss
+            except (AttributeError, KeyError, TypeError, ValueError):  # a malformed entry is a miss
                 to_run.append((slot, probe, oc, k, None))
                 continue
             hits.append((slot, probe, oc, k, cached))
@@ -558,7 +558,7 @@ def run_scan(
                 "not_enumerated": res["not_enumerated"],
                 "assessed_fraction": res["assessed_fraction"],
             })
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - control coverage is a summary; a broken pack must not fail the scan
         pass
 
     report.gate = evaluate_gate(report, config)

@@ -103,7 +103,7 @@ def available() -> bool:
     try:
         import tree_sitter_language_pack  # noqa: F401
         return True
-    except Exception:
+    except ImportError:
         return False
 
 
@@ -135,7 +135,7 @@ def parse_file(path: str, language: str):
     try:
         data = Path(path).read_bytes()
         return _parser(ts).parse(data), data
-    except Exception:
+    except Exception:  # noqa: BLE001 - an unreadable or unparseable file is "no tree", not a crash mid-scan
         return None
 
 
@@ -163,7 +163,7 @@ def run_query(language: str, query_src: str, tree_and_src) -> list[dict]:
     out: list[dict] = []
     try:
         captures = runner.captures(tree.root_node)
-    except Exception:
+    except Exception:  # noqa: BLE001 - a query the grammar rejects at match time yields no captures
         return []
     # tree-sitter's Python binding returns {name: [nodes]} on modern versions
     # and [(node, name)] on older ones. Support both.

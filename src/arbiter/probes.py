@@ -602,11 +602,11 @@ register(Probe(name="secrets", scope="file", cacheable=True, dimensions=["securi
 
 def _load_resource_rules() -> list[dict]:
     path = PACKS / "rules" / "resource.yaml"
+    import yaml
     try:
-        import yaml  # type: ignore
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return data.get("rules", []) if isinstance(data, dict) else []
-    except Exception:
+    except (OSError, yaml.YAMLError):
         return []
 
 
@@ -1125,7 +1125,7 @@ def probe_supply_chain(ctx: ProbeContext) -> list[Finding]:
             import json as _json
             try:
                 doc = _json.loads(text)
-            except Exception:
+            except ValueError:
                 continue
             for section in ("dependencies", "devDependencies"):
                 for name, spec in (doc.get(section) or {}).items():
@@ -2225,7 +2225,7 @@ def probe_by_name(name: str) -> Probe | None:
 try:
     from .judgement import register_judgement as _register_judgement
     _register_judgement()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 # Assurance asks whether the CHECKING is switched on, rather than whether the
@@ -2233,7 +2233,7 @@ except Exception:  # noqa: BLE001
 try:
     from .assurance import register_assurance as _register_assurance
     _register_assurance()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 
@@ -2243,7 +2243,7 @@ except Exception:  # noqa: BLE001
 try:
     from .authored import register_authored as _register_authored
     _register_authored()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 
@@ -2254,5 +2254,5 @@ except Exception:  # noqa: BLE001
 try:
     from .contract import register_contract as _register_contract
     _register_contract()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass

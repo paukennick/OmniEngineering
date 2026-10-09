@@ -333,7 +333,7 @@ def _git_commit(path: Path) -> str:
         )
         if r.returncode == 0:
             return r.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
     return ""
 

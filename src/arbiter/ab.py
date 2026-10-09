@@ -322,10 +322,10 @@ def load_ground_truth(target: str) -> dict | None:
     for name in (".arbiter-expected.yaml", ".arbiter-expected.yml"):
         p = Path(target) / name
         if p.is_file():
+            import yaml
             try:
-                import yaml  # type: ignore
                 return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-            except Exception:
+            except (OSError, yaml.YAMLError):
                 return None
     return None
 

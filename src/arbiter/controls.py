@@ -167,7 +167,7 @@ def load_frameworks(extra_dirs: list[str] | None = None) -> list[Framework]:
         for p in sorted(d.glob("*.yaml")):
             try:
                 out.append(load_pack(p))
-            except Exception:
+            except Exception:  # noqa: BLE001 - one malformed pack must not take the other frameworks down
                 continue
     return out
 

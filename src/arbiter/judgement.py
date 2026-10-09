@@ -245,7 +245,7 @@ def _reconcile(raw: str, sent_paths: set[str], repo_id: str) -> list[Finding]:
         return []
     try:
         doc = json.loads(m.group(0))
-    except Exception:
+    except ValueError:
         return []
 
     out: list[Finding] = []

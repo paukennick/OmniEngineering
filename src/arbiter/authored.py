@@ -293,7 +293,7 @@ def _workspace_packages(ctx: ProbeContext, repo_id: str) -> set[str]:
             continue
         try:
             doc = _json.loads(_read(f) or "{}")
-        except Exception:  # noqa: BLE001
+        except ValueError:
             continue
         if isinstance(doc.get("name"), str):
             out.add(doc["name"].lower())
@@ -519,7 +519,7 @@ def package_exists(ecosystem: str, name: str, timeout: int = 8) -> bool | None:
         # 404 is the answer. Anything else is the registry having a bad day,
         # and must not be read as absence.
         result = False if e.code == 404 else None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - any other failure is "unknown", never a finding
         result = None
     _EXISTENCE_CACHE[key] = result
     return result

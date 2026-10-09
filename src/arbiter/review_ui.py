@@ -302,7 +302,7 @@ def _getch() -> str:
             return _sys.stdin.read(1)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no tty, no termios, or a redirected stdin: fall back to a line read
         return (input().strip()[:1] or "s")
 
 

@@ -3122,6 +3122,23 @@ def _output_tail(*chunks: Any) -> list[str]:
     return lines[-TEST_RUN_TAIL_LINES:]
 
 
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """Kill a suite command and everything it spawned: taskkill /T on Windows, the process group elsewhere."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, check=False)
+        else:
+            import signal
+
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError, subprocess.SubprocessError):
+        pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
 def run_test_suite(suite: dict[str, Any], root: Path, timeout: float) -> dict[str, Any]:
     """Run one suite's registered command through the shell from the project root and report PASS, FAIL, SKIP or TIMEOUT."""
     name = str(suite.get("name") or suite.get("id") or "")
@@ -3131,16 +3148,28 @@ def run_test_suite(suite: dict[str, Any], root: Path, timeout: float) -> dict[st
         result["tail"] = ["no run command registered; set one with `omni test add --command` or edit the suite registry"]
         return result
     started = time.monotonic()
+    # Start the command in its own process group (POSIX) or process group (Windows) so a timeout can
+    # kill the whole tree. `subprocess.run(timeout=...)` only kills the shell; on Windows the pipes then
+    # stay open until the grandchild exits, and a 0.5 s timeout waited the command's full run time.
+    popen_kwargs: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     try:
-        completed = subprocess.run(
-            command, shell=True, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        process = subprocess.Popen(
+            command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **popen_kwargs,
         )
-    except subprocess.TimeoutExpired as exc:
-        result.update(status="TIMEOUT", duration_s=round(time.monotonic() - started, 2), tail=_output_tail(exc.stdout, exc.stderr) or [f"no output within {timeout:.0f}s"])
-        return result
     except OSError as exc:
         result.update(status="FAIL", duration_s=round(time.monotonic() - started, 2), tail=[f"could not start: {exc}"])
         return result
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        result.update(status="TIMEOUT", duration_s=round(time.monotonic() - started, 2), tail=_output_tail(stdout, stderr) or [f"no output within {timeout:.0f}s"])
+        return result
+    completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     result.update(
         status="PASS" if completed.returncode == 0 else "FAIL", exit=completed.returncode,
         duration_s=round(time.monotonic() - started, 2), tail=_output_tail(completed.stdout, completed.stderr),

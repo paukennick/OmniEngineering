@@ -290,6 +290,56 @@
       ],
       "prevention_notes": "Ignore a tool's output directory before its first run, and review git add -A output for generated files; Arbiter reads its own reports as source if they are tracked.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-013",
+      "date": "2026-10-09",
+      "title": "omni test run's timeout waited for the whole command on Windows",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "tests/test_test_run.py::TestRunOneSuite::test_a_command_that_overruns_the_timeout_is_timeout_not_a_hang failed on both Windows CI cells: a 0.5 s timeout returned TIMEOUT after 30.03 s, the full sleep of the command.",
+      "how_detected": "CI on PR #2 (windows-latest, Python 3.10 and 3.12), read by test name",
+      "root_cause": "subprocess.run(shell=True, timeout=...) kills only the shell it started; on Windows the child python process kept the inherited stdout and stderr pipes open, so communicate() blocked until the grandchild exited. The timeout therefore bounded nothing.",
+      "requirement": "REQ-040",
+      "affected": [
+        "make_ai.py"
+      ],
+      "fix_summary": "run_test_suite starts the command in its own process group (CREATE_NEW_PROCESS_GROUP on Windows, start_new_session elsewhere) and on timeout kills the whole tree (taskkill /F /T on Windows, killpg elsewhere) before collecting output.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_test_run.py::TestRunOneSuite::test_a_command_that_overruns_the_timeout_is_timeout_not_a_hang"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "A subprocess timeout must kill the process tree, not the shell; the test bounds the measured duration so a regression shows on every platform.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-014",
+      "date": "2026-10-09",
+      "title": "A version-file test compared a POSIX path string on Windows",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "tests/test_arbiter_install.py::TestRecordVersion::test_write_omni_version_file_preserves_the_arbiter_key failed on Windows: '\\\\src\\\\Omni' != '/src/Omni'.",
+      "how_detected": "CI on PR #2 (windows-latest), read by test name",
+      "root_cause": "write_omni_version_file stores str(Path(source)), which Windows renders with backslashes; the test asserted the POSIX literal.",
+      "requirement": "REQ-042",
+      "affected": [
+        "tests/test_arbiter_install.py"
+      ],
+      "fix_summary": "The assertion compares against str(Path('/src/Omni')).",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter_install.py::TestRecordVersion::test_write_omni_version_file_preserves_the_arbiter_key"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Compare paths through pathlib in tests; CI runs three operating systems for exactly this.",
+      "recurrence_of": ""
     }
   ]
 }

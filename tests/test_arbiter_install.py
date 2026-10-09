@@ -517,7 +517,7 @@ class TestRecordVersion(VersionFileFixture):
             ma.write_omni_version_file(Path("/src/Omni"), self.root)
         payload = self.read_version()
         self.assertEqual(payload["ref"], "cafebabe")
-        self.assertEqual(payload["source"], "/src/Omni")
+        self.assertEqual(payload["source"], str(Path("/src/Omni")))
         self.assertEqual(payload["arbiter"], {"source": "s", "version": "0.1.0", "recorded_at": "t"})
 
 

@@ -276,6 +276,12 @@ def _declared_dependencies(ctx: ProbeContext, repo_id: str) -> tuple[set[str], b
             names.add(raw.lower().split("/")[-1].replace("_", "-"))
         for m in re.finditer(r"^\s*([A-Za-z0-9_.-]{2,})\s*(?:==|>=|<=|~=|$)", text, re.M):
             names.add(m.group(1).lower().replace("_", "-"))
+        # A requirement quoted inside a list on one line, as a PEP 621 extra
+        # often is (`ast = ["tree-sitter>=0.23", ...]`): the two patterns above
+        # read only the start of a line, so every name past the first was
+        # undeclared (FAIL-049).
+        for m in re.finditer(r"[\"']([A-Za-z0-9_.-]{2,})(?:\[[^\]]*\])?\s*(?:[<>=~!;]|[\"'])", text):
+            names.add(m.group(1).lower().replace("_", "-"))
     return names, seen_manifest
 
 
@@ -293,7 +299,7 @@ def _workspace_packages(ctx: ProbeContext, repo_id: str) -> set[str]:
             continue
         try:
             doc = _json.loads(_read(f) or "{}")
-        except Exception:  # noqa: BLE001
+        except ValueError:
             continue
         if isinstance(doc.get("name"), str):
             out.add(doc["name"].lower())
@@ -519,11 +525,45 @@ def package_exists(ecosystem: str, name: str, timeout: int = 8) -> bool | None:
         # 404 is the answer. Anything else is the registry having a bad day,
         # and must not be read as absence.
         result = False if e.code == 404 else None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - any other failure is "unknown", never a finding
         result = None
     _EXISTENCE_CACHE[key] = result
     return result
 
+
+
+def _stub_marker_at_body_level(body: str) -> bool:
+    """True when a stub marker is a statement of the function body itself.
+
+    The markers used to be searched anywhere in the first eight lines, so a
+    real function whose early lines held `except OSError:` followed by `pass`
+    was reported as a stub (FAIL-042: `store_mcp_probe_memo` in
+    OmniEngineering's `make_ai.py`, which writes a file and swallows a failed
+    write on purpose). A `pass` under an `except`, an `if` or a `with` is a
+    branch, not a body: only a marker at the body's own indentation, the
+    indentation of its first statement after the docstring, says the function
+    does nothing.
+    """
+    base: int | None = None
+    quote: str | None = None
+    for line in body.split("\n"):
+        stripped = line.strip()
+        if quote is not None:
+            if quote in stripped:
+                quote = None
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        if base is None and stripped[:3] in ('"""', "'''"):
+            if not (len(stripped) >= 6 and stripped.endswith(stripped[:3])):
+                quote = stripped[:3]
+            continue
+        indent = len(line) - len(line.lstrip())
+        if base is None:
+            base = indent
+        if indent == base and _STUB_MARKERS.search(line):
+            return True
+    return False
 
 def _stubs(f, text) -> list[Finding]:
     if f.language != "python" or f.role in ("test", "docs"):
@@ -531,7 +571,7 @@ def _stubs(f, text) -> list[Finding]:
     out: list[Finding] = []
     for m in _STUB_BODY.finditer(text):
         name, body = m.group("name"), m.group("body")
-        if not _STUB_MARKERS.search(body):
+        if not _stub_marker_at_body_level(body):
             continue
         sensitive = bool(_SENSITIVE_NAME.search(name))
         out.append(Finding(

@@ -216,10 +216,41 @@ server, and it is a deliberate exception rather than the default.
 Expired, revoked and unknown keys all get the same `401` message. Distinguishing
 them would confirm to a stranger that a key they guessed had once existed.
 
-The counts are held in memory, which is the honest scope: they do not survive a
-restart and are not shared between processes, so running several instances
-behind one address would multiply the effective limit. That is a known gap, not
-a surprise, and it is fine for a single-machine pilot.
+By default the counts are held in memory, which is the honest scope of one
+process: they do not survive a restart and are not shared, so two instances
+behind one address would each grant the full budget. That is fine for a
+single-process pilot. For more than one process, choose the file limiter.
+
+### Sharing the limits between processes: `--limiter file`
+
+```bash
+arbiter api serve --cert cert.pem --key key.pem --limiter file
+arbiter mcp --http --root /srv/work --cert cert.pem --key key.pem --limiter file
+```
+
+`--limiter file` counts in a SQLite file, `limiter.db`, beside the key file
+(`~/.arbiter/limiter.db`, or next to whatever `--keys` / `$ARBITER_KEYS`
+names). Every process serving the same keys then draws on one budget: uvicorn
+workers, two `arbiter api serve` instances behind one proxy, or the API and the
+MCP door side by side. The same four caps apply with the same `429` answers;
+`/v1/health` publishes them as before.
+
+Each decision — "has this key a request left this hour", "is there a slot" —
+is one `BEGIN IMMEDIATE` transaction, so SQLite hands the write lock to one
+process at a time and two workers cannot both see one slot left and both take
+it. A slot is a row stamped with the time it was taken and deleted when the
+scan ends, including when it fails. A process killed mid-scan cannot delete its
+row, so a row older than the scan ceiling plus a minute
+(`service.DEFAULT_TIMEOUT`, 900 s) is treated as released by whichever decision
+comes next; a crash costs one slot for at most that long. The hourly counts
+survive a restart, which the memory limiter's do not.
+
+`memory` stays the default because it needs no file and because one process is
+the common case. The two never mix: a server started with `--limiter memory`
+beside one started with `--limiter file` is two budgets again, which is why
+the choice is a start-up flag rather than something a request can change.
+Startup prints the path of the file in use. The file is per deployment, not
+per key, and holds only key ids and timestamps — nothing a caller sent.
 
 ### One line per request, about the caller and not their code
 
@@ -404,9 +435,10 @@ the length of one request.
 
 - `service.py`: `Workspace`, `extract_archive`, `resolve_within`,
   `check_profile`, `scan`, `gate`, `review_queue`.
-- `api.py`: key issuance and verification, per-key and whole-server limits, the
-  request log, the three request handlers, and a FastAPI application built only
-  when actually serving.
+- `api.py`: key issuance and verification, per-key and whole-server limits
+  (in memory, or shared between processes through SQLite with
+  `--limiter file`), the request log, the three request handlers, and a
+  FastAPI application built only when actually serving.
 - `mcp.py`: tool schemas and dispatch over the same service layer.
 - `client.py`: the caller's half — settings resolution, the plaintext and
   certificate refusals, the archive builder that skips `SKIP_DIRS`, and one
@@ -425,8 +457,6 @@ alone and the whole module stays testable without them.
 
 - Certificate issuance and renewal, which are the operator's job. TLS itself is
   enforced — see above.
-- Rate limits shared across processes. The per-key caps exist but are held in
-  one process's memory — see above.
 - Any deployment. Nothing here has been exposed to a network, and
   [pilot-runbook.md](pilot-runbook.md) is the arrangement to stand up when it
   is.

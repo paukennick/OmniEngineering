@@ -16,6 +16,7 @@ findings never blend, the tool never executes the target.
 | --- | --- |
 | Scan or gate from an assistant session | the `arbiter_scan` / `arbiter_gate` MCP tools from `.mcp.json`: structured JSON back, no shell prompt |
 | Draw a review queue | `arbiter_review_queue` (MCP) or `arbiter review` (CLI) |
+| Propose marks on that queue, with reasons | `arbiter_review_draft` (MCP): writes `review-draft.md` for the person to read; records nothing |
 | Record a verdict | the CLI only: `arbiter review --apply FILE --reviewer NAME`; no MCP tool records a verdict, by design |
 | Anything with `--changed`, `--baseline`, `--system`, formats | the CLI: `arbiter scan`, `arbiter gate`, `arbiter diff`, `arbiter ab` |
 | One finding in full | `arbiter explain <finding-id>` |
@@ -39,8 +40,10 @@ findings never blend, the tool never executes the target.
 - The `governance` probe reads `.ai/failures/failure-ledger.json` against the
   change (an open failure's file touched without its regression test; a fixed
   failure whose test file is gone) and is `n/a` without a ledger. Under
-  `--changed`, findings in the change carry `req:<ID>` tags from the commit
-  messages since the base, summarised in the report's **By requirement** table.
+  `--changed`, findings in the change carry `req:<ID>` tags from the commits
+  since the base that touched their file (`req-scope:commits`), or the round's
+  ids as context when none did (`req-scope:open`), summarised in the report's
+  **By requirement** table.
 
 ## Gating a change to Arbiter itself
 
@@ -67,3 +70,18 @@ Verdicts are permanent and attributed. Use `arbiter review` to draw a queue,
 mark the file, then `arbiter review --apply FILE --reviewer NAME`. A rule needs
 enough adjudications before calibration trusts it; `arbiter learn` shows how
 many it has. Do not adjudicate from a non-interactive session: the CLI refuses.
+
+From an assistant session the flow is inline, and it ends at a person:
+
+1. Draw the queue (`arbiter_review_queue`), read each finding and, where the
+   evidence allows it, the code it points at.
+2. Call `arbiter_review_draft` with a mark and a reason per finding: `y` for a
+   real problem, `n` when the rule is wrong here, `?` when you cannot tell.
+   Leave out a finding rather than guess. The reason is the part the person
+   reads, so it names the evidence, not the rule.
+3. Hand the person `review-draft.md` and the `ledger_entries_text` the `y` marks
+   would draft. Say that nothing is recorded; the file's first line says so too.
+4. The person reads it, changes what they disagree with, and runs
+   `arbiter review <report> --apply review-draft.md --reviewer <name>` (add
+   `--ledger .ai/failures/failure-ledger.json` to draft the entries). Never run
+   that command yourself and never ask for it to be run unread.

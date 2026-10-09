@@ -85,9 +85,9 @@ def load_config(path: str | None, repo_root: str | None = None) -> dict:
     if candidate is None or not candidate.is_file():
         return dict(DEFAULTS)
     try:
-        import yaml  # type: ignore
+        import yaml
         data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise RuntimeError(f"could not read config {candidate}: {exc}") from exc
     if not isinstance(data, dict):
         raise RuntimeError(f"config {candidate} must be a mapping")
@@ -95,7 +95,7 @@ def load_config(path: str | None, repo_root: str | None = None) -> dict:
 
 
 def load_system(path: str) -> dict:
-    import yaml  # type: ignore
+    import yaml
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict) or "repos" not in data:
         raise RuntimeError(f"{path} must be a mapping with a `repos` list")

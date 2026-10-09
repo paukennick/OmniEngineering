@@ -86,6 +86,41 @@ def _entry(fid: str, finding: Finding, today: str) -> dict:
     }
 
 
+def _draft(ledger: dict, findings: Iterable[Finding], wanted: set[str], today: str) -> list[dict]:
+    """Add one open entry per wanted finding not already referenced, to the
+    loaded copy of the ledger only. Returns the entries added, numbered after
+    whatever the copy already held."""
+    seen = _referenced(ledger)
+    entries: list[dict] = []
+    for f in findings:
+        if f.id not in wanted or f.id in seen:
+            continue
+        entry = _entry(_next_id(ledger), f, today)
+        ledger["failures"].append(entry)
+        seen.add(f.id)
+        entries.append(entry)
+    return entries
+
+
+def preview_entries(
+    findings: Iterable[Finding],
+    true_positive_ids: Iterable[str],
+    ledger_path: Path | None = None,
+    today: str | None = None,
+) -> list[dict]:
+    """The entries `draft_entries` would add, computed without writing anything.
+
+    This is what an assistant's review draft shows a person before any verdict
+    exists (ARB-050). Without a `ledger_path` the numbering starts from an
+    empty ledger, so the ids are placeholders: the real ones are assigned when
+    a person applies the marks with `--ledger`, against the real file."""
+    wanted = set(true_positive_ids)
+    if not wanted:
+        return []
+    ledger = _load(ledger_path) if ledger_path else _empty_ledger()
+    return _draft(ledger, findings, wanted, today or date.today().isoformat())
+
+
 def draft_entries(
     findings: Iterable[Finding],
     true_positive_ids: Iterable[str],
@@ -99,17 +134,8 @@ def draft_entries(
     if not wanted:
         return []
     ledger = _load(ledger_path)
-    seen = _referenced(ledger)
-    today = today or date.today().isoformat()
-    written: list[str] = []
-    for f in findings:
-        if f.id not in wanted or f.id in seen:
-            continue
-        fid = _next_id(ledger)
-        ledger["failures"].append(_entry(fid, f, today))
-        seen.add(f.id)
-        written.append(fid)
-    if written:
+    entries = _draft(ledger, findings, wanted, today or date.today().isoformat())
+    if entries:
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
         ledger_path.write_text(json.dumps(ledger, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return written
+    return [e["id"] for e in entries]

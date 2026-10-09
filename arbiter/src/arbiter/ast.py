@@ -14,7 +14,6 @@ from __future__ import annotations
 import functools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 # Arbiter language name -> tree-sitter-language-pack name
 LANG_MAP = {
@@ -101,9 +100,9 @@ class FunctionInfo:
 @functools.lru_cache(maxsize=1)
 def available() -> bool:
     try:
-        import tree_sitter_language_pack  # noqa: F401
+        import tree_sitter_language_pack  # noqa: F401 - imported only to prove it is installed
         return True
-    except Exception:
+    except ImportError:
         return False
 
 
@@ -135,7 +134,7 @@ def parse_file(path: str, language: str):
     try:
         data = Path(path).read_bytes()
         return _parser(ts).parse(data), data
-    except Exception:
+    except Exception:  # noqa: BLE001 - an unreadable or unparseable file is "no tree", not a crash mid-scan
         return None
 
 
@@ -157,13 +156,13 @@ def run_query(language: str, query_src: str, tree_and_src) -> list[dict]:
         else:
             query = lang.query(query_src)
             runner = query
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ValueError(f"invalid tree-sitter query for {language}: {exc}") from exc
 
     out: list[dict] = []
     try:
         captures = runner.captures(tree.root_node)
-    except Exception:
+    except Exception:  # noqa: BLE001 - a query the grammar rejects at match time yields no captures
         return []
     # tree-sitter's Python binding returns {name: [nodes]} on modern versions
     # and [(node, name)] on older ones. Support both.

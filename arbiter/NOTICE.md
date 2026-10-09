@@ -21,8 +21,11 @@ binaries, every row above changes and each license must be reviewed for
 redistribution terms — `semgrep` (LGPL-2.1) in particular.
 
 **That review has not been done.** It is tracked as requirement L-6 in
-[docs/licensing.md](docs/licensing.md), which blocks the air-gapped bundle until
-it is complete and recorded here with a date and a reviewer.
+[docs/licensing.md](docs/licensing.md), which blocks including these binaries
+in the air-gapped bundle until it is complete and recorded here with a date and
+a reviewer. The bundle `arbiter bundle build` writes today carries Arbiter and
+its runtime dependencies only, and its manifest says so
+([docs/bundle.md](docs/bundle.md)).
 
 The AWS access key in `fixtures/legacy-platform/app/config.py` is the example
 key published in AWS documentation. It is not a live credential.

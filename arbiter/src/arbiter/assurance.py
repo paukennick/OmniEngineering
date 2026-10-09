@@ -210,6 +210,32 @@ def probe_assurance(ctx: ProbeContext) -> list[Finding]:
 
 # ---------------------------------------------------------------------------
 
+def _python_comments_only(text: str) -> str:
+    """The text with everything that is not a comment blanked, positions kept.
+
+    A `# noqa` inside a string literal or a docstring is prose or a fixture,
+    not a suppression: this module's own docstring explains what `# noqa`
+    means, and the probe's tests write `"x = 1  # noqa\n"` into temporary
+    files. The regex census counted both (FAIL-048). The tokenizer knows which
+    hashes are comments; a file it cannot tokenize keeps the regex view.
+    """
+    import io
+    import tokenize
+    spans: list[tuple[int, int, int, int]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                spans.append((*tok.start, *tok.end))
+    except (tokenize.TokenError, SyntaxError, ValueError):
+        return text
+    lines = text.split("\n")
+    out = [" " * len(line) for line in lines]
+    for row, col, _erow, ecol in spans:
+        line = lines[row - 1]
+        out[row - 1] = out[row - 1][:col] + line[col:ecol] + out[row - 1][ecol:]
+    return "\n".join(out)
+
+
 def _suppressions(ctx: ProbeContext, repo_id: str) -> list[Finding]:
     """Count silenced findings per tool, and report the blanket ones by site."""
     per_tool: dict[str, int] = defaultdict(int)
@@ -228,6 +254,8 @@ def _suppressions(ctx: ProbeContext, repo_id: str) -> list[Finding]:
         text = _read(f)
         if not text:
             continue
+        if getattr(f, "language", "") == "python":
+            text = _python_comments_only(text)
         for tool, pattern, gi in SUPPRESSION_PATTERNS:
             if tool in _IAC_ONLY_SUPPRESSIONS and f.role in ("docs", "test"):
                 continue
@@ -326,7 +354,7 @@ def _exclusions(ctx: ProbeContext, repo_id: str) -> list[Finding]:
                     "reasonable; excluding source is how a scanner ends up reporting "
                     "on the tests."
                 ),
-                remediation=f"Confirm each pattern excludes code you meant to exclude.",
+                remediation="Confirm each pattern excludes code you meant to exclude.",
                 evidence=f"{tool}:" + "; ".join(patterns[:6]),
                 controls=["NIST-800-218:PO.3"],
                 tags=["assurance", "exclusion", tool],

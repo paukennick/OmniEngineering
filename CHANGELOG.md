@@ -91,7 +91,32 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   indentation: a `pass` under `except`, `if` or `with` is a branch, not a body. Found by
   code scanning on OmniEngineering pull request #5, where `store_mcp_probe_memo`, which
   writes a file and swallows a failed write, was reported as a stub.
-- ARB-049 | (in progress) Arbiter's own debt is worked through the review flow and the baseline is re-cut.
+- ARB-049 | Arbiter's own debt is worked through the review flow and the baseline is
+  re-cut. The self-scan went from 482 active findings (57 medium, 324 low, 101
+  info; score 71) to 320 (39 medium, 182 low, 99 info; score 81) and the gate's
+  baseline from 411 ids at 19b40f7 to 320 at 2a18ce9, one commit per finding
+  class with the fast tier, `tools/integrity.py` and `tools/mutate_tests.py` green
+  after each. Twenty of thirty-seven broad `except Exception` clauses name the
+  exception and the seventeen that must never raise say why on the line; ruff's
+  unused imports, dead locals, placeholder-free f-strings and unsorted import
+  blocks are gone, and the dead local in `render_html` was the HTML report's
+  "Read first" block, built and never rendered since it was added (FAIL-045);
+  every suppression comment carries a reason or is removed; `build_parser` and
+  `render_html` are split into named helpers with the same inputs and outputs.
+  The three tests ARB-046 marked slow only because `use_adapters=False` was a
+  no-op are back in the fast tier (0.9 s, 0.2 s, 0.2 s; no analyzer starts).
+  `arbiter review --limit 60` drew fifty-nine findings; the marks and reasons are
+  committed as a draft in `.arbiter/reviews/2026-10-09-debt-sweep.md` for a
+  person to apply, and nothing is recorded in the knowledge ledger. The 55
+  over-limit functions left alone are suppressed in `arbiter.yaml` per file,
+  functions named, expiring 2027-04-01; `pytest.raises(Exception)` in the
+  bad-plan test is `RuntimeError` (FAIL-047); the mutable action tags in the
+  workflows are one open entry (FAIL-046); and two of the false positives were
+  the probes' own, now fixed with regression tests: the suppression census
+  counted `# noqa` inside Python strings and docstrings (FAIL-048) and the
+  manifest reader never saw a requirement quoted past the first position of a
+  one-line list (FAIL-049). Baseline cut last via `omni arbiter baseline
+  --refresh`; README "Project status" records the numbers.
 - ARB-050 | `arbiter_review_draft`: an assistant proposes marks with reasons and
   never records one. `docs/mcp.md` rules out any tool that records a verdict,
   and the rule stands. The new MCP tool (`service.review_draft`) draws the queue

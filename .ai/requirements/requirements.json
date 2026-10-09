@@ -1071,7 +1071,7 @@
       "title": "Arbiter's own debt is worked through the review flow and the baseline is re-cut",
       "description": "The self-scan carried 411 baseline ids. Bare excepts are named or become except Exception with a reason, ruff import findings are fixed, suppressions without a reason gain one or go, production-path stubs are resolved, and the remaining true positives are adjudicated with arbiter review --apply --ledger; accepted debt (complexity, length) is suppressed in arbiter.yaml with a reason and a 2027 expiry only where a refactor is not reasonable. One commit per finding class, the full suite plus mutation and integrity after each, the baseline refreshed last from a green tree, before and after counts in the completion note.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/",
         "tests/",
@@ -1096,7 +1096,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "behaviour changes while cleaning: one class per commit so a regression bisects"
+        "behaviour changes while cleaning: one class per commit so a regression bisects",
+        "Self-scan 482 active findings (score 71) to 320 (score 81); baseline 411 ids at 19b40f7 to 320 at 2a18ce9; bare excepts named or justified, ruff findings fixed, suppressions carry reasons, build_parser and render_html split; FAIL-045 (HTML Read first block never rendered), FAIL-047, FAIL-048, FAIL-049 fixed, FAIL-046 (mutable action tags) open; 55 over-limit functions suppressed per file until 2027-04-01; the sweep's 59 marks are a committed draft in .arbiter/reviews for a person to apply and the knowledge ledger records none of them. Validated on the merged branch: fast tier 663 passed, integrity PASS, 10 mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {

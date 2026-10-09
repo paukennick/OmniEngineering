@@ -966,7 +966,7 @@
       "title": "The suite runs in a fast and a slow tier and CI shards them",
       "description": "tests/test_arbiter.py (5,516 lines, 374 tests) is split by area into files with every test keeping its name, proven by an identical pytest --collect-only id set. A registered slow marker covers tests that invoke a real external analyzer or scan beyond the fixtures. pr-check runs -m 'not slow' on every cell and a parallel Linux slow-tier job runs -m slow with the analyzers; the suite registry names the fast tier as the gate's suite.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "tests/",
         "pyproject.toml",
@@ -991,7 +991,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "a test moved to the wrong file still runs; only a lost test would matter and the id set proves none is"
+        "a test moved to the wrong file still runs; only a lost test would matter and the id set proves none is",
+        "test_arbiter.py split into fourteen files by area plus tests/helpers.py and session fixtures in conftest.py; identical 557 collected ids before and after (one shadowed duplicate definition dropped); slow marker on the eight analyzer-backed tests; pr-check runs the fast tier on every cell and a parallel slow-tier job; the suite registry names the fast tier as the gate's suite. Fast tier about two minutes here, slow tier about five. Validated: both tiers, integrity PASS, 8 mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {

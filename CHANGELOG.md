@@ -10,7 +10,19 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 - ARB-052 | (in progress) The governance probe tags a finding with the requirements its file's recent commits cite, not every open one.
 - ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
-- ARB-046 | (in progress) The suite runs in a fast and a slow tier and CI shards them.
+- ARB-046 | The suite runs in a fast and a slow tier and CI shards them.
+  `tests/test_arbiter.py` (5,516 lines, 438 collected ids) is fourteen files by
+  area, each under `arbiter.yaml`'s 900-line limit, with the helpers more than
+  one file needs in `tests/helpers.py` and the tfplan fixtures in `conftest.py`
+  at session scope; `pytest --collect-only` lists the same 557 ids before and
+  after, and the failure ledger's regression-test references follow the tests.
+  A registered `slow` marker covers the eight tests that run a real analyzer
+  through the adapters or scan beyond the fixtures: `-m "not slow"` runs in
+  about two minutes here and `-m slow` in about five, against eleven for the
+  whole suite before. `pr-check.yml` runs the fast tier on every matrix cell
+  and a parallel Linux `slow-tier` job runs the slow tier with the analyzers
+  installed; `.ai/test-suites.json` names the fast tier as the gate's suite
+  and the slow tier as an integration suite the gate does not run.
 - ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.
 - ARB-048 | The doc-drift probe leaves generated output, git-ignored paths and
   cross-repository references alone. Scanning Arbiter with itself, `doc_drift`

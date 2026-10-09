@@ -27,6 +27,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # A vendored Arbiter (the `arbiter` branch) registers `arbiter mcp` in .mcp.json and a command rule
+      # that runs `arbiter gate`; doctor starts that server for real and the gate runs that command, so
+      # the package has to be installed wherever the subtree is present. No-op on branches without it.
+      - name: Install a vendored Arbiter when the subtree is present
+        shell: bash
+        run: |
+          if [ -f arbiter/pyproject.toml ]; then python -m pip install -e "./arbiter[mcp]"; else echo "no vendored arbiter/"; fi
+
       # `python <script>` (not `./omni` or `python3`) so this step is identical on Linux, macOS and Windows:
       # it doesn't depend on the executable bit or on which of python/python3 is on PATH.
       # `omni graph build` needs tree-sitter for every language it parses, python included (there is no

@@ -19,6 +19,9 @@
     count.
   - CI also runs on pushes to the `arbiter` branch, so the vendored-Arbiter job exercises the subtree
     there without a pull request.
+  - The main matrix installs a vendored Arbiter when `arbiter/pyproject.toml` exists, because doctor
+    starts the `arbiter mcp` server the branch registers and the gate runs `arbiter gate`; the first run
+    on the `arbiter` branch failed all six matrix jobs on exactly that live check.
 
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install

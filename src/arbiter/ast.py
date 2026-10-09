@@ -100,7 +100,7 @@ class FunctionInfo:
 @functools.lru_cache(maxsize=1)
 def available() -> bool:
     try:
-        import tree_sitter_language_pack  # noqa: F401
+        import tree_sitter_language_pack  # noqa: F401 - imported only to prove it is installed
         return True
     except ImportError:
         return False
@@ -156,7 +156,7 @@ def run_query(language: str, query_src: str, tree_and_src) -> list[dict]:
         else:
             query = lang.query(query_src)
             runner = query
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ValueError(f"invalid tree-sitter query for {language}: {exc}") from exc
 
     out: list[dict] = []

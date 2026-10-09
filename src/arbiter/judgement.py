@@ -137,7 +137,7 @@ class AnthropicProvider(Provider):
         except urllib.error.HTTPError as e:
             detail = e.read().decode()[:200] if hasattr(e, "read") else ""
             raise Unavailable(f"provider returned HTTP {e.code}: {detail}") from e
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise Unavailable(f"{type(e).__name__}: {e}"[:200]) from e
         parts = [b.get("text", "") for b in doc.get("content", [])
                  if b.get("type") == "text"]

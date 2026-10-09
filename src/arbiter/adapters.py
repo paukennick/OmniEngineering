@@ -33,7 +33,7 @@ def _toml_loads(text: str) -> dict:
     try:
         import tomllib
     except ModuleNotFoundError:  # pragma: no cover - exercised on 3.10 only
-        import tomli as tomllib  # type: ignore[no-redef]
+        import tomli as tomllib  # type: ignore[no-redef] - the 3.10 fallback rebinds the same name on purpose
     return tomllib.loads(text)
 
 

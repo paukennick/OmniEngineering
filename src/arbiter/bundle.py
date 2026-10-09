@@ -166,7 +166,7 @@ def _setuptools_available(python: str) -> bool:
     what lets `pip wheel` run with no network."""
     if python == sys.executable:
         try:
-            import setuptools  # noqa: F401
+            import setuptools  # noqa: F401 - imported only to prove it is installed
             return True
         except ImportError:
             return False

@@ -1173,7 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_remote(args)
     except KeyboardInterrupt:
         return EXIT_ERROR
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the top-level handler: one line on stderr instead of a traceback
         print(f"arbiter: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_ERROR

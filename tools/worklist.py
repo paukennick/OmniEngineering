@@ -277,7 +277,7 @@ def main() -> int:
                                if ch.startswith("arbiter/") and ch not in seen]
                     if missing and len(missing) == len(c.satisfied_by):
                         dead.setdefault(fw.id, []).append(f"{c.id} -> {', '.join(missing[:3])}")
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the dead-control check is advisory; a pack that will not load leaves it empty
             dead = {}
         if dead:
             body = ["A control whose every covering check never fires anywhere in the "

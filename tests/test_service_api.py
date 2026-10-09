@@ -279,7 +279,7 @@ def test_the_api_says_how_to_install_itself_when_fastapi_is_absent():
     """A missing optional extra must produce an instruction, not a traceback."""
     from arbiter import api, service
     try:
-        import fastapi  # noqa: F401
+        import fastapi  # noqa: F401 - imported only to learn whether the extra is installed
     except ImportError:
         with pytest.raises(service.ServiceError, match=r"arbiter-eval\[api\]"):
             api.create_app()

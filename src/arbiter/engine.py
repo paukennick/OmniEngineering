@@ -215,7 +215,7 @@ def _run_external_probes(
         t0 = time.time()
         try:
             produced = probe.run(copy.copy(ctx)) or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a probe that raises becomes an error outcome, never a silent pass
             _record_probe_error(oc, exc)
             produced = None
         oc.duration_s = round(time.time() - t0, 3)
@@ -451,7 +451,7 @@ def run_scan(
             oc.status = "ran"
             oc.finding_count = len(produced)
             findings_by_slot[slot] = list(produced)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a probe that raises becomes an error outcome, never a silent pass
             _record_probe_error(oc, exc)
         oc.duration_s = round(time.time() - t0, 3)
 

@@ -245,7 +245,7 @@ def run_arm(arm: Arm, targets: list[str], system_path: str | None, base_config: 
             res.coverage = rep.scorecard.coverage
             res.probes_ran = sum(1 for p in rep.probes if p.status == "ran")
             res.probes_skipped = sum(1 for p in rep.probes if p.status != "ran")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - an arm that crashes is a result with an error, so the other arm still reports
         res.error = f"{type(exc).__name__}: {exc}"[:300]
     res.duration_s = time.time() - t0
     return res
@@ -371,7 +371,7 @@ def score_ground_truth(truth: dict, findings: list[Finding]) -> GroundTruthResul
 # ---------------------------------------------------------------------------
 
 def load_ab_spec(path: str) -> dict:
-    import yaml  # type: ignore
+    import yaml
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if "arms" not in data:
         raise RuntimeError(f"{path} must define `arms`")

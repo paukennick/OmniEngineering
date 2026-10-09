@@ -235,7 +235,7 @@ def main() -> int:
             print(f"  {name:<20}{population:<11}   timed out after "
                   f"{args.timeout_per_repo}s — skipped", flush=True)
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - one repository that crashes the scan is recorded as failed; the run continues
             failed.append((name, f"{type(exc).__name__}: {exc}"[:120]))
             continue
         loc[population] += max(1, sum(r.loc for r in rep.repos))

@@ -156,7 +156,7 @@ def git_changed(repo_path: str, ref: str) -> tuple[set[str], str]:
         try:
             r = subprocess.run(["git", "-C", repo_path, *args],
                                capture_output=True, text=True, timeout=120)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no git, or a hung one: the caller treats both as a failed comparison
             return 1, str(exc)
         return r.returncode, r.stdout
 

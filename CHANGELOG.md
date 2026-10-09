@@ -2,6 +2,14 @@
 
 ## 2026-10-09
 
+### In progress
+
+- `REQ-036` to `REQ-043` | Closing the loop with Arbiter: doctor posture and `--json` (REQ-036),
+  requirement completion that checks the Arbiter gate (REQ-037), a committed baseline (REQ-038),
+  `omni graph impact` (REQ-039), `omni test run` (REQ-040), the adopt loop proven in CI (REQ-041),
+  Arbiter version tracking and `omni arbiter update` (REQ-042), and findings as graph nodes traced
+  interactively (REQ-043). Each bullet moves under Completed with its details as it lands.
+
 ### Completed
 
 - `REQ-034` | Process | A vendored workspace is recognised, not fought. A directory below the root that

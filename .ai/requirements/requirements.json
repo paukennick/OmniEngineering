@@ -1209,7 +1209,7 @@
       "title": "omni doctor prints an assurance posture and offers --json",
       "description": "Doctor reported checks but no posture. After the Result line it prints Posture: the newest Arbiter report under the completion.arbiter_gate rule's output directory (grade, coverage, new high-or-above, gate result, fresh or stale against HEAD and the changed files), the count of open or mitigated failures and the open requirements by status. omni doctor --json emits the same report as a versioned JSON document. Doctor also errors on duplicate requirement ids across the root registry, its archive and every vendored workspace registry.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/test_doctor_posture.py",
@@ -1240,7 +1240,7 @@
       "title": "omni requirement complete refuses while the branch's Arbiter gate is missing, stale or red",
       "description": "Completing a requirement implied the product-side gate had run, but nothing checked. When the completion rulepack carries completion.arbiter_gate, complete refuses unless the newest report under its output directory was scanned at HEAD, after the newest changed file, and passed; the refusal prints the exact omni gate command. --no-arbiter-check REASON (10+ chars) records the reason in the note.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/test_requirement_complete_arbiter.py",
@@ -1268,7 +1268,7 @@
       "title": "Arbiter baseline at install and omni arbiter baseline",
       "description": "Without a committed baseline every Arbiter finding counted as new, so fail_on new: high failed any legacy repository on adoption. arbiter_install writes .arbiter/baseline.json from a full offline scan and says to commit it; the generated completion.arbiter_gate rule passes --baseline and asks for json,sarif,pr-comment output; omni arbiter baseline [--refresh] re-baselines only when the last gate passed and refuses partial-scan reports; doctor warns when the rule exists without a baseline, when the baseline predates the newest fixed ledger entry, or when its config hash no longer matches arbiter.yaml.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/test_arbiter_install.py",
@@ -1298,7 +1298,7 @@
       "title": "omni graph impact: changed files to requirements, tests, failures and rules",
       "description": "The graph could answer why for one node but not what a change touches. omni graph impact [--changed BASE] [--depth N] [--json] resolves the changed set like the gate, walks the governance, history, assurance and workspace edges and buckets what it reaches; omni gate prints a one-line impact summary when the graph exists; the omni MCP server exposes graph_impact.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "omni_graph.py",
         "make_ai.py",
@@ -1329,7 +1329,7 @@
       "title": "omni test run executes registered suites, optionally only the impacted ones",
       "description": "omni test only registered suites; nothing ran them. omni test run [NAMES] [--impacted] [--changed BASE] [--json] [--timeout] runs each suite's command at the root and reports PASS, FAIL or SKIP with the last lines; --impacted selects suites whose paths intersect the impact set and falls back to all suites without a graph. The upstream completion rulepack gains a recommended completion.tests rule as a documented example.",
       "priority": "medium",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         ".ai/rules/completion-workflow.json",
@@ -1386,7 +1386,7 @@
       "title": "Arbiter version tracking and omni arbiter update",
       "description": "omni update never touched an installed or vendored Arbiter. arbiter_install records {source, version} under arbiter in .ai/omni-version.json (other keys preserved); doctor warns when the installed version differs; omni update warns when the installed completion.arbiter_gate rule drifted from the template; omni arbiter update [--source] [--keep-rule] [--squash] [--force] upgrades the package, rewrites the rule, pulls the subtree when one is vendored (refusing to mix squash modes unless forced), re-records the version and suggests a baseline refresh.",
       "priority": "medium",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/test_arbiter_install.py",
@@ -1415,7 +1415,7 @@
       "title": "Arbiter findings are graph nodes, traceable by id, category, severity, depth and directory, interactively",
       "description": "An Arbiter finding was traceable only through its file path and only after adjudication. omni graph build reads the newest gate report and adds finding nodes with flags, cites and recorded_as edges; directories contain their files so the tree reads root to finding; omni graph findings rolls findings up by directory with filters and depth; the viewer gains a Findings tab, colour by category and severity, findings filters, search prefixes, a source row with copy and editor links, and one-click traces to the requirement or failure; the MCP server exposes graph_findings.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "omni_graph.py",
         "make_ai.py",

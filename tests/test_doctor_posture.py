@@ -268,3 +268,19 @@ class TestDuplicateRequirementIds(PostureFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFreshnessScope(unittest.TestCase):
+    """REQ-037 follow-up: only paths inside the rule's own scope can make a report stale."""
+
+    RULE = {"id": "completion.arbiter_gate", "validation": {
+        "run": "arbiter gate . --changed {base} --out arbiter-out/omni-gate --format json",
+        "when_changed": ["src/**", "tests/**", "arbiter.yaml"], "ignore": ["src/vendor/**"]}}
+
+    def test_paths_outside_the_rule_scope_are_dropped(self) -> None:
+        changed = {".ai/requirements/requirements.json", "CHANGELOG.md", "src/app.py", "src/vendor/x.py", "tests/test_app.py"}
+        self.assertEqual(ma.arbiter_rule_scope(self.RULE, changed), {"src/app.py", "tests/test_app.py"})
+
+    def test_a_rule_without_globs_keeps_every_path(self) -> None:
+        changed = {"anything.txt", "src/app.py"}
+        self.assertEqual(ma.arbiter_rule_scope({"id": "x", "validation": {}}, changed), changed)

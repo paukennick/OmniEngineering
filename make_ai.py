@@ -3836,6 +3836,18 @@ def _path_under(path: str, directory: Path) -> bool:
     return parts[: len(directory.parts)] == directory.parts
 
 
+def arbiter_rule_scope(rule: dict[str, Any], changed: set[str]) -> set[str]:
+    """The changed paths the Arbiter rule would actually scan: those matching its `when_changed`
+    globs minus its `ignore` globs. Freshness is judged against these alone, so editing the
+    registry, the changelog or a document after the last gate run (which completing a requirement
+    always does) never marks a report stale; a newer source file still does."""
+    validation = rule.get("validation") if isinstance(rule, dict) else None
+    validation = validation if isinstance(validation, dict) else {}
+    when = [str(p) for p in validation.get("when_changed", ["**"])]
+    ignore = [str(p) for p in validation.get("ignore", [])]
+    return {p for p in changed if matches_any(p, when) and not matches_any(p, ignore)}
+
+
 def arbiter_report_state() -> dict[str, Any]:
     """The Arbiter part of the posture: wired, present, fresh, and the newest report's headline numbers.
     A malformed report never raises; it is recorded as present but not fresh, with the reason."""
@@ -3862,7 +3874,7 @@ def arbiter_report_state() -> dict[str, Any]:
             raise ValueError("report is not a JSON object")
         state.update(arbiter_report_summary(report))
         head = (git_run("rev-parse", "HEAD") or "").strip()
-        changed = {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, out_dir)}
+        changed = arbiter_rule_scope(rule, {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, out_dir)})
         state["fresh"], state["reason"] = arbiter_report_freshness(report, head, changed)
     except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError) as exc:
         state["fresh"], state["reason"] = False, f"unreadable: {exc}"

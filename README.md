@@ -79,6 +79,47 @@ That's the whole loop: adopt once, `doctor` to check health, `update` to stay
 current. Everything below explains *why* it's built this way and covers less
 common setups (bare `.ai/` copy, symlinks, CI wiring, multi-tool projects).
 
+## Arbiter: the evaluator this workspace runs with
+
+OmniEngineering governs a change (requirement, changelog, ledger, rules).
+[Arbiter](https://github.com/paukennick/arbiter) evaluates the code (probes,
+analyzers, a scorecard that refuses to grade what it did not inspect). Since
+2026-10-09 the two run as one loop:
+
+- **`omni gate` runs `arbiter gate`.** A required rule, `completion.arbiter_gate`,
+  runs Arbiter on the change set with the committed baseline, so a commit is
+  blocked by a new high finding exactly as it is blocked by a missing changelog
+  entry. The pre-commit hook, the Claude Stop hook and CI all go through it.
+- **Arbiter reads the workspace.** Its `governance` probe reads the failure
+  ledger (a changed file named by an open failure, without its regression test,
+  is a finding) and tags every finding with the requirement the commits cite,
+  so reports group by `REQ-###`.
+- **Doctor and completion see the result.** `omni doctor` ends with a
+  `Posture:` line (Arbiter score, coverage, new highs, gate result, fresh or
+  stale; open failures; open requirements), and `omni requirement complete`
+  refuses while the branch's Arbiter report is missing, stale or red.
+- **Findings become ledger entries and graph nodes.** `arbiter review --ledger`
+  turns adjudicated findings into `FAIL-###` entries; `omni graph build` adds
+  every finding as a node linked to its file, symbol, requirement and failure;
+  `omni graph findings`, `omni graph why f:<id>` and the viewer's Findings tab
+  trace one by id, category, severity, depth and directory, down to `path:line`.
+- **Pull requests see it too.** Inline annotations, the PR comment in the job
+  summary and SARIF in code scanning, with the gate's exit code as the verdict.
+
+Three ways to have it: installed beside an adopted workspace
+(`./omni adopt --with-arbiter` or `./omni arbiter install`), vendored as a
+subtree (this repository's `arbiter` branch keeps the whole Arbiter checkout
+under `arbiter/` with its own workspace, recognised by the gate, doctor and
+CI), or Arbiter governing itself with this workspace at its own root. Keep the
+two level with `./omni update` and `./omni arbiter update`; refresh the baseline
+on a green gate with `./omni arbiter baseline --refresh`.
+
+The full mechanics, the CI jobs and what each proves, the off switches and a
+finding-tracing walkthrough are in
+[docs/arbiter-integration.md](docs/arbiter-integration.md); the dated list of
+every change on both sides is in
+[docs/release-notes-2026-10-09.md](docs/release-notes-2026-10-09.md).
+
 ## Design Documents
 
 The project design source lives in `design/`. It includes product design,

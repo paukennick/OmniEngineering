@@ -1173,7 +1173,7 @@
       "title": "Vendored workspaces: gate, doctor and CI treat a subtree with its own .ai/ as its own workspace",
       "description": "A directory below the root carrying .ai/omni-version.json is a workspace of its own. The requirement-id gate accepts ids from its registry (a subtree pull's commit messages cite them); omni doctor warns when its CLI copies differ from the root's and names the omni update command; CI runs a vendored Arbiter's suite, integrity and mutation checks when arbiter/pyproject.toml exists. Dependency folders are never read as workspaces.",
       "priority": "medium",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/test_gate_rules.py",

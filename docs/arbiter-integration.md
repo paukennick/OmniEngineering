@@ -167,6 +167,15 @@ The same queries are MCP tools (`graph_why`, `graph_findings`, `graph_impact`,
 `graph_lineage`, `graph_trace`, `arbiter_review_queue`), so an assistant can run
 the whole trace without leaving the conversation.
 
+The viewer side of that trace is proven in a browser, not only read from the
+template: `tests/test_viewer_browser.py` builds the graph from a fixture
+repository and a synthetic report, opens the page in headless Chromium through
+Playwright, switches to the Findings tab, selects a finding, reads the
+`path:line` row and the breadcrumb, clicks "Trace to requirement" and "Trace to
+failure", switches the colour mode to severity, and fails on any console error;
+the `viewer-browser` CI job installs Playwright and Chromium and runs it for
+real (it skips itself anywhere they are missing).
+
 ## 6. Impact and test selection
 
 `omni graph impact [--changed BASE] [--depth N] [--json]` resolves the change
@@ -198,6 +207,7 @@ evidence.
 | Vendored Arbiter subtree tests | the subtree's own pytest suite, claim-integrity and mutation checks, so the copy cannot rot |
 | Adopt loop | `omni adopt --with-arbiter` into a temp directory, commit, plant `verify=False`, `omni gate` fails naming `completion.arbiter_gate`, fix it, `omni gate` passes: the seam works end to end, not just each half |
 | Optional graph extra | the five-layer graph builds and the viewer renders |
+| Graph viewer in headless Chromium | the rendered viewer is driven in a real browser: Findings tab, search, detail panel, the trace to a requirement and to a failure, the severity colour mode, no console errors |
 
 Arbiter's own `pr-check` runs its suite, integrity and mutation tools, the
 analyzers, `omni doctor`, `omni gate` and a self-scan with `--github` and

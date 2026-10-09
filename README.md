@@ -676,7 +676,9 @@ The doctor checks:
 - JSON parse validity.
 - Universal ruleset structure.
 - Structured rulepack IDs, required keys, rule IDs, severities, and statements.
-- Requirement registry structure and duplicate IDs.
+- Requirement registry structure and duplicate IDs, including an id that the root
+  registry (or its archive) shares with a vendored workspace's registry: that is an
+  error naming both files, since one id must name one requirement.
 - Assistant pointer drift.
 - Assistant entrypoint source drift.
 - Synced ignore file drift.
@@ -699,6 +701,29 @@ The doctor checks:
 ```bash
 omni validate
 ```
+
+After the `Result:` line the doctor prints one `Posture:` line, the state of the
+workspace in a glance:
+
+```text
+Posture: arbiter score 96.7 (coverage 97%, new high+ 0, gate passed, fresh) · failures open 1 · requirements open 3 (pending 2, proposed 1)
+```
+
+The Arbiter part reads the newest `report.json` under the `--out` directory of the
+`completion.arbiter_gate` rule and says whether it still describes HEAD: `arbiter
+not wired` when no such rule exists, `arbiter no report (run ./omni gate)` when the
+rule exists but nothing has been scanned, `arbiter stale: <reason>` when the report
+names another commit or a changed file is newer than the scan (an unreadable report
+counts as stale, with the reason), and otherwise the score (or `grade withheld` for a
+partial scan), coverage, unsuppressed new high-or-critical findings and the gate
+result. Then the open (or mitigated) failure-ledger entries and the open
+requirements by status.
+
+`omni doctor --json` (and `validate --json`) print the same report as JSON instead:
+`{"schema_version": 1, "ok", "passed", "warnings", "errors", "posture"}`.
+`schema_version` 1 is the stable contract -- keys are only ever added, never renamed
+or removed -- so a script or a CI step can read `ok`, `errors` and `posture.arbiter`
+without parsing the text.
 
 ## Code Graph (omni graph)
 

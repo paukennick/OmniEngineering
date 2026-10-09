@@ -691,6 +691,8 @@ class DoctorReport:
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.passed: list[str] = []
+        # Workspace posture (Arbiter report state, open failures, open requirements); see compute_posture().
+        self.posture: dict[str, Any] = {}
 
     def error(self, message: str) -> None:
         self.errors.append(message)
@@ -715,10 +717,23 @@ class DoctorReport:
             f"Result: {len(self.passed)} passed, "
             f"{len(self.warnings)} warnings, {len(self.errors)} errors"
         )
+        if self.posture:
+            print(format_posture(self.posture))
 
     @property
     def ok(self) -> bool:
         return not self.errors
+
+    def to_json(self) -> dict[str, Any]:
+        """The `--json` shape. `schema_version` 1 is the stable contract: keys are only ever added."""
+        return {
+            "schema_version": 1,
+            "ok": self.ok,
+            "passed": list(self.passed),
+            "warnings": list(self.warnings),
+            "errors": list(self.errors),
+            "posture": dict(self.posture),
+        }
 
 
 def read_json(path: Path, report: DoctorReport) -> Any:
@@ -1029,6 +1044,52 @@ def validate_requirements(requirements: Any, report: DoctorReport) -> None:
         report.pass_check("Requirements registry is structurally valid (types and enums checked)")
     elif seen_ids:
         report.warning("Requirements registry was partially readable")
+
+
+# --- Requirement ids across registries (REQ-036) ---------------------------------------------------
+
+
+def validate_requirement_ids(report: DoctorReport) -> None:
+    """One id names one requirement, across the root registry, its archive and every vendored workspace's
+    registries. A pair inside the root registry or its archive is already reported by validate_requirements,
+    so only a clash that reaches into a vendored workspace (or spans two of them) is reported here."""
+    cwd = Path(".").resolve()
+    root_sources = [REQUIREMENTS_PATH, REQUIREMENTS_ARCHIVE_PATH]
+    sources: list[Path] = list(root_sources)
+    workspaces = vendored_workspace_dirs()
+    for workspace in workspaces:
+        sources.extend(sorted((workspace / ".ai" / "requirements").glob("requirements*.json")))
+
+    def display(path: Path) -> str:
+        try:
+            return path.resolve().relative_to(cwd).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    root_labels = {display(path) for path in root_sources}
+    locations: dict[str, list[str]] = {}
+    for path in sources:
+        if not path.is_file():
+            continue
+        try:
+            registry = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        label = display(path)
+        for item in registry.get("requirements", []) if isinstance(registry, dict) else []:
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                seen = locations.setdefault(item["id"], [])
+                if label not in seen:
+                    seen.append(label)
+    duplicates = 0
+    for requirement_id, labels in sorted(locations.items()):
+        if len(labels) > 1 and not set(labels) <= root_labels:
+            duplicates += 1
+            report.error(f"Duplicate requirement id {requirement_id} in {' and '.join(labels)}")
+    if not duplicates and locations:
+        report.pass_check(
+            f"Requirement ids are unique across the registry, the archive and {len(workspaces)} vendored workspace(s)"
+        )
 
 
 def validate_failure_ledger(ledger: Any, report: DoctorReport) -> None:
@@ -3006,6 +3067,7 @@ def build_doctor_report() -> DoctorReport:
     validate_ruleset(parsed.get(".ai/rules/universal-engineering-ruleset.json"), report)
     validate_rulepacks(parsed, report)
     validate_requirements(parsed.get(".ai/requirements/requirements.json"), report)
+    validate_requirement_ids(report)
     validate_failure_ledger(parsed.get(".ai/failures/failure-ledger.json"), report)
     validate_test_suites(parsed.get(".ai/test-suites.json"), report)
     validate_graph_config(report)
@@ -3022,12 +3084,16 @@ def build_doctor_report() -> DoctorReport:
     validate_mcp_registrations(report)
     validate_vendored_workspaces(report)
     validate_omni_version_present(report)
+    report.posture = compute_posture()
     return report
 
 
-def run_doctor() -> int:
+def run_doctor(args: argparse.Namespace | None = None) -> int:
     report = build_doctor_report()
-    report.print()
+    if getattr(args, "json", False):
+        print(json.dumps(report.to_json(), indent=2))
+    else:
+        report.print()
     return 0 if report.ok else 1
 
 
@@ -3300,6 +3366,219 @@ def run_arbiter_install(args: argparse.Namespace) -> int:
     print(f"Mode: {'dry-run' if args.dry_run else 'apply'}")
     print("")
     return arbiter_install(target_root, args.source, skip_pip=args.skip_pip, dry_run=args.dry_run)
+
+
+# --------------------------------------------------------------------------
+# Arbiter report helpers (REQ-036): the newest report under the gate rule's
+# --out directory, whether it still describes HEAD, and the posture that
+# `omni doctor` prints from it.
+# --------------------------------------------------------------------------
+
+ARBITER_DEFAULT_OUT_DIR = Path("arbiter-out")
+ARBITER_HIGH_OR_ABOVE = {"high", "critical"}
+# Arbiter writes `started_at` to the second; a file touched within that same second is not "after" the scan.
+ARBITER_FRESHNESS_TOLERANCE_S = 1.0
+
+
+def arbiter_gate_rule() -> dict[str, Any] | None:
+    """The `completion.arbiter_gate` rule from whichever rulepack carries it, or None when Arbiter is not wired."""
+    for file_path in RULEPACK_FILES:
+        try:
+            rulepack = load_json(Path(file_path))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for rule in rulepack.get("rules", []) if isinstance(rulepack, dict) else []:
+            if isinstance(rule, dict) and rule.get("id") == ARBITER_GATE_RULE_ID:
+                return rule
+    return None
+
+
+def arbiter_out_dir(rule: dict[str, Any] | None) -> Path:
+    """Where the rule's `validation.run` tells Arbiter to write: the value after `--out`, else `arbiter-out`."""
+    validation = rule.get("validation") if isinstance(rule, dict) else None
+    run = str(validation.get("run", "")) if isinstance(validation, dict) else ""
+    try:
+        argv = shlex.split(run)
+    except ValueError:
+        argv = []
+    for index, token in enumerate(argv):
+        if token == "--out" and index + 1 < len(argv):
+            return Path(argv[index + 1])
+        if token.startswith("--out="):
+            return Path(token[len("--out="):])
+    return ARBITER_DEFAULT_OUT_DIR
+
+
+def newest_arbiter_report(out_dir: Path) -> Path | None:
+    """The most recently written `report.json` directly in `out_dir` or one level below it, by mtime."""
+    candidates = [path for path in [out_dir / "report.json", *out_dir.glob("*/report.json")] if path.is_file()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _arbiter_timestamp(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def arbiter_report_freshness(report: dict[str, Any], head: str, changed: set[str]) -> tuple[bool, str]:
+    """A report is fresh when it scanned the commit HEAD is at and nothing in `changed` (the gate's changed
+    paths) was modified after it started. A path that no longer exists cannot be newer than the scan."""
+    repos = report.get("repos") if isinstance(report, dict) else None
+    first = repos[0] if isinstance(repos, list) and repos and isinstance(repos[0], dict) else {}
+    commit = str(first.get("commit") or "").strip()
+    if not commit:
+        return False, "report names no commit"
+    if not head or not head.startswith(commit):
+        return False, f"scanned {commit}, HEAD is {head[:7] or 'unknown'}"
+    started = _arbiter_timestamp(report.get("started_at"))
+    if started is None:
+        return False, "report has no readable started_at"
+    newest_path, newest_mtime = None, started + ARBITER_FRESHNESS_TOLERANCE_S
+    for path in sorted(changed):
+        try:
+            mtime = Path(path).stat().st_mtime
+        except OSError:
+            continue
+        if mtime > newest_mtime:
+            newest_path, newest_mtime = path, mtime
+    if newest_path is not None:
+        return False, f"{newest_path} changed after the scan started"
+    return True, "fresh"
+
+
+def arbiter_report_summary(report: dict[str, Any]) -> dict[str, Any]:
+    """The headline numbers of a report: Arbiter's scorecard carries `overall` (None when the grade was
+    withheld) and `coverage`; findings carry `severity`, `status` (new|existing) and `suppressed`."""
+    scorecard = report.get("scorecard") if isinstance(report.get("scorecard"), dict) else {}
+    gate = report.get("gate") if isinstance(report.get("gate"), dict) else {}
+    findings = [item for item in (report.get("findings") or []) if isinstance(item, dict)]
+    live = [
+        item for item in findings
+        if not item.get("suppressed") and str(item.get("severity", "")).lower() in ARBITER_HIGH_OR_ABOVE
+    ]
+    score = scorecard.get("overall")
+    withheld = bool(scorecard.get("withheld")) or not isinstance(score, (int, float))
+    passed = gate.get("passed")
+    return {
+        "grade": "withheld" if withheld else f"{float(score):g}",
+        "score": None if withheld else score,
+        "coverage": scorecard.get("coverage") if isinstance(scorecard.get("coverage"), (int, float)) else None,
+        "new_high_or_above": sum(1 for item in live if item.get("status") == "new"),
+        "existing_high_or_above": sum(1 for item in live if item.get("status") != "new"),
+        "gate_passed": passed if isinstance(passed, bool) else None,
+        "gate_reasons": [str(reason) for reason in (gate.get("reasons") or []) if isinstance(gate.get("reasons"), list)],
+    }
+
+
+def _path_under(path: str, directory: Path) -> bool:
+    parts = Path(path).parts
+    return parts[: len(directory.parts)] == directory.parts
+
+
+def arbiter_report_state() -> dict[str, Any]:
+    """The Arbiter part of the posture: wired, present, fresh, and the newest report's headline numbers.
+    A malformed report never raises; it is recorded as present but not fresh, with the reason."""
+    state: dict[str, Any] = {
+        "wired": False, "present": False, "fresh": False, "reason": "not wired",
+        "grade": None, "score": None, "coverage": None,
+        "new_high_or_above": 0, "existing_high_or_above": 0,
+        "gate_passed": None, "gate_reasons": [], "path": None,
+    }
+    rule = arbiter_gate_rule()
+    if rule is None:
+        return state
+    state["wired"] = True
+    out_dir = arbiter_out_dir(rule)
+    path = newest_arbiter_report(out_dir)
+    if path is None:
+        state["reason"] = f"no report under {out_dir.as_posix()}"
+        return state
+    state["present"] = True
+    state["path"] = path.as_posix()
+    try:
+        report = load_json(path)
+        if not isinstance(report, dict):
+            raise ValueError("report is not a JSON object")
+        state.update(arbiter_report_summary(report))
+        head = (git_run("rev-parse", "HEAD") or "").strip()
+        changed = {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, out_dir)}
+        state["fresh"], state["reason"] = arbiter_report_freshness(report, head, changed)
+    except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError) as exc:
+        state["fresh"], state["reason"] = False, f"unreadable: {exc}"
+    return state
+
+
+def _failures_open_count() -> int:
+    try:
+        ledger = load_json(FAILURE_LEDGER_PATH)
+    except (OSError, json.JSONDecodeError):
+        return 0
+    items = ledger.get("failures", []) if isinstance(ledger, dict) else []
+    return sum(1 for item in items if isinstance(item, dict) and item.get("status") in ("open", "mitigated"))
+
+
+def _requirements_open_counts() -> dict[str, int]:
+    counts = {"pending": 0, "proposed": 0, "blocked": 0, "needs_review": 0}
+    try:
+        registry = load_json(REQUIREMENTS_PATH)
+    except (OSError, json.JSONDecodeError):
+        registry = {}
+    for item in registry.get("requirements", []) if isinstance(registry, dict) else []:
+        status = item.get("status") if isinstance(item, dict) else None
+        if status in counts:
+            counts[status] += 1
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def compute_posture() -> dict[str, Any]:
+    """What `omni doctor` prints on its Posture line and returns under `--json`."""
+    return {
+        "arbiter": arbiter_report_state(),
+        "failures_open": _failures_open_count(),
+        "requirements_open": _requirements_open_counts(),
+    }
+
+
+def format_posture(posture: dict[str, Any]) -> str:
+    arbiter = posture.get("arbiter") if isinstance(posture.get("arbiter"), dict) else {}
+    if not arbiter.get("wired"):
+        part = "arbiter not wired"
+    elif not arbiter.get("present"):
+        part = "arbiter no report (run ./omni gate)"
+    elif not arbiter.get("fresh"):
+        part = f"arbiter stale: {arbiter.get('reason')}"
+    else:
+        coverage = arbiter.get("coverage")
+        coverage_text = f"{round(float(coverage) * 100)}%" if isinstance(coverage, (int, float)) else "?"
+        gate = arbiter.get("gate_passed")
+        gate_text = "gate passed" if gate is True else ("gate failed" if gate is False else "gate unknown")
+        grade = arbiter.get("grade")
+        grade_text = "grade withheld" if grade in (None, "withheld") else f"score {grade}"
+        part = (
+            f"arbiter {grade_text} (coverage {coverage_text}, "
+            f"new high+ {arbiter.get('new_high_or_above', 0)}, {gate_text}, fresh)"
+        )
+    open_requirements = posture.get("requirements_open") if isinstance(posture.get("requirements_open"), dict) else {}
+    buckets = ", ".join(
+        f"{status} {open_requirements[status]}"
+        for status in ("pending", "proposed", "blocked", "needs_review")
+        if open_requirements.get(status)
+    )
+    requirement_text = f"requirements open {open_requirements.get('total', 0)}" + (f" ({buckets})" if buckets else "")
+    return f"Posture: {part} \u00b7 failures open {posture.get('failures_open', 0)} \u00b7 {requirement_text}"
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -4475,8 +4754,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite existing non-Omni assistant files instead of skipping them.",
     )
-    subparsers.add_parser("doctor", help="Check OmniEngineering workspace health.")
-    subparsers.add_parser("validate", help="Alias for doctor.")
+    doctor_parser = subparsers.add_parser("doctor", help="Check OmniEngineering workspace health.")
+    doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
+    validate_parser = subparsers.add_parser("validate", help="Alias for doctor.")
+    validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
 
     map_parser = subparsers.add_parser(
         "map",
@@ -5086,7 +5367,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "sync":
         return run_sync(args)
     if command in {"doctor", "validate"}:
-        return run_doctor()
+        return run_doctor(args)
     if command == "map":
         return run_map(args)
     if command == "graph":

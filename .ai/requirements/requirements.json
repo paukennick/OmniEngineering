@@ -629,6 +629,191 @@
         "not reproduced",
         "and must be verified before an audit package cites them."
       ]
+    },
+    {
+      "id": "REQ-038",
+      "category": "feature",
+      "title": "Governance probe: Arbiter reads the OmniEngineering failure ledger and requirement ids",
+      "description": "Arbiter read nothing from the .ai/ workspace. A change-scoped governance probe reports a changed file named as affected by an open or mitigated failure-ledger entry when none of that entry's regression tests is in the change, and a fixed entry whose regression test no longer exists. Findings inside a change carry req:<ID> tags from the commits since the base, and the PR comment and Markdown report group findings by requirement. Not applicable (n/a) when no ledger exists.",
+      "priority": "high",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "src/arbiter/probes.py",
+        "src/arbiter/engine.py",
+        "src/arbiter/incremental.py",
+        "src/arbiter/diff.py",
+        "src/arbiter/report.py",
+        "tests/test_governance.py",
+        "docs/probes.md",
+        "docs/ci.md"
+      ],
+      "acceptance_criteria": [
+        "a changed affected file without its regression test is a finding and the control with the test changed is not",
+        "a fixed entry with a vanished test is a finding",
+        "findings carry the REQ ids cited since the base",
+        "pr-comment and REPORT.md group by requirement",
+        "no ledger records the probe as not applicable"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py",
+        "arbiter gate ."
+      ],
+      "documentation_required": [
+        "docs/probes.md",
+        "docs/ci.md",
+        ".claude/skills/arbiter/SKILL.md",
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "medium severity so the new rules never trip new:high on adoption"
+      ]
+    },
+    {
+      "id": "REQ-039",
+      "category": "ci",
+      "title": "PR-native output: GitHub annotations, step summary and SARIF upload",
+      "description": "Arbiter already renders SARIF and pr-comment.md but no CI consumed them. The gate names the findings that failed it (failing_ids); a new annotations format prints ::error for gating findings, ::warning for the rest and ::notice for out-of-change findings, titles only, never evidence; --github (default under GITHUB_ACTIONS) adds annotations and appends the PR comment to GITHUB_STEP_SUMMARY; pr-check and the composite action upload report.sarif to code scanning with continue-on-error.",
+      "priority": "high",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "src/arbiter/policy.py",
+        "src/arbiter/report.py",
+        "src/arbiter/cli.py",
+        ".github/workflows/pr-check.yml",
+        "ci/github-action/action.yml",
+        "tests/test_annotations.py",
+        "docs/cli.md",
+        "docs/ci.md"
+      ],
+      "acceptance_criteria": [
+        "gating findings are ::error and others ::warning",
+        "workflow command syntax is escaped",
+        "no format reprints a secret",
+        "the step summary is written only under GITHUB_ACTIONS",
+        "evaluate_gate returns failing_ids"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py",
+        "arbiter gate . --format annotations"
+      ],
+      "documentation_required": [
+        "docs/cli.md",
+        "docs/ci.md",
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "SARIF upload needs security-events: write and is continue-on-error so the gate exit code stays the verdict"
+      ]
+    },
+    {
+      "id": "REQ-040",
+      "category": "compatibility",
+      "title": "Arbiter runs on Python 3.10",
+      "description": "The only 3.11 dependency was import tomllib in adapters.py, which made OmniEngineering's CI skip doctor and gate on its 3.10 cells when Arbiter is vendored. One helper reads TOML with tomllib or the tomli fallback; requires-python becomes >=3.10 with tomli as a conditional dependency; pr-check gains an ubuntu 3.10 cell.",
+      "priority": "medium",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "src/arbiter/adapters.py",
+        "pyproject.toml",
+        ".github/workflows/pr-check.yml",
+        "tests/test_arbiter.py",
+        "arbiter.yaml"
+      ],
+      "acceptance_criteria": [
+        "the TOML reader falls back to tomli below 3.11",
+        "pr-check passes on 3.10",
+        "integrity and mutation tools stay stdlib-only"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py"
+      ],
+      "documentation_required": [
+        "SETUP.md",
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "tomli is a runtime dependency only below 3.11"
+      ]
+    },
+    {
+      "id": "REQ-041",
+      "category": "performance",
+      "title": "Persistent per-file result cache for file-scoped probes",
+      "description": "Every scan re-read everything, so the pre-commit gate paid full price. An opt-in cache in .arbiter/cache.json keyed on file bytes, config hash, probe version and Arbiter version stores per-file findings for probes declared cacheable (secrets, supply_chain, ast_metrics, house_rules_ast, authored). --no-cache bypasses it, CI and pr-check run without it, --verify-cache re-runs a sample of hits and reports divergence, and integrity invariant CI-13 proves every cacheable probe is file-local. The cache file is never scanned.",
+      "priority": "medium",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "src/arbiter/cache.py",
+        "src/arbiter/probes.py",
+        "src/arbiter/engine.py",
+        "src/arbiter/cli.py",
+        "src/arbiter/policy.py",
+        "tools/integrity.py",
+        "tools/mutate_tests.py",
+        "tests/test_cache.py",
+        ".gitignore"
+      ],
+      "acceptance_criteria": [
+        "a cache hit does not rerun the probe",
+        "a config change or an edited file invalidates",
+        "cached and uncached findings are identical",
+        "--no-cache bypasses",
+        "the cache file is never scanned",
+        "an uncacheable probe always runs",
+        "CI-13 rejects a non-file-local cacheable probe"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "docs/cli.md",
+        "docs/architecture.md",
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "correctness rests on file-locality which CI-13 enforces; CI never uses the cache"
+      ]
+    },
+    {
+      "id": "REQ-042",
+      "category": "feature",
+      "title": "Run history and the trend dashboard",
+      "description": "Every report was standalone. Each scan or gate appends one line to <out>/history.jsonl (time, commit, grade, coverage, counts, gate result; no evidence, no paths) and arbiter dashboard renders the trend as a self-contained HTML page. Closes the README's 'not yet built: the dashboard' item.",
+      "priority": "medium",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "src/arbiter/history.py",
+        "src/arbiter/cli.py",
+        "src/arbiter/report.py",
+        "tests/test_history.py",
+        "README.md",
+        "docs/cli.md"
+      ],
+      "acceptance_criteria": [
+        "every scan appends one history line",
+        "lines carry no evidence or paths",
+        "the dashboard is self-contained and renders an empty history",
+        "--no-history skips the append"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py"
+      ],
+      "documentation_required": [
+        "README.md",
+        "docs/cli.md",
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "history lives under the gitignored output directory"
+      ]
     }
   ]
 }

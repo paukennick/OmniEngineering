@@ -8,6 +8,11 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- In progress, one entry per requirement, finalised when each completes:
+  REQ-038 governance probe (Arbiter reads the failure ledger and requirement
+  ids), REQ-039 PR-native output (annotations, step summary, SARIF upload),
+  REQ-040 Python 3.10 support, REQ-041 persistent result cache, REQ-042 run
+  history and the trend dashboard.
 - Closed REQ-024 with the pull-request check deliberately advisory. The
   Windows matrix has now run for real and found two defects (FAIL-035,
   FAIL-039), which was its purpose; the remaining criterion, a required

@@ -8,10 +8,7 @@
   every action in `.github/workflows/ci.yml` names its tag's commit SHA with the tag in a trailing
   comment (`actions/checkout` fbc6f399 v5, `actions/setup-python` a26af69b v5, `actions/cache` 0057852b
   v4, `github/codeql-action/upload-sarif` 9f759ee6 v3), so the workflow runs what was reviewed
-  (FAIL-016); and `arbiter.yaml` suppresses `arbiter/authored.security-check-disabled` on the adopt
-  loop's CI script and its test, where `verify=False` is the planted defect the loop proves the gate
-  rejects, each with a reason and an expiry, so the scan no longer reports the plant as this
-  repository's own and the SARIF upload stops raising it as an alert.
+  (FAIL-016). The planted defect's suppressions are the sub-bullet under REQ-045 below.
 
 - `REQ-051` | Code understanding | A finding traces to the requirement that introduced its line. `omni graph
   build` blames every finding's line (`git blame --porcelain -L`, one call per distinct file with all of its
@@ -126,6 +123,14 @@
   `arbiter/pyproject.toml` instead of hard-coding 3.11. Found and fixed on the way: `omni adopt
   --include-cli` into an empty target always exited 1 because the graph-viewer files were counted as
   already present once `.ai` had been copied in the same run (FAIL-015).
+  - The first upstream pull request (M4K4TT4CK/OmniEngineering#3) was green on every job and red on
+    code scanning's own `arbiter` check: it does not read the baseline, so on a branch whose base has
+    no earlier analysis every uploaded finding counts as new, and it fails on one error-level alert.
+    That alert was the planted defect itself, as text in the adopt-loop job (and its test), and the
+    warning beside it was a constant holding an environment variable's name. Both are now suppressed in
+    `arbiter.yaml` with the reason written out, the baseline is re-cut without them, and the handbook
+    says which findings belong in a suppression rather than the baseline. The four unpinned-action
+    notes stay active: real low-severity debt, visible in the Security tab, not a check failure.
 
 - `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
   --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other

@@ -46,6 +46,12 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   and a parallel Linux `slow-tier` job runs the slow tier with the analyzers
   installed; `.ai/test-suites.json` names the fast tier as the gate's suite
   and the slow tier as an integration suite the gate does not run.
+- FAIL-044 (ARB-047) | `run_scan(use_adapters=False)` keeps every external analyzer
+  out of the run. The flag used to guard only registration, and the registry is
+  module-global, so once one scan had registered the analyzers every later scan
+  ran all five whatever the flag said; the fast test tier spent 28 minutes in
+  semgrep. The scan loop now skips a probe marked external when the flag is off
+  and no explicit `only=` names it. Fast tier: 1 minute 53 seconds.
 - ARB-047 | Adapters run concurrently and replay when nothing they read
   changed. Probes registered from a manifest carry `Probe.external` and run
   after the native probes in a thread pool of `probes.adapters_parallel`

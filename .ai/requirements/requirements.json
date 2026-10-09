@@ -934,7 +934,7 @@
       "title": "Tool versions are memoised so adapter registration costs milliseconds, not 27 seconds",
       "description": "Every arbiter invocation ran the five analyzers' --version at registration (27.5 s measured; semgrep alone reached its 20 s cutoff). Adapter.tool_version reads a memo at cache_dir()/tool-versions.json keyed on the resolved executable's path, mtime and size; a miss runs the probe and writes the memo; a missing binary is never probed. --no-cache does not disable it (it is not a result cache); ARBITER_NO_VERSION_MEMO=1 does.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/adapters.py",
         "tests/",
@@ -957,7 +957,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "a tool updated in place without an mtime change keeps its old version string until the memo is cleared"
+        "a tool updated in place without an mtime change keeps its old version string until the memo is cleared",
+        "Adapter.tool_version memoised in cache_dir()/tool-versions.json on the executable's path, mtime and size (and a script argument's); a missing binary is never probed; ARBITER_NO_VERSION_MEMO=1 disables; registration 24.5 s cold to 0.3 s warm. Validated on the merged branch: fast tier 644 passed, integrity PASS (14 invariants), 10 mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {
@@ -1001,7 +1002,7 @@
       "title": "Full scans are faster: adapters run concurrently and replay when nothing they read changed",
       "description": "External adapters run in a thread pool (probes.adapters_parallel, default min(4, cpu count)) with results appended in registry order so reports stay deterministic. One ResultCache entry per adapter, keyed on the adapter name, its tool version, the rules hash and a digest over every inventory file's digest plus the repository's analyzer configuration, replays the adapter's findings when the cache is on and nothing changed; the memo is all-or-nothing because the adapters are not subset-exact. --verify-cache re-runs one memoised adapter and reports divergence; integrity invariant CI-14 proves a changed file is a miss.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/engine.py",
         "src/arbiter/cache.py",
@@ -1027,7 +1028,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "concurrency in the adapters exposes any shared state; the fake-adapter tests run under the pool"
+        "concurrency in the adapters exposes any shared state; the fake-adapter tests run under the pool",
+        "External probes run in a thread pool (probes.adapters_parallel, default min(4, cpu)) after the native probes with outcomes in registry order; one ResultCache entry per adapter keyed on name, tool version, rules hash and a digest of every inventory file plus the root analyzer configuration, all-or-nothing; --verify-cache re-runs one memoised adapter; CI-14 proves a changed file misses. Also FAIL-044: use_adapters=False now keeps analyzers out of a run. Validated on the merged branch: fast tier 644 passed in 1 m 53 s, integrity PASS, 10 mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {

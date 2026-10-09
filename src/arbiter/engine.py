@@ -28,7 +28,7 @@ from .policy import (
     evaluate_gate,
 )
 from .scope_notes import apply_scope_notes
-from .probes import REGISTRY, Probe, ProbeContext, probe_by_name
+from .probes import REGISTRY, Probe, ProbeContext
 
 ARBITER_VERSION = "0.1.0"
 
@@ -311,7 +311,6 @@ def run_scan(
     if changed_since or only_files:
         from .incremental import git_changed, narrow
         selected: dict[str, set[str]] = {}
-        notes: list[str] = []
         if only_files:
             want = {str(x).replace("\\", "/").lstrip("./") for x in only_files}
             for r in repos:
@@ -417,6 +416,15 @@ def run_scan(
             continue
         if probe.model and not caps["model"]:
             oc.status, oc.reason = "skipped", f"profile '{profile_name}' forbids model calls"
+            continue
+        if probe.external and not use_adapters and enabled_only is None:
+            # `use_adapters=False` used to mean only "do not register": the
+            # registry is module-global, so once another scan in the same
+            # process had registered the analyzers, a scan that asked for none
+            # ran all five anyway (FAIL-044; the suite's "fast" tier spent
+            # minutes in semgrep). The flag now means what it says. An explicit
+            # `only=` that names an analyzer still wins: the caller asked for it.
+            oc.status, oc.reason = "skipped", "external analyzers disabled for this run"
             continue
         if probe.external:
             # An analyzer in its own process: run after the native probes,

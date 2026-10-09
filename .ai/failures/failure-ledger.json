@@ -1151,6 +1151,31 @@
       ],
       "prevention_notes": "A test that compares path strings builds them with as_posix() or compares Path objects; the Windows cell of pr-check is the control that catches the rest.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-044",
+      "date": "2026-10-09",
+      "title": "use_adapters=False only skipped registration, so a scan that asked for no analyzers ran all five once another scan had registered them",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "The fast test tier on the merged branch spent 28 minutes in semgrep: tests calling run_scan(use_adapters=False) ran every external analyzer after an earlier test in the same process had registered them; three such tests had been marked slow (ARB-046) to work around it.",
+      "how_detected": "a fast-tier run on the integration branch that took 28 minutes instead of two; agent report during ARB-046 named the mechanism",
+      "root_cause": "run_scan's use_adapters flag only guarded register_adapters(); the probe registry is module-global, so once registered the analyzers were ordinary probes and the scan loop ran them for every later scan whatever the flag said.",
+      "requirement": "ARB-047",
+      "affected": [
+        "src/arbiter/engine.py"
+      ],
+      "fix_summary": "The scan loop skips a probe marked external (ARB-047) when use_adapters is False and no explicit only= names it, with the outcome reason 'external analyzers disabled for this run'; an explicit only= still wins.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_use_adapters_flag.py::test_use_adapters_false_skips_a_registered_external_probe"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "A flag that promises to keep something out of a run is enforced where the run happens, not only where the thing is registered; the regression test registers an external probe first and asserts the flag still skips it. Fast tier: 28 minutes to 1 minute 53 seconds.",
+      "recurrence_of": ""
     }
   ]
 }

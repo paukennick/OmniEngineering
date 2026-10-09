@@ -7,11 +7,14 @@ name = "arbiter-eval"
 version = "0.1.0"
 description = "Polyglot repository and system evaluator: security, compliance, quality, drift and cross-repo interfaces"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Nicholas J Pauken" }]
 dependencies = [
     "PyYAML>=6.0",
+    # tomllib joined the standard library in 3.11; tomli is the same parser
+    # published on its own, and the one import site is adapters._toml_loads.
+    "tomli>=2; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

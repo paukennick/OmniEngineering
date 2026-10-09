@@ -3831,12 +3831,11 @@ def test_every_shipped_adapter_declares_its_scope_rather_than_inheriting_one():
     """An inherited default is not a decision. The value must be right *and*
     written down, because the next person to add an adapter copies a manifest
     and needs to see that the question was asked (REQ-022)."""
-    import tomllib
-    from arbiter.adapters import PACKS
+    from arbiter.adapters import PACKS, _toml_loads
     manifests = sorted(PACKS.glob("*.adapter.toml"))
     assert len(manifests) == 5, f"expected five shipped adapters, found {len(manifests)}"
     for p in manifests:
-        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        data = _toml_loads(p.read_text(encoding="utf-8"))
         assert "scope" in data, f"{p.name} does not declare a scope"
         # Nothing has measured subset-exactness for any external analyzer, so
         # nothing may claim it. This assertion is the evidence gate: it fails

@@ -129,6 +129,26 @@ MUTATIONS = [
             '        tests = [_test_file(t)',
         test="tests/test_governance.py::test_a_changed_affected_file_without_its_regression_test_is_reported",
     ),
+    Mutation(
+        name="adapter-memo-ignores-the-tree",
+        defect="The adapter memo stops keying on the inventory digest, so an "
+               "analyzer's findings from the previous tree are replayed after a "
+               "file changed.",
+        path="src/arbiter/cache.py",
+        old='    return _sha("adapter", name, version, rules, inputs)',
+        new='    return _sha("adapter", name, version, rules, "")',
+        test="tests/test_adapter_cache.py::test_one_changed_file_reruns_every_adapter",
+    ),
+    Mutation(
+        name="version-memo-ignores-the-binary",
+        defect="The tool-version memo stops comparing the executable's stamp, so a "
+               "reinstalled analyzer keeps reporting the old version string.",
+        path="src/arbiter/adapters.py",
+        old='            if isinstance(entry, dict) and entry.get("stamp") == stamp \\\n'
+            '                    and isinstance(entry.get("version"), str):',
+        new='            if isinstance(entry, dict) and isinstance(entry.get("version"), str):',
+        test="tests/test_tool_version_memo.py::test_touching_the_executable_invalidates_its_entry",
+    ),
 ]
 
 

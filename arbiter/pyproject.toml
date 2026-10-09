@@ -43,3 +43,10 @@ arbiter = ["packs/**/*.yaml", "packs/**/*.toml", "packs/**/*.adapter.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Two tiers (ARB-046). `-m "not slow"` is the pull-request gate's suite and the
+# one `.ai/test-suites.json` registers; `slow` marks the tests that run a real
+# external analyzer through the adapters or scan more than the fixtures, and CI
+# runs those once, on Linux, in pr-check's slow-tier job.
+markers = [
+    "slow: runs a real external analyzer or scans beyond the fixtures; CI runs these in the slow-tier job",
+]

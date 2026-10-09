@@ -10,7 +10,7 @@ These settings correspond to the `configuration` block in
 - `primary_language_or_stack`: `Python >=3.11`, setuptools with a `src/` layout; the only runtime dependency is `PyYAML`; optional `ast` extra adds tree-sitter
 - `package_manager`: `pip` (`pip install -e .[dev]`; external analyzers via `./tools/install_tools.sh`)
 - `build_command`: `pip install -e .`
-- `test_command`: `python -m pytest tests/ -q` — the golden-fixture tests over `fixtures/legacy-platform` are the ones that matter; a rule or adapter change that misses a planted defect fails the suite. `python tools/integrity.py` and `python tools/mutate_tests.py` run in CI alongside it, then `python omni doctor` and `python omni gate`
+- `test_command`: `python -m pytest -q -rs -m "not slow"` (the fast tier, the gate's suite); `python -m pytest -q -rs -m slow` runs the analyzer-backed tier once `./tools/install_tools.sh` has run (ARB-046) — the golden-fixture tests over `fixtures/legacy-platform` are the ones that matter; a rule or adapter change that misses a planted defect fails the suite. `python tools/integrity.py` and `python tools/mutate_tests.py` run in CI alongside it, then `python omni doctor` and `python omni gate`
 - `lint_command`: none gating; `ruff` is available through the `tools` extra
 - `typecheck_command`: none configured
 - `changelog_location`: `CHANGELOG.md`, grouped by date under `[Unreleased]`, each entry citing its `REQ-###`
@@ -63,8 +63,9 @@ These settings correspond to the `configuration` block in
   excludes `fixtures/`, `examples/`, `training/`, `.arbiter/`, `arbiter-out/`
   and `arbiter-ab/` from the code layer: fixtures are planted-defect corpora,
   not arbiter's source, and a graph that linked them would attribute their
-  symbols to the product. `.ai/test-suites.json` registers the pytest suite
-  and `tools/check_writeback.sh`.
+  symbols to the product. `.ai/test-suites.json` registers the pytest fast
+  tier (`root-pytest`, the gate's suite), the slow tier (`root-pytest-slow`,
+  integration, run by CI's slow-tier job) and `tools/check_writeback.sh`.
 - **Failure ledger.** `.ai/failures/failure-ledger.json` records every shipped
   defect with its root cause, regression test and prevention rule; it was
   backfilled from `CHANGELOG.md` and `.ai/project-context.md` on 2026-10-09.
@@ -102,9 +103,10 @@ These settings correspond to the `configuration` block in
   and training-run commits that postdate the last CHANGELOG entry (expected:
   they carry no requirement). Any FAIL is real drift.
 - **CI.** Two workflows. `.github/workflows/pr-check.yml` runs on every pull
-  request over a matrix of `ubuntu-latest` and `windows-latest` — the test
-  suite with `-rs`, then `tools/integrity.py` — and finishes in about a
-  minute. `.github/workflows/train.yml` runs the two-hour measurement cycle
+  request over a matrix of `ubuntu-latest` and `windows-latest` — the fast
+  tier of the suite with `-rs`, then `tools/integrity.py`, the mutation
+  check, doctor and gate — plus a parallel Linux `slow-tier` job that
+  installs the analyzers and runs `-m slow` (ARB-046). `.github/workflows/train.yml` runs the two-hour measurement cycle
   nightly on ubuntu only and commits its results back. The matrix is on the
   fast workflow deliberately (ARB-024); `fail-fast: false` so a Linux failure
   cannot cancel the Windows job. Neither is a *required* check: this repository

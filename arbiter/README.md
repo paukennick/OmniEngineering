@@ -179,6 +179,8 @@ arbiter remote review-queue arbiter-out/report.json   # draw a queue; marks stay
 arbiter api serve                              # run an instance yourself
 arbiter mcp                                    # serve the tools over MCP, on stdio
 arbiter mcp --http --root /srv/work            # ...or over HTTPS, to several people
+arbiter bundle build --out ./bundle            # an offline installer: Arbiter, no analyzers
+arbiter bundle verify ./bundle                 # every hash, and nothing unlisted
 ```
 
 Full reference: **[docs/cli.md](docs/cli.md)**.
@@ -261,12 +263,22 @@ file-scoped findings identical to a full scan on the files both read.
 ### Testing
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest -q -m "not slow"   # the fast tier: about two minutes
+python -m pytest -q -m slow         # the slow tier: real analyzers, about five minutes
+python -m pytest -q                 # both
 ```
 
 The golden-fixture tests are the ones that matter: `fixtures/legacy-platform`
 holds fourteen deliberately planted defects that `.arbiter-expected.yaml`
 enumerates, and any change that regresses on one of them fails the suite.
+
+The suite is split by area under `tests/` (`test_probes_security.py`,
+`test_probes_iac.py`, `test_policy_gate.py`, `test_adapters.py`,
+`test_mcp_api.py` and so on), with the fixture scans in `conftest.py` and the
+helpers more than one file needs in `helpers.py`. Tests marked `slow` run a
+real external analyzer through the adapters (`./tools/install_tools.sh`
+installs them) or scan more than the fixtures; CI runs that tier once, in its
+own job, and the fast tier on every platform.
 
 ## Documentation
 
@@ -287,6 +299,7 @@ enumerates, and any change that regresses on one of them fails the suite.
 | [docs/ci.md](docs/ci.md) | CI integration and continuous training |
 | [docs/hosted-api.md](docs/hosted-api.md) | Running an instance, reaching one with `arbiter remote`, custody and TLS |
 | [docs/mcp.md](docs/mcp.md) | The MCP surface: the tools, stdio and HTTPS, and who is allowed to call |
+| [docs/bundle.md](docs/bundle.md) | The air-gapped bundle: what it carries, what it excludes and why, build, verify, install offline |
 | [docs/pilot-runbook.md](docs/pilot-runbook.md) | Standing a pilot up, in the order the steps have to happen |
 | [docs/pilot-terms.md](docs/pilot-terms.md) | What each tester is told happens to their code |
 | [docs/licensing.md](docs/licensing.md) | Licensing requirements and the questions still open (ARB-005) |
@@ -307,13 +320,23 @@ tuning set of 36. On the severities that gate a build the separation is total:
 zero criticals and zero highs across 2.3 million lines of well-maintained
 production code. Method and limits: [docs/evidence.md](docs/evidence.md).
 
-**Not yet built:** air-gapped bundles. The Claude Code
+**The air-gapped bundle** exists without the analyzers: `arbiter bundle build`
+writes Arbiter and its runtime dependencies as wheels, the knowledge file,
+install scripts and a hashed manifest, and `arbiter bundle verify` refuses any
+altered or extra file ([docs/bundle.md](docs/bundle.md)). Including ruff,
+bandit, semgrep, checkov and gitleaks stays blocked on the redistribution
+review, ARB-005; the manifest says so, and operators install them from their
+own mirror. The Claude Code
 skill is `.claude/skills/arbiter/SKILL.md`; the commercial control packs
 (PCI DSS v4, HIPAA Security Rule, SOC 2 TSC, CIS Controls v8) sit beside the
 five government packs in `src/arbiter/packs/controls/`, each declaring the
 scanner-relevant subset it covers and the human work that remains. Arbiter
 also runs on itself: `pr-check` gates every pull request with
-`arbiter gate .` under `arbiter.yaml`.
+`arbiter gate .` under `arbiter.yaml`. The ARB-049 debt sweep worked the
+self-scan through the review flow: 482 active findings became 321 (score 71
+to 81), 55 of the remainder are accepted complexity and length debt
+suppressed per file until 2027-04-01, and the gate's baseline was re-cut from
+the result.
 
 ## Versioning
 
@@ -342,8 +365,8 @@ the operative licence unchanged.
 
 The licensing position is specified in **[docs/licensing.md](docs/licensing.md)**
 — eight requirements covering the operative grant, copyright ownership,
-ownership of scan output, and the redistribution review that blocks the
-air-gapped bundle. Tracked as ARB-005.
+ownership of scan output, and the redistribution review that blocks including
+the analyzers in the air-gapped bundle. Tracked as ARB-005.
 
 Arbiter depends only on PyYAML at runtime. The external analyzers it adapts are
 neither vendored nor redistributed — each is installed separately by the

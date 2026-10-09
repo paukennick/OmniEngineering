@@ -49,7 +49,6 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from collections import defaultdict
-from pathlib import Path
 
 from .core import Finding
 from .learn import MIN_OBSERVATIONS, Knowledge

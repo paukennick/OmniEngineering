@@ -49,3 +49,7 @@ training/*
 .ai/project-graph.html
 .ai/.graph-build.log
 .ai/.graph-build.lock/
+
+# A per-checkout virtualenv (pip install -e . into it so a worktree tests its
+# own code rather than whichever checkout is installed globally).
+.venv/

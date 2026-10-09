@@ -312,6 +312,7 @@ def test_pr_check_runs_the_self_gate_in_github_mode_and_uploads_sarif():
 def test_sarif_min_severity_keeps_only_findings_at_or_above_it(tmp_path):
     """The code-scanning upload can be trimmed; every other format is untouched by the flag."""
     import json
+
     from arbiter.core import Finding, Location, Report
     from arbiter.report import write_sarif
     report = Report(system="s", repos=[], findings=[

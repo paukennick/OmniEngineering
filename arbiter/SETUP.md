@@ -73,7 +73,8 @@ in [NOTICE.md](NOTICE.md).
 
 ```bash
 arbiter probes .              # what can run here, and why anything cannot
-python -m pytest tests/ -q    # requires the dev extra
+python -m pytest -q -m "not slow"   # requires the dev extra; the fast tier
+python -m pytest -q -m slow         # the analyzer-backed tier, once tools/install_tools.sh has run
 ```
 
 `arbiter probes` is the fastest way to confirm which optional components the

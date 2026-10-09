@@ -130,10 +130,14 @@ Findings that land in a context file the branch did not touch are tagged
 `outside-this-change`, so a pull request is not blamed for a lockfile it never
 opened. The baseline is what keeps them out of the gate.
 
-Findings in the change are tagged `req:<ID>` for every requirement id the
-commits since the base cite (the prefix comes from the registry's
-`requirement_id_prefix`, `REQ` by default), and the Markdown report and the
-pull-request comment summarise them in a **By requirement** table.
+Findings in the change are tagged `req:<ID>` for the requirement ids the
+commits since the base that touched their file cite (the prefix comes from
+the registry's `requirement_id_prefix`, `REQ` by default; old ids resolve
+through `id_aliases`), marked `req-scope:commits`. A file no such commit cited
+carries every id the range cites and `req-scope:open` instead, so the tags
+read as context rather than attribution. The Markdown report and the
+pull-request comment summarise them in a **By requirement** table that names
+the scope.
 
 ## A ready-made workflow
 
@@ -189,9 +193,9 @@ Two workflows, split by how long they take rather than by what they cover.
 | | `pr-check.yml` | `train.yml` |
 |---|---|---|
 | when | every pull request | 08:00 UTC nightly |
-| what | the test suite, `tools/integrity.py`, `tools/mutate_tests.py`, `python omni doctor`, `python omni gate`; on Linux also the five analyzers, the `api` extra, and `arbiter gate .` | the full measurement cycle |
-| how long | Windows about two minutes; Linux twenty-odd, because it installs the five analyzers, the adapter tests then run the real tools, and semgrep alone takes about six minutes over this tree | about two hours |
-| platforms | ubuntu-latest **and** windows-latest | ubuntu-latest |
+| what | the fast tier of the test suite (`-m "not slow"`), `tools/integrity.py`, `tools/mutate_tests.py`, `python omni doctor`, `python omni gate`; on Linux also the five analyzers, the `api` extra, and `arbiter gate .`; and, in a parallel `slow-tier` job, the slow tier (`-m slow`) with the analyzers installed | the full measurement cycle |
+| how long | Windows about two minutes; the Linux cell is dominated by the self-gate's semgrep pass (about six minutes over this tree) now that the adapter tests have moved to the slow tier; the slow tier is about five minutes locally, most of it one full scan through every analyzer | about two hours |
+| platforms | ubuntu-latest **and** windows-latest; the slow tier on ubuntu-latest only | ubuntu-latest |
 | writes to the repo | no | yes — the five accumulating files |
 
 **Why the pull-request check runs on two platforms.** ARB-006 was a crash on
@@ -221,6 +225,16 @@ not run the self-gate, because not every analyzer installs there and a gate at
 lower coverage would answer a different question. The same job installs the
 `api` extra, so the sixteen hosted-API tests run on every pull request instead
 of skipping (ARB-034).
+
+**Two tiers (ARB-046).** The suite's wall clock was almost entirely the tests
+that run a real analyzer through the adapters or scan something larger than
+the fixtures, and none of those says anything about the platform. They carry
+the `slow` marker (registered in `pyproject.toml`); the matrix runs
+`-m "not slow"` on every cell and the `slow-tier` job runs `-m slow` once, on
+Linux, alongside the matrix, so the pull request waits for the slower of the
+two rather than their sum. `.ai/test-suites.json` registers the fast tier as
+the gate's suite and the slow tier as an integration suite the gate does not
+run. Locally the fast tier takes about two minutes and the slow tier about five, measured on a loaded four-core machine where the whole suite took eleven minutes before the split.
 
 **Skips are printed, not counted.** The pull-request check runs `pytest -rs`,
 so every skip appears in the log with its reason. Windows legitimately skips

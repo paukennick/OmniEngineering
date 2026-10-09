@@ -8,6 +8,154 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- ARB-052 | A finding in a `--changed` gate is tagged `req:<ID>` for the requirements
+  cited by the commits since the base that touched its own file, marked
+  `req-scope:commits`. Before, every finding in the change carried every id the
+  round's commits cited, so a five-requirement gate could not say which one
+  introduced a finding and OmniEngineering's graph attributed it to all of them.
+  A file no citing commit touched falls back to the round's ids marked
+  `req-scope:open` (context, not attribution); a full scan carries only that
+  marker; old ids resolve through the registry's `id_aliases`; one
+  `git log --name-only` runs per repository however many files changed; and the
+  By requirement table says under it which scope each count came from. The
+  attribution lives in `incremental.attribute_requirements`, called by the
+  engine after every probe has run, since a tag on every finding cannot be
+  applied by one probe.
+- ARB-045 | Tool versions are memoised. Every `arbiter` invocation ran the five
+  analyzers' `--version` at registration (25 s measured here; semgrep alone
+  reaches its 20 s cutoff), including the partial-scan gate that never runs an
+  adapter. `Adapter.tool_version` now reads `~/.cache/arbiter/tool-versions.json`
+  (`ARBITER_CACHE_DIR`), keyed on the resolved executable's path, mtime and
+  size (and a script argument's, for a tool run through an interpreter); a miss
+  probes once and writes the memo atomically, a missing binary is never probed,
+  a corrupt or unwritable memo costs one probe. `--no-cache` leaves it alone
+  (it is not a result cache); `ARBITER_NO_VERSION_MEMO=1` switches it off. A
+  tool replaced in place with the same size and mtime keeps its old string
+  until the file is deleted. Registration: 24.5 s cold, 0.3 s warm. The
+  mutation tool proves a memo that ignores the binary's stamp is caught.
+- ARB-046 | The suite runs in a fast and a slow tier and CI shards them.
+  `tests/test_arbiter.py` (5,516 lines, 438 collected ids) is fourteen files by
+  area, each under `arbiter.yaml`'s 900-line limit, with the helpers more than
+  one file needs in `tests/helpers.py` and the tfplan fixtures in `conftest.py`
+  at session scope; `pytest --collect-only` lists the same 557 ids before and
+  after, and the failure ledger's regression-test references follow the tests.
+  A registered `slow` marker covers the eight tests that run a real analyzer
+  through the adapters or scan beyond the fixtures: `-m "not slow"` runs in
+  about two minutes here and `-m slow` in about five, against eleven for the
+  whole suite before. `pr-check.yml` runs the fast tier on every matrix cell
+  and a parallel Linux `slow-tier` job runs the slow tier with the analyzers
+  installed; `.ai/test-suites.json` names the fast tier as the gate's suite
+  and the slow tier as an integration suite the gate does not run.
+- FAIL-044 (ARB-047) | `run_scan(use_adapters=False)` keeps every external analyzer
+  out of the run. The flag used to guard only registration, and the registry is
+  module-global, so once one scan had registered the analyzers every later scan
+  ran all five whatever the flag said; the fast test tier spent 28 minutes in
+  semgrep. The scan loop now skips a probe marked external when the flag is off
+  and no explicit `only=` names it. Fast tier: 1 minute 53 seconds.
+- ARB-047 | Adapters run concurrently and replay when nothing they read
+  changed. Probes registered from a manifest carry `Probe.external` and run
+  after the native probes in a thread pool of `probes.adapters_parallel`
+  workers (default min(4, cpu count); 1 runs them in turn), each on its own
+  copy of the probe context, with outcomes and findings recorded in registry
+  order so reports stay deterministic. With the result cache on, one entry per
+  adapter, keyed on its name, the tool version, the rules hash and a digest
+  over every inventory file plus the analyzer configuration at the root
+  (`pyproject.toml`, `ruff.toml`, `.ruff.toml`, `setup.cfg`, `.bandit`,
+  `bandit.yaml`, `.semgrep.yml`, `.semgrep.yaml`, `.semgrep/`, `.checkov.yaml`,
+  `.checkov.yml`, `.gitleaks.toml`), replays the findings with the outcome
+  reason `replayed from cache (nothing the tool reads changed)`. All-or-nothing
+  by design: no adapter has been measured to be file-local, so one changed
+  byte re-runs the whole tool. `--verify-cache` re-runs one memoised adapter a
+  scan and reports a divergence as `arbiter/assurance.cache-divergence`;
+  `--no-cache` disables the memo (CI's self-gate). Integrity invariant CI-14
+  proves a changed inventory file misses the memo, and the mutation tool
+  proves a memo keyed without the tree is caught.
+- ARB-048 | The doc-drift probe leaves generated output, git-ignored paths and
+  cross-repository references alone. Scanning Arbiter with itself, `doc_drift`
+  reported every path the root `.gitignore` keeps out of a checkout
+  (`.claude/settings.local.json`, `.ai/project-graph.json`, `.arbiter/cache.json`),
+  a report file under an `--out` directory, and the OmniEngineering handbook
+  named beside its URL. The backticked-path and markdown-link checks now skip a
+  candidate the root `.gitignore` matches (comments, `dir/`, `*.ext`, `path/**`,
+  a leading `/` and `!` re-inclusion are read, nothing broader), one under the
+  output directory (the new optional `out:` key, this run's `--out` when it sits
+  inside the tree, or any `arbiter-out` segment) and a link target carrying a
+  scheme; a backticked path is also skipped when an `http(s)://` URL sits on its
+  line or the adjacent line of the paragraph, since hard wrapping split the
+  motivating case. A relative link is never excused that way and a plainly
+  missing file still fires. The engine hands `--out` to `ProbeContext.out_dir`
+  rather than the config, so cache keys do not change with the output directory.
+  `fixtures/doc-drift` plants the four cases and one real one; the self-scan
+  drops from 30 doc-drift findings to 20.
+- FAIL-042 (ARB-048) | The stub detector counts a marker only at the function body's own
+  indentation: a `pass` under `except`, `if` or `with` is a branch, not a body. Found by
+  code scanning on OmniEngineering pull request #5, where `store_mcp_probe_memo`, which
+  writes a file and swallows a failed write, was reported as a stub.
+- ARB-049 | Arbiter's own debt is worked through the review flow and the baseline is
+  re-cut. The self-scan went from 482 active findings (57 medium, 324 low, 101
+  info; score 71) to 320 (39 medium, 182 low, 99 info; score 81) and the gate's
+  baseline from 411 ids at 19b40f7 to 320 at 2a18ce9, one commit per finding
+  class with the fast tier, `tools/integrity.py` and `tools/mutate_tests.py` green
+  after each. Twenty of thirty-seven broad `except Exception` clauses name the
+  exception and the seventeen that must never raise say why on the line; ruff's
+  unused imports, dead locals, placeholder-free f-strings and unsorted import
+  blocks are gone, and the dead local in `render_html` was the HTML report's
+  "Read first" block, built and never rendered since it was added (FAIL-045);
+  every suppression comment carries a reason or is removed; `build_parser` and
+  `render_html` are split into named helpers with the same inputs and outputs.
+  The three tests ARB-046 marked slow only because `use_adapters=False` was a
+  no-op are back in the fast tier (0.9 s, 0.2 s, 0.2 s; no analyzer starts).
+  `arbiter review --limit 60` drew fifty-nine findings; the marks and reasons are
+  committed as a draft in `.arbiter/reviews/2026-10-09-debt-sweep.md` for a
+  person to apply, and nothing is recorded in the knowledge ledger. The 55
+  over-limit functions left alone are suppressed in `arbiter.yaml` per file,
+  functions named, expiring 2027-04-01; `pytest.raises(Exception)` in the
+  bad-plan test is `RuntimeError` (FAIL-047); the mutable action tags in the
+  workflows are one open entry (FAIL-046); and two of the false positives were
+  the probes' own, now fixed with regression tests: the suppression census
+  counted `# noqa` inside Python strings and docstrings (FAIL-048) and the
+  manifest reader never saw a requirement quoted past the first position of a
+  one-line list (FAIL-049). Baseline cut last via `omni arbiter baseline
+  --refresh`; README "Project status" records the numbers.
+- ARB-050 | `arbiter_review_draft`: an assistant proposes marks with reasons and
+  never records one. `docs/mcp.md` rules out any tool that records a verdict,
+  and the rule stands. The new MCP tool (`service.review_draft`) draws the queue
+  `review_queue` draws (same report, selection and knowledge, read and never
+  saved), fills in the marks an assistant proposed with a reason on the line
+  beneath each, and writes `review-draft.md` under `output_dir` in the exact
+  format `review.parse` reads; its first line says every mark was proposed by an
+  assistant and nothing has been recorded. The result carries counts, the ids
+  not in the queue (reported, not raised) and, as text, the failure-ledger
+  entries the `y` marks would draft (`ledger.preview_entries`, which opens no
+  ledger). A `y` or `n` without a reason is refused. No new path argument, so
+  HTTPS confinement is unchanged. `arbiter review --apply --reviewer` stays the
+  only writer; the no-verdict test is extended to every tool in `TOOLS`, each of
+  which must leave the knowledge file byte-identical. The skill describes the
+  inline flow: draft with reasons, the person reads, the person applies.
+- ARB-051 | The air-gapped bundle, without the analyzers, and the hosted
+  limiter shared across processes. `arbiter bundle build --out DIR` writes
+  Arbiter and its runtime dependencies as wheels (`pip wheel` of the checkout,
+  offline when setuptools can build without isolation, with an isolated retry
+  when a distribution-patched setuptools cannot; `pip download` for PyYAML and
+  tomli, the one step that needs an index, skipped by `--no-deps-download`), the
+  checkout's `.arbiter/knowledge.json` when present, `install.sh` /
+  `install.ps1` (`pip install --no-index --find-links wheels arbiter-eval`), a
+  README and a `MANIFEST.json` with the version, Python floor, build time and a
+  SHA-256 per file; the packs ride inside the wheel and are not copied. The
+  five analyzers are not included and the manifest says why (their
+  redistribution review, ARB-005 L-6, is pending); operators install them from
+  their own mirror. `arbiter bundle verify DIR` recomputes every hash and exits
+  1 on a missing, altered or extra file. `api.FileRateLimiter` keeps the same
+  caps in `limiter.db` beside the key file, one `BEGIN IMMEDIATE` transaction
+  per decision, slots released on exit and expired after the scan ceiling when
+  a process dies holding one; `--limiter memory|file` on `arbiter api serve`
+  and `arbiter mcp --http` selects it through `api.configure_limiter`, both
+  doors reading `api.LIMITER` at call time. Memory stays the single-process
+  default. Proven by six spawned processes never exceeding a cap of two, and by
+  a real bundle built, verified and installed with `--no-index` into a fresh
+  virtualenv. `docs/bundle.md` is new; README, `docs/cli.md`,
+  `docs/hosted-api.md`, `docs/mcp.md`, `NOTICE.md` and `docs/licensing.md` no
+  longer call the bundle unbuilt or the shared limiter a gap.
 - ARB-044 | Requirements use the `ARB` prefix. Two registries on `REQ` collided the
   moment Arbiter was vendored into OmniEngineering (each had reached number 035
   with a different requirement), so `omni requirement renumber --prefix ARB`

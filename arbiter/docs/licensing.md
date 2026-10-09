@@ -64,9 +64,11 @@ interim position but is not a licence. Closing that gap is what remains.
 
 Three things already depend on an answer:
 
-1. **The air-gapped bundle is a roadmap item.** A bundle that ships the five
-   external analyzers is a redistribution, and redistribution is exactly what
-   the current NOTICE says has not been reviewed.
+1. **The air-gapped bundle ships without the analyzers.** `arbiter bundle
+   build` ([bundle.md](bundle.md)) carries Arbiter and its dependencies only,
+   and its manifest says why. A bundle that ships the five external analyzers
+   is a redistribution, and redistribution is exactly what the current NOTICE
+   says has not been reviewed.
 2. **`semgrep` is LGPL-2.1.** The other four adapted tools are permissive
    (MIT/Apache-2.0). LGPL carries obligations that permissive licences do not,
    and those obligations differ sharply between "the operator installs it" and

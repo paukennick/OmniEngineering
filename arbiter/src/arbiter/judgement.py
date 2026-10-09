@@ -54,7 +54,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .core import Finding, Location
@@ -137,7 +137,7 @@ class AnthropicProvider(Provider):
         except urllib.error.HTTPError as e:
             detail = e.read().decode()[:200] if hasattr(e, "read") else ""
             raise Unavailable(f"provider returned HTTP {e.code}: {detail}") from e
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise Unavailable(f"{type(e).__name__}: {e}"[:200]) from e
         parts = [b.get("text", "") for b in doc.get("content", [])
                  if b.get("type") == "text"]
@@ -245,7 +245,7 @@ def _reconcile(raw: str, sent_paths: set[str], repo_id: str) -> list[Finding]:
         return []
     try:
         doc = json.loads(m.group(0))
-    except Exception:
+    except ValueError:
         return []
 
     out: list[Finding] = []

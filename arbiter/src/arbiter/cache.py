@@ -49,6 +49,25 @@ attributed to a file and are never stored. The output of any post-processing
 pass is never stored. And CI runs with `--no-cache`: a pull-request gate must
 measure the tree in front of it, not remember a previous one.
 
+## The adapter memo
+
+An external analyzer is not file-local -- none has been measured to be (see
+`SCOPE_REASON` in adapters.py) -- so it cannot be cached per file. It can be
+memoised whole (ARB-047): one entry per adapter, keyed on
+
+    sha256( adapter name ‖ tool version ‖ rules hash
+            ‖ digest of every inventory file's (path, bytes digest)
+            ‖ digest of the analyzer configuration at each repository root )
+
+replays the adapter's findings when nothing it could have read has changed.
+All-or-nothing by design: one changed byte in one inventory file re-runs the
+whole adapter, because the tool reads the tree as a whole and nobody has
+shown which files its answer for another file depends on. The configuration
+files are the ones the shipped analyzers read from the root
+(`ADAPTER_CONFIG_FILES`); they are hashed whether or not the inventory kept
+them. `--verify-cache` re-runs one memoised adapter per scan and reports a
+divergence exactly as it does for a file entry. `--no-cache` disables it.
+
 A missing or corrupt cache file is an empty cache, never an error; a tree
 that cannot be written to simply gets no cache. The file is written whole,
 to a temporary name and then renamed, so a reader never sees half of one.
@@ -372,6 +391,72 @@ def run_with_cache(
 
 def default_path(repo_root: str) -> Path:
     return Path(repo_root) / DEFAULT_RELATIVE_PATH
+
+
+# ---------------------------------------------------------------------------
+# the adapter memo (ARB-047)
+# ---------------------------------------------------------------------------
+
+# What the shipped analyzers read from the repository root besides the
+# files: ruff, bandit, semgrep, checkov and gitleaks, in that order. A
+# directory (`.semgrep/`) is hashed file by file.
+ADAPTER_CONFIG_FILES = (
+    "pyproject.toml", "ruff.toml", ".ruff.toml", "setup.cfg",
+    ".bandit", "bandit.yaml",
+    ".semgrep.yml", ".semgrep.yaml", ".semgrep",
+    ".checkov.yaml", ".checkov.yml",
+    ".gitleaks.toml",
+)
+REPLAY_REASON = "replayed from cache (nothing the tool reads changed)"
+VERIFIED_REASON = "cache entry verified against a fresh run"
+DIVERGED_REASON = "cache entry diverged from a fresh run; replaced"
+
+
+def adapter_inputs_digest(inv: Inventory, repos: list) -> str:
+    """Everything an external analyzer could have read: every inventory
+    file's path and bytes, and the analyzer configuration at each root."""
+    h = hashlib.sha256()
+    for f in sorted(inv.files, key=lambda x: (x.repo_id, x.path)):
+        h.update(f"{f.repo_id}:{f.path}:{file_digest(f.abspath)}\n".encode("utf-8"))
+    for r in sorted(repos, key=lambda x: x.id):
+        root = Path(r.path)
+        for name in ADAPTER_CONFIG_FILES:
+            p = root / name
+            if p.is_dir():
+                for q in sorted(x for x in p.rglob("*") if x.is_file()):
+                    rel = str(q.relative_to(root)).replace(os.sep, "/")
+                    h.update(f"{r.id}:config:{rel}:{file_digest(str(q))}\n".encode("utf-8"))
+            elif p.is_file():
+                h.update(f"{r.id}:config:{name}:{file_digest(str(p))}\n".encode("utf-8"))
+    return h.hexdigest()
+
+
+def adapter_key(name: str, version: str, rules: str, inputs: str) -> str:
+    """One adapter, one tool build, one set of rules, one tree."""
+    return _sha("adapter", name, version, rules, inputs)
+
+
+def adapter_divergence(probe_name: str, cached: list[dict], fresh: list[dict]) -> Finding:
+    repo_id = next((str(d.get("repo_id") or "") for d in cached + fresh), "")
+    return Finding(
+        rule_id=DIVERGENCE_RULE,
+        title=f"Cached result for `{probe_name}` diverged from a fresh run",
+        dimension="assurance", severity="high", confidence="high",
+        repo_id=repo_id, probe=probe_name,
+        location=Location(path="", repo_id=repo_id),
+        description=(f"The result cache held {len(cached)} finding(s) for adapter "
+                     f"`{probe_name}`; re-running it over the same tree produced {len(fresh)}. "
+                     "The memo is keyed on every inventory file and on the analyzer "
+                     "configuration at the root, so a divergence means the tool reads "
+                     "something else -- a rule set fetched at run time, a file outside the "
+                     "tree -- or the cache file was altered. The entry has been replaced "
+                     "with the fresh result."),
+        remediation="Run with --no-cache and compare; if the tool reads outside the tree, "
+                    "its results cannot be memoised and `probes.disable` or --no-cache is "
+                    "the honest setting.",
+        evidence=f"{probe_name}:cached={len(cached)},fresh={len(fresh)}",
+        tags=["cache", "assurance"],
+    )
 
 
 def make_context_digest(names: set[str]) -> Callable[[ProbeContext], str]:

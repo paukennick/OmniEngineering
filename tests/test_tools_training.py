@@ -622,11 +622,10 @@ def _corpus_module():
 def test_corpus_rows_carry_weight_and_language_breakdown(tmp_path):
     """Without these the holdout comparison can only count findings and match
     on a repository label, which is what produced the wrong answer."""
-    import subprocess, json as _json
+    import json as _json
     (tmp_path / "repo").mkdir()
     src = tmp_path / "repo" / "requests.txt"
     src.write_text("x\n")
-    m = _corpus_module()
     # The fields the comparison depends on must exist on every row.
     required = {"weight", "weight_by_language", "loc_by_language", "holdout"}
     code = (ROOT / "tools" / "corpus.py").read_text()

@@ -196,7 +196,6 @@ def test_the_read_cache_never_serves_one_scans_bytes_for_another(tmp_path):
     """A dozen probes each read every file, so reads are cached. A long-lived
     process doing several scans must not get the previous contents for a path
     that has since changed on disk."""
-    from arbiter.probes import _READ_CACHE
     a = tmp_path / "a"
     a.mkdir()
     (a / "app.py").write_text("PASSWORD = 'first-scan-value-123'\n")

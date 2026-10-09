@@ -57,7 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"arbiter {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
+    _add_scan_commands(sub)
+    _add_report_commands(sub)
+    _add_service_commands(sub)
+    return p
 
+
+def _add_scan_commands(sub) -> None:
+    """`scan` and `gate`: the local analyzers, sharing one argument set."""
     def common(sp):
         sp.add_argument("targets", nargs="*", help="paths or git URLs")
         sp.add_argument("--system", help="arbiter-system.yaml describing several repos")
@@ -119,6 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     gt.add_argument("--format", default="json,console",
                     help="json,sarif,html,markdown,console,pr-comment,annotations")
 
+
+def _add_report_commands(sub) -> None:
+    """Everything that reads a report or the knowledge file rather than scanning."""
     db = sub.add_parser("dashboard",
                         help="render the run history as a self-contained trend page")
     db.add_argument("--history", default="arbiter-out/history.jsonl",
@@ -217,6 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("finding_id")
     ex.add_argument("--report", default="arbiter-out/report.json")
 
+
+def _add_service_commands(sub) -> None:
+    """The hosted surfaces -- api, mcp, bundle -- and the remote client."""
     ap = sub.add_parser("api",
                         help="serve the hosted API, and issue the keys that reach it")
     ap.add_argument("--keys", help="key file (default ~/.arbiter/keys.json, or $ARBITER_KEYS)")
@@ -347,7 +360,6 @@ def build_parser() -> argparse.ArgumentParser:
         "health", help="what the server is, and what it will allow"))
     rh.set_defaults(needs_key=False)
 
-    return p
 
 
 def _resolve_reviewer(explicit: str) -> str:

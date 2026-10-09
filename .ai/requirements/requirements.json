@@ -926,6 +926,243 @@
       "risk_notes": [
         "only governance text is rewritten"
       ]
+    },
+    {
+      "id": "ARB-045",
+      "category": "performance",
+      "title": "Tool versions are memoised so adapter registration costs milliseconds, not 27 seconds",
+      "description": "Every arbiter invocation ran the five analyzers' --version at registration (27.5 s measured; semgrep alone reached its 20 s cutoff). Adapter.tool_version reads a memo at cache_dir()/tool-versions.json keyed on the resolved executable's path, mtime and size; a miss runs the probe and writes the memo; a missing binary is never probed. --no-cache does not disable it (it is not a result cache); ARBITER_NO_VERSION_MEMO=1 does.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/adapters.py",
+        "tests/",
+        "docs/configuration.md"
+      ],
+      "acceptance_criteria": [
+        "a second registration does not run any --version",
+        "touching an executable invalidates its entry",
+        "the gate's wall clock drops by the probe time"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "a tool updated in place without an mtime change keeps its old version string until the memo is cleared"
+      ]
+    },
+    {
+      "id": "ARB-046",
+      "category": "ci",
+      "title": "The suite runs in a fast and a slow tier and CI shards them",
+      "description": "tests/test_arbiter.py (5,516 lines, 374 tests) is split by area into files with every test keeping its name, proven by an identical pytest --collect-only id set. A registered slow marker covers tests that invoke a real external analyzer or scan beyond the fixtures. pr-check runs -m 'not slow' on every cell and a parallel Linux slow-tier job runs -m slow with the analyzers; the suite registry names the fast tier as the gate's suite.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "tests/",
+        "pyproject.toml",
+        ".github/workflows/pr-check.yml",
+        ".ai/test-suites.json"
+      ],
+      "acceptance_criteria": [
+        "the collected test ids are identical before and after the split",
+        "mutate_tests.py and integrity.py pass unchanged",
+        "the fast tier finishes in under three minutes here",
+        "pr-check has a slow-tier job"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "a test moved to the wrong file still runs; only a lost test would matter and the id set proves none is"
+      ]
+    },
+    {
+      "id": "ARB-047",
+      "category": "performance",
+      "title": "Full scans are faster: adapters run concurrently and replay when nothing they read changed",
+      "description": "External adapters run in a thread pool (probes.adapters_parallel, default min(4, cpu count)) with results appended in registry order so reports stay deterministic. One ResultCache entry per adapter, keyed on the adapter name, its tool version, the rules hash and a digest over every inventory file's digest plus the repository's analyzer configuration, replays the adapter's findings when the cache is on and nothing changed; the memo is all-or-nothing because the adapters are not subset-exact. --verify-cache re-runs one memoised adapter and reports divergence; integrity invariant CI-14 proves a changed file is a miss.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/engine.py",
+        "src/arbiter/cache.py",
+        "src/arbiter/adapters.py",
+        "tools/integrity.py",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "two adapters run at once under a fake slow adapter",
+        "a repeat full scan replays every adapter",
+        "one changed file re-runs every adapter",
+        "CI-14 passes"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "concurrency in the adapters exposes any shared state; the fake-adapter tests run under the pool"
+      ]
+    },
+    {
+      "id": "ARB-048",
+      "category": "quality",
+      "title": "The doc-drift probe ignores generated output, git-ignored paths and cross-repository references",
+      "description": "doc_drift flagged output filenames (REPORT.md under an --out directory) and a handbook that lives in another repository. A backticked path is skipped when it matches the repository's .gitignore, sits under the configured output directory or an arbiter-out prefix, contains :// or shares its line with an http(s) URL. A plainly missing file still fires.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/probes.py",
+        "fixtures/doc-drift/",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "the four cases produce no finding",
+        "a missing file still does",
+        "the self-scan loses its doc-drift noise"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "a .gitignore pattern that is too broad hides real drift; only exact-path and directory patterns are honoured"
+      ]
+    },
+    {
+      "id": "ARB-049",
+      "category": "quality",
+      "title": "Arbiter's own debt is worked through the review flow and the baseline is re-cut",
+      "description": "The self-scan carried 411 baseline ids. Bare excepts are named or become except Exception with a reason, ruff import findings are fixed, suppressions without a reason gain one or go, production-path stubs are resolved, and the remaining true positives are adjudicated with arbiter review --apply --ledger; accepted debt (complexity, length) is suppressed in arbiter.yaml with a reason and a 2027 expiry only where a refactor is not reasonable. One commit per finding class, the full suite plus mutation and integrity after each, the baseline refreshed last from a green tree, before and after counts in the completion note.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/",
+        "tests/",
+        "arbiter.yaml",
+        ".arbiter/baseline.json",
+        ".ai/failures/failure-ledger.json"
+      ],
+      "acceptance_criteria": [
+        "the baseline id count drops",
+        "the dashboard shows the drop",
+        "every suite and check passes after each class"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "behaviour changes while cleaning: one class per commit so a regression bisects"
+      ]
+    },
+    {
+      "id": "ARB-050",
+      "category": "feature",
+      "title": "arbiter_review_draft: an assistant proposes marks with reasons and never records one",
+      "description": "docs/mcp.md rules out any tool that records a verdict. arbiter_review_draft(report_path, output_dir, limit, rule, verdicts) writes review-draft.md in the exact review.parse format with the reason under each mark and a header saying who drafted it and that nothing is recorded, and returns the ledger entries the y marks would draft, as text. arbiter review --apply --reviewer stays the only writer; the no-verdict test is extended to the new tool.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/service.py",
+        "src/arbiter/mcp.py",
+        "docs/mcp.md",
+        ".claude/skills/arbiter/SKILL.md",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "the knowledge file is byte-identical after the tool runs",
+        "review --apply reads the draft unchanged",
+        "the doc explains why drafting is allowed"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "a person applying a draft without reading it; the header says so in the first line"
+      ]
+    },
+    {
+      "id": "ARB-051",
+      "category": "feature",
+      "title": "The air-gapped bundle ships Arbiter without the analyzers; the hosted API's limiter is shared across processes",
+      "description": "arbiter bundle build writes wheels for Arbiter and its two runtime dependencies, the packs, the knowledge file, install scripts and a MANIFEST.json with a SHA-256 per file that states no analyzer is included (ARB-005); arbiter bundle verify fails on any altered or extra file. RateLimiter gains a SQLite-backed mode beside the key store (--limiter file) so uvicorn workers share one budget, proven by a multi-process test; memory stays the single-process default. The README's not-yet-built paragraph and docs/hosted-api.md are updated.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/bundle.py",
+        "src/arbiter/cli.py",
+        "src/arbiter/api.py",
+        "docs/hosted-api.md",
+        "README.md",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "a bundle builds from the checkout and verifies",
+        "verify fails on a changed file",
+        "several processes never exceed the cap",
+        "README names what the bundle excludes"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "pip wheel needs setuptools available offline; the two dependency wheels are downloaded once and documented"
+      ]
     }
   ]
 }

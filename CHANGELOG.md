@@ -8,6 +8,13 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
+- ARB-046 | (in progress) The suite runs in a fast and a slow tier and CI shards them.
+- ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.
+- ARB-048 | (in progress) The doc-drift probe ignores generated output, git-ignored paths and cross-repository references.
+- ARB-049 | (in progress) Arbiter's own debt is worked through the review flow and the baseline is re-cut.
+- ARB-050 | (in progress) `arbiter_review_draft` proposes marks with reasons and never records one.
+- ARB-051 | (in progress) The air-gapped bundle without the analyzers; the hosted API's limiter shared across processes.
 - ARB-044 | Requirements use the `ARB` prefix. Two registries on `REQ` collided the
   moment Arbiter was vendored into OmniEngineering (each had reached number 035
   with a different requirement), so `omni requirement renumber --prefix ARB`

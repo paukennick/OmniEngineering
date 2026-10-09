@@ -1480,11 +1480,12 @@
   window.omniGraphViewer = {
     state: function () {
       var cam = R2.camera(); return { mode: mode, view: currentView, layout: layout, theme: theme, shownNodes: shownN, shownLinks: shownE, totalNodes: nodes.length, totalEdges: edges.length,
-        selected: selected && selected.id, chain: chainSet ? chainSet.size : 0, chainKind: chainKind, path: pathSet ? pathSet.size : 0, webgl: R3.available(), glContext: R3.isOn(),
+        selected: selected && selected.id, chain: chainSet ? chainSet.size : 0, chainKind: chainKind, path: pathSet ? pathSet.size : 0, webgl: R3.available(), glContext: R3.isOn(), colorMode: colorMode,
         zoom: cam.k, layerMeanZ: R3.layerMeanZ(), spread: R2.positionsSpread(), settling: R2.simulating() };
     },
     select: select, expand: expand, fit: function () { focusOn(null); }, setMode: setMode, setView: applyView, setTheme: setTheme,
-    setLayout: function (l) { layout = l; syncLayoutButtons(); R2.setLayout(l); }, trace: function (a, b) { traceFrom = a; traceTo = b; setEnd('from', a); setEnd('to', b); }, clearTrace: clearTrace, search: function (q) { return search(q, '', 50).list.map(function (n) { return n.id; }); }
+    setLayout: function (l) { layout = l; syncLayoutButtons(); R2.setLayout(l); }, nodeColor: function (id) { var n = byId[id]; return n ? baseColor(n) : null; },   // REQ-048: the colour a node is drawn with under the current colour mode, for the browser test
+    trace: function (a, b) { traceFrom = a; traceTo = b; setEnd('from', a); setEnd('to', b); }, clearTrace: clearTrace, search: function (q) { return search(q, '', 50).list.map(function (n) { return n.id; }); }
   };
 })();
 </script>

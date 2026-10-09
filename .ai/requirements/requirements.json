@@ -1204,6 +1204,49 @@
       ]
     },
     {
+      "id": "REQ-035",
+      "category": "Process",
+      "title": "Publish Arbiter into this repository as a subtree on the arbiter branch",
+      "description": "The arbiter branch vendors Arbiter's source under arbiter/ as a git subtree with its full history, so the workspace and the evaluator can be read, cloned and run from one place. main carries only the workspace. The branch allows arbiter as a root path, exempts arbiter/** from the data.privacy content check (Arbiter's fixture corpus is planted secrets by design), excludes arbiter/ from this repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not extend to arbiter/, and wires Arbiter to gate this repository too. Arbiter keeps its own LICENSE and NOTICE.md under arbiter/.",
+      "priority": "low",
+      "status": "completed",
+      "minimum_access_scope": [
+        "arbiter/ (subtree)",
+        "README.md",
+        "NOTICE",
+        "LICENSES/README.md",
+        ".ai/graph-config.json",
+        ".mcp.json",
+        "arbiter.yaml",
+        ".ai/rules/universal-engineering-ruleset.json",
+        ".ai/rules/data-governance.json",
+        ".ai/rules/completion-workflow.json",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "git log --oneline arbiter/ shows Arbiter's history",
+        "./omni doctor reports no errors and the vendored workspace runs the same tooling",
+        "./omni gate passes without a waiver",
+        "arbiter gate . passes natively on this repository",
+        "the subtree's own suite passes"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "arbiter gate . --no-adapters",
+        "cd arbiter && python -m pytest -q"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "Mixed licensing on one branch: Apache-2.0 for the workspace",
+        "all rights reserved for arbiter/",
+        "stated at the root. Not merged to main."
+      ]
+    },
+    {
       "id": "REQ-036",
       "category": "Doctor / drift detection",
       "title": "omni doctor prints an assurance posture and offers --json",

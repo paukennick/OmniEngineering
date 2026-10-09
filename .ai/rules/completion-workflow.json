@@ -208,6 +208,29 @@
         ],
         "timeout": 900
       }
+    },
+    {
+      "id": "completion.arbiter_gate",
+      "severity": "required",
+      "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
+      "scope": [
+        "completion",
+        "validation"
+      ],
+      "validation": {
+        "type": "command",
+        "run": "arbiter gate . --changed {base} --profile offline --baseline .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment",
+        "when_changed": [
+          "**"
+        ],
+        "ignore": [
+          ".ai/**",
+          "CHANGELOG.md",
+          "*.md",
+          "docs/**"
+        ],
+        "timeout": 600
+      }
     }
   ]
 }

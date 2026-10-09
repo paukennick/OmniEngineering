@@ -110,6 +110,15 @@
     `arbiter gate` reading two of its own earlier reports that had been committed before `arbiter-out/`
     was ignored: those are untracked there now and the lesson is FAIL-012.
 
+- `REQ-035` | Process | Arbiter published into this repository on the `arbiter` branch, as a git subtree
+  under `arbiter/` with its full history (`git subtree pull --prefix=arbiter ... main` takes later
+  changes). The branch allows `arbiter` as a root path, exempts `arbiter/**` from the `data.privacy`
+  content check (Arbiter's fixture corpus is planted secrets by design), keeps `arbiter/` out of this
+  repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not
+  extend to `arbiter/`, and wires Arbiter to gate this repository too: `arbiter gate . --changed` runs
+  inside `omni gate`, and the `arbiter` MCP server is registered beside `omni`. `main` is unchanged and
+  carries only the workspace.
+
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install
     --source SOURCE` pip-install `arbiter-eval[mcp]` (editable from a local checkout, or from the GitHub

@@ -526,6 +526,34 @@ newest `fixed` failure-ledger entry (it may list findings that no longer
 exist), and when `arbiter.yaml` changed since it was cut (`config_hash`); all
 three clear with `omni arbiter baseline --refresh`.
 
+### The `arbiter` branch
+
+On the `arbiter` branch of this repository, Arbiter's own source tree is
+vendored under `arbiter/` as a git subtree with its full history, so the
+workspace and the evaluator can be read, cloned and run from one place:
+
+```bash
+git checkout arbiter
+pip install -e "arbiter[mcp]"                                   # install from the subtree
+git subtree pull --prefix=arbiter https://github.com/paukennick/arbiter main   # take later arbiter changes
+```
+
+On this branch the two run together: `omni gate` runs `arbiter gate . --changed`
+over this repository (with `arbiter/**` suppressed, because the subtree is
+gated by its own `arbiter.yaml`), `.mcp.json` registers both the `arbiter` and
+`omni` servers, `omni doctor` checks that the subtree runs the same CLI files
+as the root and names `cd arbiter && python omni update --source ..` when it
+does not, the code graph leaves `arbiter/` to the subtree's own graph, and the
+`vendored-arbiter` CI job runs Arbiter's suite whenever the subtree exists.
+The subtree's commits cite Arbiter's requirement ids, which the gate reads
+from `arbiter/.ai/requirements/` rather than as typos here.
+
+Arbiter keeps its own `LICENSE` (all rights reserved) and `NOTICE.md` under
+`arbiter/`; the Apache-2.0 licence of this repository does not extend to it,
+and `NOTICE` and `LICENSES/README.md` at the root say so. `main` carries only
+the workspace, and `omni adopt --with-arbiter` installs Arbiter from its own
+repository.
+
 ### Updating an adopted workspace
 
 Once a project has adopted OmniEngineering and customized its rules,

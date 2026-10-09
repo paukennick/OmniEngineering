@@ -279,8 +279,7 @@
       "requirement": "REQ-034",
       "affected": [
         ".github/workflows/ci.yml",
-        ".gitignore",
-        "arbiter.yaml"
+        ".gitignore"
       ],
       "fix_summary": "The two reports are untracked on the arbiter branch (git rm --cached); arbiter-out/ stays in .gitignore and in allowed_root_paths. arbiter_install already writes the ignore entry; the README now says a hand-wired workspace must do the same before its first run.",
       "fix_commits": [],

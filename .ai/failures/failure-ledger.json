@@ -1201,6 +1201,103 @@
       ],
       "prevention_notes": "An unused local that holds rendered output is a rendering that never happened; the regression test renders a report with a skipped probe and asserts the block sits above the findings table in both formats.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-046",
+      "date": "2026-10-09",
+      "title": "pr-check.yml and train.yml pin their actions to mutable major tags",
+      "status": "open",
+      "severity": "medium",
+      "symptom": "Every `uses:` in .github/workflows (actions/checkout@v4, actions/setup-python@v5, actions/cache@v4, actions/upload-artifact@v4, github/codeql-action/upload-sarif@v3) names a tag the action owner can repoint. At .github/workflows/pr-check.yml:66.",
+      "how_detected": "arbiter arbiter/supply.unpinned-action finding f:f351df511ecf and semgrep github-actions-mutable-action-tag finding f:6450363da7ac, adjudicated true positive in the ARB-049 sweep",
+      "root_cause": "The workflows were written with the major-tag convention GitHub's own examples use; nothing in the repository checks that a third-party ref is immutable.",
+      "requirement": "ARB-049",
+      "affected": [
+        ".github/workflows/pr-check.yml",
+        ".github/workflows/train.yml"
+      ],
+      "fix_summary": "",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A workflow file is not exercised by the test suite; arbiter's own supply.unpinned-action rule is the check, and the self-gate reports it until the refs are commit SHAs.",
+      "prevention_rules": [],
+      "prevention_notes": "Fix is to pin each action to a commit SHA with the version in a trailing comment and let Dependabot move it; outside the ARB-049 scope (src, tests, arbiter.yaml, baseline, ledger), left open.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-047",
+      "date": "2026-10-09",
+      "title": "test_a_bad_plan_path_fails_loudly accepted any exception as the loud failure",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "The test wrapped run_scan in pytest.raises(Exception), so a TypeError from a mistyped argument would have passed it as readily as the engine's refusal of a non-plan document. At tests/test_probes_iac.py:201.",
+      "how_detected": "arbiter ruff/B017 finding f:1186bedac20c, adjudicated true positive in the ARB-049 sweep",
+      "root_cause": "The test was written before the engine settled on RuntimeError for a bad plan path and was never tightened.",
+      "requirement": "ARB-049",
+      "affected": [
+        "tests/test_probes_iac.py"
+      ],
+      "fix_summary": "pytest.raises(RuntimeError, match='not a Terraform plan').",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_probes_iac.py::test_a_bad_plan_path_fails_loudly"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "A loud failure is a named exception; a test that accepts Exception proves only that something broke.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-048",
+      "date": "2026-10-09",
+      "title": "The suppression census counted # noqa inside Python strings and docstrings",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "assurance.blanket-suppression reported 18 sites on the self-scan of which 16 were prose or fixtures: this module's own docstring explaining what a bare # noqa means, core.py's decision comment, and the strings the probe's tests write into temporary files.",
+      "how_detected": "arbiter arbiter/assurance.blanket-suppression finding f:bdf050c868b3 and its siblings, adjudicated false positive in the ARB-049 sweep",
+      "root_cause": "_suppressions ran the regex census over the whole file text; for Python a hash inside a string literal is not a comment, and the docs-role exclusion added for README did not cover source and test files.",
+      "requirement": "ARB-049",
+      "affected": [
+        "src/arbiter/assurance.py"
+      ],
+      "fix_summary": "_python_comments_only blanks everything the tokenizer does not report as a COMMENT token, positions kept, before the census runs over a Python file; a file that will not tokenize keeps the regex view.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_probes_quality.py::test_a_suppression_inside_a_python_string_is_not_a_suppression"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "A directive is a comment; the third probe to blank prose before matching (after the import scanner's docstrings and the disabled-check scanner's comments) and the same lesson.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-049",
+      "date": "2026-10-09",
+      "title": "A requirement quoted inside a one-line manifest list was read as undeclared",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "authored.undeclared-import reported tree_sitter as declared in no manifest although pyproject.toml declares it in the ast extra; the extra is written as a one-line list.",
+      "how_detected": "arbiter arbiter/authored.undeclared-import finding f:6d0f30bbc168, adjudicated false positive in the ARB-049 sweep",
+      "root_cause": "_declared_dependencies anchored both name patterns to the start of a line, so only the first name of an inline list (or none, when the line starts with the extra's key) was read.",
+      "requirement": "ARB-049",
+      "affected": [
+        "src/arbiter/authored.py"
+      ],
+      "fix_summary": "A third pattern reads every quoted requirement followed by a version operator, an extras bracket, a marker or a closing quote, wherever it sits on the line.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_probes_quality.py::test_a_requirement_quoted_inside_a_one_line_list_is_declared"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "Manifest formats put several requirements on one line; a reader anchored to line starts is a reader of the first column only.",
+      "recurrence_of": ""
     }
   ]
 }

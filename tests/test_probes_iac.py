@@ -197,8 +197,11 @@ def test_explicit_plan_path_is_used(tmp_path):
 
 
 def test_a_bad_plan_path_fails_loudly(tmp_path):
+    """A document that is not a plan raises the engine's RuntimeError, not
+    whatever happens to go wrong first (FAIL-047: `raises(Exception)` would
+    have passed on a typo in the call as readily as on the refusal)."""
     (tmp_path / "notaplan.json").write_text('{"hello": "world"}')
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError, match="not a Terraform plan"):
         run_scan([str(TFPLAN)], load_config(None), only=["resource_policy"],
                  plan_paths=[str(tmp_path / "notaplan.json")])
 

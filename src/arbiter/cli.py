@@ -500,7 +500,7 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
     if open_report and "html" in written:
         try:
             webbrowser.open(Path(written["html"]).resolve().as_uri())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a browser that will not open must never fail the scan
             print(f"  (could not open the report automatically: {exc})")
 
     if gate_mode and not (report.gate or {}).get("passed"):

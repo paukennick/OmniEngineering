@@ -125,12 +125,6 @@ def test_ci_11_catches_a_partial_scan_that_claims_completeness(tmp_path):
     assert any(v.invariant == "CI-11" for v in violations)
 
 
-# Slow inside the suite, not on its own: the scan asks for use_adapters=False,
-# but that only skips registering the adapters, and an earlier test in the
-# same process has registered them already, so this full scan runs the real
-# analyzers (ARB-046). Standalone it is under two seconds; the engine quirk is
-# reported, not worked around here.
-@pytest.mark.slow
 def test_partial_and_full_agree_exactly_on_the_files_both_read(tmp_path):
     """scope='file' is a claim of exactness, not an approximation.
 
@@ -235,12 +229,6 @@ def test_findings_in_untouched_context_files_are_tagged(tmp_path):
     assert any(p.startswith("infra/") for p in tagged), tagged
 
 
-# Slow inside the suite, not on its own: the scan asks for use_adapters=False,
-# but that only skips registering the adapters, and an earlier test in the
-# same process has registered them already, so this full scan runs the real
-# analyzers (ARB-046). Standalone it is under two seconds; the engine quirk is
-# reported, not worked around here.
-@pytest.mark.slow
 def test_a_full_scan_tags_nothing_as_outside_the_change(tmp_path):
     (tmp_path / "a.py").write_text(LEAKY_PY)
     rep = run_scan([str(tmp_path)], load_config(None), use_adapters=False)

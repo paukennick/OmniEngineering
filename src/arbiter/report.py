@@ -80,6 +80,11 @@ def counts_by_severity(findings: list[Finding]) -> dict[str, int]:
 
 REQ_TAG = "req:"
 UNATTRIBUTED = "unattributed"
+# How the `req:` tags were chosen, from incremental.attribute_requirements
+# (ARB-052): spelled out under the table so a reader never mistakes the
+# round's open requirements for the one that introduced a finding.
+REQ_SCOPE_COMMITS = "req-scope:commits"
+REQ_SCOPE_OPEN = "req-scope:open"
 
 
 def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int], list[str]]]:
@@ -114,8 +119,38 @@ def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int],
     return rows
 
 
-def requirement_block(findings: list[Finding], heading: str = "## By requirement") -> list[str]:
-    """The Markdown rendering of `requirement_rows`, or nothing."""
+def requirement_scope_note(findings: list[Finding], base: str | None = None) -> str:
+    """Which scope the `req:` tags came from, in one line, or nothing.
+
+    Counts the tagged findings by their `req-scope:` marker. `commits` means
+    the ids came from the commits since the base that touched the file:
+    attribution. `open` means no such commit cited one, so the ids are the
+    requirements open when the scan ran: context. Both can appear in one
+    report, and the reader is told which rows are which kind of claim.
+    """
+    tagged = [f for f in findings if any(t.startswith(REQ_TAG) for t in f.tags)]
+    from_commits = sum(1 for f in tagged if REQ_SCOPE_COMMITS in f.tags)
+    from_open = sum(1 for f in tagged if REQ_SCOPE_OPEN in f.tags)
+    since = f"since `{base}`" if base else "since the base"
+    parts = []
+    if from_commits:
+        parts.append(f"{from_commits} from the commits {since} that touched the file "
+                     f"(`{REQ_SCOPE_COMMITS}`)")
+    if from_open:
+        parts.append(f"{from_open} from the requirements open when the scan ran, because no "
+                     f"commit {since} touching the file cited one -- context, not attribution "
+                     f"(`{REQ_SCOPE_OPEN}`)")
+    return "Scope of the `req:` tags: " + "; ".join(parts) + "." if parts else ""
+
+
+def requirement_block(findings: list[Finding], heading: str = "## By requirement",
+                      base: str | None = None) -> list[str]:
+    """The Markdown rendering of `requirement_rows`, or nothing.
+
+    `base` is the ref the scan was changed-since, named in the scope note
+    under the table so the reader knows which commits the tags were read
+    from.
+    """
     rows = requirement_rows(findings)
     if not rows:
         return []
@@ -125,6 +160,9 @@ def requirement_block(findings: list[Finding], heading: str = "## By requirement
         shown = "; ".join(t.replace("|", "\\|") for t in titles)
         L.append(f"| `{key}` | " + " | ".join(str(counts[s]) for s in SEV_ORDER) + f" | {shown} |")
     L.append("")
+    note = requirement_scope_note(findings, base)
+    if note:
+        L.extend([note, ""])
     return L
 
 
@@ -417,7 +455,7 @@ def render_markdown(report: Report) -> str:
     L.append("|" + "---|" * len(SEV_ORDER))
     L.append("| " + " | ".join(str(counts[s]) for s in SEV_ORDER) + " |")
     L.append("")
-    L.extend(requirement_block(active))
+    L.extend(requirement_block(active, base=(report.scan_scope or {}).get("changed_since")))
 
     if sc.dimensions:
         gaps: dict[str, list[str]] = defaultdict(list)

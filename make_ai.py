@@ -746,9 +746,12 @@ class DoctorReport:
         return not self.errors
 
     def to_json(self) -> dict[str, Any]:
-        """The `--json` shape. `schema_version` 1 is the stable contract: keys are only ever added."""
+        """The `--json` shape. `schema_version` 2 (REQ-046): `posture.arbiter` carries `wired`, `full` and `gate`;
+        keys are only ever added. The schema 1 top-level keys under `posture.arbiter` (`present`, `fresh`,
+        `reason`, `grade`, `coverage`, `new_high_or_above`, `gate_passed`, ...) are kept for one release,
+        populated from the gate block; readers should move to `posture.arbiter.gate` before they go."""
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "ok": self.ok,
             "passed": list(self.passed),
             "warnings": list(self.warnings),
@@ -3758,12 +3761,39 @@ def arbiter_out_dir(rule: dict[str, Any] | None) -> Path:
     return ARBITER_DEFAULT_OUT_DIR
 
 
-def newest_arbiter_report(out_dir: Path) -> Path | None:
-    """The most recently written `report.json` directly in `out_dir` or one level below it, by mtime."""
-    candidates = [path for path in [out_dir / "report.json", *out_dir.glob("*/report.json")] if path.is_file()]
-    if not candidates:
+def arbiter_report_mode(path: Path) -> str | None:
+    """The `scan_scope.mode` of the report at `path`: "full" (a baseline or a plain scan) or "partial" (the
+    gate's `--changed` run, whose grade is withheld by design). A report without the key is full, which is how
+    Arbiter itself reads it; a report that cannot be parsed is None."""
+    try:
+        report = load_json(path)
+    except (OSError, ValueError):
         return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    if not isinstance(report, dict):
+        return None
+    scope = report.get("scan_scope")
+    mode = scope.get("mode") if isinstance(scope, dict) else None
+    return mode.strip() if isinstance(mode, str) and mode.strip() else "full"
+
+
+def arbiter_reports_root(out_dir: Path) -> Path:
+    """The directory the posture reads reports from. The gate writes under its `--out` (`arbiter-out/omni-gate/`)
+    and `omni arbiter baseline` beside it (`arbiter-out/baseline/`), so the root is the `--out` directory's
+    parent when it has one, read together with everything one level below it; a top-level `--out` is read
+    as is."""
+    parent = out_dir.parent
+    return out_dir if parent in (Path("."), out_dir) else parent
+
+
+def newest_arbiter_report(out_dir: Path, mode: str | None = None) -> Path | None:
+    """The most recently written `report.json` directly in `out_dir` or one level below it (baseline/,
+    omni-gate/), by mtime. With `mode` ("full" or "partial"), the newest whose `scan_scope.mode` is that one;
+    a report that cannot be parsed matches either mode, so a corrupt newest report is shown, not skipped."""
+    candidates = [path for path in [out_dir / "report.json", *out_dir.glob("*/report.json")] if path.is_file()]
+    for path in sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True):
+        if mode is None or arbiter_report_mode(path) in (mode, None):
+            return path
+    return None
 
 
 def _arbiter_timestamp(value: Any) -> float | None:
@@ -3848,36 +3878,58 @@ def arbiter_rule_scope(rule: dict[str, Any], changed: set[str]) -> set[str]:
     return {p for p in changed if matches_any(p, when) and not matches_any(p, ignore)}
 
 
-def arbiter_report_state() -> dict[str, Any]:
-    """The Arbiter part of the posture: wired, present, fresh, and the newest report's headline numbers.
-    A malformed report never raises; it is recorded as present but not fresh, with the reason."""
-    state: dict[str, Any] = {
-        "wired": False, "present": False, "fresh": False, "reason": "not wired",
+def _arbiter_report_block(path: Path | None, out_dir: Path, head: str, changed: set[str]) -> dict[str, Any]:
+    """One report's share of the posture: whether it exists, where, when it started, its headline numbers and
+    whether it still describes HEAD (judged against `changed`, the rule's scope). A malformed report never
+    raises; it is recorded as present but not fresh, with the reason."""
+    block: dict[str, Any] = {
+        "present": False, "path": None, "started_at": None,
+        "fresh": False, "reason": f"no report under {out_dir.as_posix()}",
         "grade": None, "score": None, "coverage": None,
         "new_high_or_above": 0, "existing_high_or_above": 0,
-        "gate_passed": None, "gate_reasons": [], "path": None,
+        "gate_passed": None, "gate_reasons": [],
     }
-    rule = arbiter_gate_rule()
-    if rule is None:
-        return state
-    state["wired"] = True
-    out_dir = arbiter_out_dir(rule)
-    path = newest_arbiter_report(out_dir)
     if path is None:
-        state["reason"] = f"no report under {out_dir.as_posix()}"
-        return state
-    state["present"] = True
-    state["path"] = path.as_posix()
+        return block
+    block["present"] = True
+    block["path"] = path.as_posix()
     try:
         report = load_json(path)
         if not isinstance(report, dict):
             raise ValueError("report is not a JSON object")
-        state.update(arbiter_report_summary(report))
-        head = (git_run("rev-parse", "HEAD") or "").strip()
-        changed = arbiter_rule_scope(rule, {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, out_dir)})
-        state["fresh"], state["reason"] = arbiter_report_freshness(report, head, changed)
+        block.update(arbiter_report_summary(report))
+        started = report.get("started_at")
+        block["started_at"] = started if isinstance(started, str) and started.strip() else None
+        block["fresh"], block["reason"] = arbiter_report_freshness(report, head, changed)
     except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError) as exc:
-        state["fresh"], state["reason"] = False, f"unreadable: {exc}"
+        block["fresh"], block["reason"] = False, f"unreadable: {exc}"
+    return block
+
+
+def arbiter_report_state() -> dict[str, Any]:
+    """The Arbiter part of the posture (REQ-046). Two reports are read, not one: `full` is the newest report
+    whose `scan_scope.mode` is full (`omni arbiter baseline`, a plain `arbiter scan`), the only kind that
+    carries a grade, real coverage and the existing high+ count; `gate` is the newest partial report (the
+    gate's `--changed` run), which carries the verdict on the change, the new high+ count and the freshness
+    judged against the rule's scope. Each block is present/absent on its own, so a missing full scan never
+    hides a fresh gate and vice versa.
+
+    Compatibility: the schema_version 1 keys (`present`, `fresh`, `reason`, `grade`, `coverage`,
+    `new_high_or_above`, `gate_passed`, ...) stay at the top level for one release, filled from the gate
+    block, which is what they always described; `wired` is unchanged."""
+    rule = arbiter_gate_rule()
+    root = arbiter_reports_root(arbiter_out_dir(rule))
+    empty = _arbiter_report_block(None, root, "", set())
+    state: dict[str, Any] = {"wired": rule is not None, "full": dict(empty), "gate": dict(empty)}
+    if rule is None:
+        state.update(empty)
+        state["reason"] = "not wired"
+        return state
+    head = (git_run("rev-parse", "HEAD") or "").strip()
+    changed = arbiter_rule_scope(rule, {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, root)})
+    state["full"] = _arbiter_report_block(newest_arbiter_report(root, "full"), root, head, changed)
+    state["gate"] = _arbiter_report_block(newest_arbiter_report(root, "partial"), root, head, changed)
+    state.update(state["gate"])  # schema_version 1 compatibility, one release (REQ-046)
     return state
 
 
@@ -3913,25 +3965,49 @@ def compute_posture() -> dict[str, Any]:
     }
 
 
+def _arbiter_scan_time_text(started_at: Any) -> str:
+    """A report's `started_at` as `YYYY-MM-DD HH:MM` in local time, or `?` when unreadable."""
+    stamp = _arbiter_timestamp(started_at)
+    if stamp is None:
+        return "?"
+    return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
+
+
+def _format_posture_full(full: dict[str, Any]) -> str:
+    """The full scan's share of the Posture line: its grade and coverage, and when it ran."""
+    if not full.get("present"):
+        return "arbiter no full scan (run ./omni arbiter baseline)"
+    reason = str(full.get("reason") or "")
+    if full.get("grade") is None and reason.startswith("unreadable:"):
+        return f"arbiter full scan {reason}"
+    coverage = full.get("coverage")
+    coverage_text = f"{round(float(coverage) * 100)}%" if isinstance(coverage, (int, float)) else "?"
+    grade = full.get("grade")
+    grade_text = "grade withheld" if grade in (None, "withheld") else f"score {grade}"
+    return f"arbiter {grade_text} (coverage {coverage_text}, full scan {_arbiter_scan_time_text(full.get('started_at'))})"
+
+
+def _format_posture_gate(gate: dict[str, Any]) -> str:
+    """The gate report's share of the Posture line: its verdict on the change and whether it is still fresh."""
+    if not gate.get("present"):
+        return "gate no report (run ./omni gate)"
+    if not gate.get("fresh"):
+        return f"gate stale: {gate.get('reason')}"
+    passed = gate.get("gate_passed")
+    verdict = "gate passed" if passed is True else ("gate failed" if passed is False else "gate unknown")
+    return f"{verdict} (new high+ {gate.get('new_high_or_above', 0)}, fresh)"
+
+
 def format_posture(posture: dict[str, Any]) -> str:
+    """One line: the full scan's grade, the gate report's verdict and freshness, open failures, open
+    requirements (REQ-046). Each missing report names the command that produces it."""
     arbiter = posture.get("arbiter") if isinstance(posture.get("arbiter"), dict) else {}
     if not arbiter.get("wired"):
         part = "arbiter not wired"
-    elif not arbiter.get("present"):
-        part = "arbiter no report (run ./omni gate)"
-    elif not arbiter.get("fresh"):
-        part = f"arbiter stale: {arbiter.get('reason')}"
     else:
-        coverage = arbiter.get("coverage")
-        coverage_text = f"{round(float(coverage) * 100)}%" if isinstance(coverage, (int, float)) else "?"
-        gate = arbiter.get("gate_passed")
-        gate_text = "gate passed" if gate is True else ("gate failed" if gate is False else "gate unknown")
-        grade = arbiter.get("grade")
-        grade_text = "grade withheld" if grade in (None, "withheld") else f"score {grade}"
-        part = (
-            f"arbiter {grade_text} (coverage {coverage_text}, "
-            f"new high+ {arbiter.get('new_high_or_above', 0)}, {gate_text}, fresh)"
-        )
+        full = arbiter.get("full") if isinstance(arbiter.get("full"), dict) else {}
+        gate = arbiter.get("gate") if isinstance(arbiter.get("gate"), dict) else {}
+        part = f"{_format_posture_full(full)} \u00b7 {_format_posture_gate(gate)}"
     open_requirements = posture.get("requirements_open") if isinstance(posture.get("requirements_open"), dict) else {}
     buckets = ", ".join(
         f"{status} {open_requirements[status]}"
@@ -3955,13 +4031,17 @@ def arbiter_completion_block() -> str | None:
     """Why `omni requirement complete` must not proceed yet, or None when it may. Nothing blocks a workspace
     without the Arbiter rule; with it, the first of: `arbiter` not installed, no report under the rule's
     --out directory, a report that no longer describes HEAD, a report whose gate failed. Every message ends
-    with the command that produces a fresh report, because `omni gate` is what runs the rule."""
+    with the command that produces a fresh report, because `omni gate` is what runs the rule.
+
+    The report judged is the gate's own (the newest partial scan, REQ-046); when there is none, the newest
+    full scan stands in, since a full scan at HEAD carries a gate verdict of its own."""
     rule = arbiter_gate_rule()
     if rule is None:
         return None
     if arbiter_executable() is None:
         return f"arbiter is not installed; `omni arbiter install` puts it on PATH, then run {ARBITER_GATE_COMMAND}"
-    state = arbiter_report_state()
+    reports = arbiter_report_state()
+    state = reports["gate"] if reports["gate"]["present"] else reports["full"]
     if not state["present"]:
         return f"no Arbiter report under {arbiter_out_dir(rule).as_posix()}; run {ARBITER_GATE_COMMAND}"
     if not state["fresh"]:
@@ -5906,9 +5986,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite existing non-Omni assistant files instead of skipping them.",
     )
     doctor_parser = subparsers.add_parser("doctor", help="Check OmniEngineering workspace health.")
-    doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
+    doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
     validate_parser = subparsers.add_parser("validate", help="Alias for doctor.")
-    validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
+    validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
 
     map_parser = subparsers.add_parser(
         "map",

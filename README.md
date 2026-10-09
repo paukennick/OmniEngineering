@@ -857,24 +857,31 @@ After the `Result:` line the doctor prints one `Posture:` line, the state of the
 workspace in a glance:
 
 ```text
-Posture: arbiter score 96.7 (coverage 97%, new high+ 0, gate passed, fresh) · failures open 1 · requirements open 3 (pending 2, proposed 1)
+Posture: arbiter score 96.7 (coverage 97%, full scan 2026-10-09 09:06) · gate passed (new high+ 0, fresh) · failures open 1 · requirements open 3 (pending 2, proposed 1)
 ```
 
-The Arbiter part reads the newest `report.json` under the `--out` directory of the
-`completion.arbiter_gate` rule and says whether it still describes HEAD: `arbiter
-not wired` when no such rule exists, `arbiter no report (run ./omni gate)` when the
-rule exists but nothing has been scanned, `arbiter stale: <reason>` when the report
-names another commit or a changed file is newer than the scan (an unreadable report
-counts as stale, with the reason), and otherwise the score (or `grade withheld` for a
-partial scan), coverage, unsuppressed new high-or-critical findings and the gate
-result. Then the open (or mitigated) failure-ledger entries and the open
+The Arbiter part reads two reports under the parent of the `completion.arbiter_gate`
+rule's `--out` directory (and one level below it: `arbiter-out/baseline/`,
+`arbiter-out/omni-gate/`), because the gate's `--changed` run is a partial scan
+whose grade is withheld by design. The first part is the newest *full* report
+(`scan_scope.mode: full`, written by `omni arbiter baseline` or a plain `arbiter
+scan`): its score (or `grade withheld`), coverage and when it ran, or `arbiter no
+full scan (run ./omni arbiter baseline)`. The second is the newest *partial* report,
+the gate's own: `gate passed` or `gate failed` with the unsuppressed new
+high-or-critical findings and `fresh` when it still describes HEAD, `gate stale:
+<reason>` when it names another commit or a changed file in the rule's scope is
+newer than the scan (an unreadable report counts as stale, with the reason), or
+`gate no report (run ./omni gate)`. `arbiter not wired` replaces both when no such
+rule exists. Then the open (or mitigated) failure-ledger entries and the open
 requirements by status.
 
 `omni doctor --json` (and `validate --json`) print the same report as JSON instead:
-`{"schema_version": 1, "ok", "passed", "warnings", "errors", "posture"}`.
-`schema_version` 1 is the stable contract -- keys are only ever added, never renamed
-or removed -- so a script or a CI step can read `ok`, `errors` and `posture.arbiter`
-without parsing the text.
+`{"schema_version": 2, "ok", "passed", "warnings", "errors", "posture"}`.
+`posture.arbiter` carries `wired`, `full` and `gate`; the `schema_version` 1 keys at
+its top level (`present`, `fresh`, `grade`, `coverage`, `gate_passed`, ...) are kept
+for one release, filled from the `gate` block. Keys are only ever added, never renamed
+or removed within a schema version, so a script or a CI step can read `ok`, `errors`
+and `posture.arbiter` without parsing the text.
 
 ## Code Graph (omni graph)
 

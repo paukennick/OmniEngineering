@@ -1,7 +1,9 @@
 """Tests for `omni doctor`'s Posture line, `--json` output and the cross-registry duplicate-id check (REQ-036).
 
-The posture reads the newest Arbiter report under the gate rule's `--out` directory and says whether it still
-describes HEAD; the functions are driven directly in a temporary workspace. Stdlib only. Run with:
+The posture reads the newest full Arbiter report (grade, coverage, when it ran) and the newest partial one (the
+gate's `--changed` run: verdict, new highs, whether it still describes HEAD) under the gate rule's `--out`
+directory, each on its own (REQ-046); the functions are driven directly in a temporary workspace. Stdlib only.
+Run with:
 
     python3 -m unittest discover -s tests -v
 """
@@ -74,13 +76,13 @@ class PostureFixture(unittest.TestCase):
     def write_report(
         self, commit: str, started_at: str | None = None, passed: bool = True, reasons: list | None = None,
         overall: float | None = 87.5, coverage: float = 0.71, findings: list | None = None,
-        path: str = "arbiter-out/omni-gate/report.json",
+        path: str = "arbiter-out/omni-gate/report.json", mode: str | None = "partial",
     ) -> Path:
         report = {
             "schema_version": "1.0",
             "repos": [{"id": "root", "commit": commit}],
             "started_at": started_at or datetime.now(timezone.utc).isoformat(),
-            "scan_scope": {"mode": "partial"},
+            "scan_scope": {"mode": mode} if mode else {},
             "gate": {"passed": passed, "reasons": reasons or []},
             "scorecard": {"overall": overall, "coverage": coverage, "withheld": overall is None},
             "findings": findings or [],
@@ -96,60 +98,142 @@ class TestArbiterPosture(PostureFixture):
         self.assertFalse(posture["arbiter"]["wired"])
         self.assertIn("arbiter not wired", ma.format_posture(posture))
 
-    def test_rule_without_report_reads_no_report(self) -> None:
+    def test_rule_without_report_names_both_commands(self) -> None:
         self.write_rule()
         posture = ma.compute_posture()
-        self.assertTrue(posture["arbiter"]["wired"])
-        self.assertFalse(posture["arbiter"]["present"])
-        self.assertIn("arbiter-out/omni-gate", posture["arbiter"]["reason"])
-        self.assertIn("arbiter no report (run ./omni gate)", ma.format_posture(posture))
+        arbiter = posture["arbiter"]
+        self.assertTrue(arbiter["wired"])
+        self.assertFalse(arbiter["full"]["present"])
+        self.assertFalse(arbiter["gate"]["present"])
+        self.assertFalse(arbiter["present"])  # schema 1 mirror of the gate block
+        self.assertEqual(arbiter["gate"]["reason"], "no report under arbiter-out")  # the gate's and the baseline's parent
+        line = ma.format_posture(posture)
+        self.assertIn("arbiter no full scan (run ./omni arbiter baseline) \u00b7 gate no report (run ./omni gate)", line)
 
-    def test_stale_report_is_named_with_its_reason(self) -> None:
+    def test_stale_gate_report_is_named_with_its_reason(self) -> None:
         self.git_init()
         self.write_rule()
         self.write_report("0000000")
         posture = ma.compute_posture()
-        arbiter = posture["arbiter"]
-        self.assertTrue(arbiter["present"])
-        self.assertFalse(arbiter["fresh"])
-        self.assertIn("scanned 0000000", arbiter["reason"])
+        gate = posture["arbiter"]["gate"]
+        self.assertTrue(gate["present"])
+        self.assertFalse(gate["fresh"])
+        self.assertIn("scanned 0000000", gate["reason"])
         line = ma.format_posture(posture)
-        self.assertIn("arbiter stale: scanned 0000000", line)
+        self.assertIn("gate stale: scanned 0000000", line)
+        self.assertEqual(posture["arbiter"]["reason"], gate["reason"])
 
-    def test_fresh_report_shows_the_grade(self) -> None:
+    def test_only_a_partial_report_shows_the_gate_and_asks_for_a_baseline(self) -> None:
         head = self.git_init()
         self.write_rule()
         finding = {"severity": "high", "status": "new", "suppressed": False}
         existing = {"severity": "critical", "status": "existing", "suppressed": False}
         muted = {"severity": "high", "status": "new", "suppressed": True}
-        self.write_report(head, findings=[finding, existing, muted])
+        self.write_report(head, overall=None, coverage=0.15, findings=[finding, existing, muted])
         posture = ma.compute_posture()
         arbiter = posture["arbiter"]
-        self.assertTrue(arbiter["fresh"], arbiter["reason"])
-        self.assertEqual(arbiter["grade"], "87.5")
-        self.assertEqual(arbiter["coverage"], 0.71)
-        self.assertEqual(arbiter["new_high_or_above"], 1)
-        self.assertEqual(arbiter["existing_high_or_above"], 1)
-        self.assertTrue(arbiter["gate_passed"])
-        self.assertEqual(arbiter["path"], "arbiter-out/omni-gate/report.json")
+        self.assertFalse(arbiter["full"]["present"])
+        gate = arbiter["gate"]
+        self.assertTrue(gate["fresh"], gate["reason"])
+        self.assertEqual(gate["grade"], "withheld")
+        self.assertEqual(gate["new_high_or_above"], 1)
+        self.assertEqual(gate["existing_high_or_above"], 1)
+        self.assertTrue(gate["gate_passed"])
+        self.assertEqual(gate["path"], "arbiter-out/omni-gate/report.json")
+        self.assertTrue(gate["started_at"])
+        # schema 1 readers still see the gate's numbers at the top level
+        for key in ("present", "fresh", "reason", "grade", "coverage", "new_high_or_above", "gate_passed", "path"):
+            self.assertEqual(arbiter[key], gate[key], key)
         line = ma.format_posture(posture)
-        self.assertIn("arbiter score 87.5 (coverage 71%, new high+ 1, gate passed, fresh)", line)
+        self.assertIn("arbiter no full scan (run ./omni arbiter baseline) \u00b7 gate passed (new high+ 1, fresh)", line)
+        self.assertNotIn("withheld", line)
 
-    def test_withheld_grade_is_said_so(self) -> None:
+    def test_only_a_full_report_shows_the_grade_and_asks_for_a_gate_run(self) -> None:
         head = self.git_init()
         self.write_rule()
-        self.write_report(head, overall=None)
+        existing = {"severity": "critical", "status": "existing", "suppressed": False}
+        started = "2026-10-09T08:51:35+00:00"
+        self.write_report(head, started_at=started, mode="full", path="arbiter-out/baseline/report.json",
+                          coverage=0.994, overall=86.5, findings=[existing])
+        posture = ma.compute_posture()
+        arbiter = posture["arbiter"]
+        full = arbiter["full"]
+        self.assertTrue(full["present"])
+        self.assertEqual(full["path"], "arbiter-out/baseline/report.json")
+        self.assertEqual(full["grade"], "86.5")
+        self.assertEqual(full["score"], 86.5)
+        self.assertEqual(full["coverage"], 0.994)
+        self.assertEqual(full["existing_high_or_above"], 1)
+        self.assertTrue(full["gate_passed"])
+        self.assertEqual(full["started_at"], started)
+        self.assertFalse(arbiter["gate"]["present"])
+        self.assertFalse(arbiter["present"])
+        line = ma.format_posture(posture)
+        when = ma._arbiter_scan_time_text(started)
+        self.assertRegex(when, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+        self.assertIn(f"arbiter score 86.5 (coverage 99%, full scan {when}) \u00b7 gate no report (run ./omni gate)", line)
+
+    def test_both_reports_are_read_separately(self) -> None:
+        head = self.git_init()
+        self.write_rule()
+        existing = {"severity": "critical", "status": "existing", "suppressed": False}
+        full = self.write_report("0000000", mode="full", path="arbiter-out/baseline/report.json",
+                                 coverage=0.92, overall=7.9, findings=[existing])
+        past = time.time() - 600
+        os.utime(full, (past, past))  # the gate run is newer, yet the full scan is still the one graded
+        self.write_report(head, overall=None, coverage=0.15, findings=[])
+        posture = ma.compute_posture()
+        arbiter = posture["arbiter"]
+        self.assertEqual(arbiter["full"]["path"], "arbiter-out/baseline/report.json")
+        self.assertEqual(arbiter["gate"]["path"], "arbiter-out/omni-gate/report.json")
+        self.assertEqual(arbiter["full"]["grade"], "7.9")
+        self.assertEqual(arbiter["full"]["existing_high_or_above"], 1)
+        self.assertFalse(arbiter["full"]["fresh"])  # a full scan of an older commit is still the grade shown
+        self.assertTrue(arbiter["gate"]["fresh"], arbiter["gate"]["reason"])
+        line = ma.format_posture(posture)
+        self.assertIn("arbiter score 7.9 (coverage 92%, full scan ", line)
+        self.assertIn(") \u00b7 gate passed (new high+ 0, fresh) \u00b7 failures open 0", line)
+
+    def test_stale_partial_beside_a_fresh_full_scan(self) -> None:
+        head = self.git_init()
+        self.write_rule()
+        self.write_report(head, mode="full", path="arbiter-out/baseline/report.json", overall=90.0)
+        self.write_report("0000000")
+        posture = ma.compute_posture()
+        arbiter = posture["arbiter"]
+        self.assertTrue(arbiter["full"]["fresh"], arbiter["full"]["reason"])
+        self.assertFalse(arbiter["gate"]["fresh"])
+        line = ma.format_posture(posture)
+        self.assertIn("arbiter score 90 (coverage 71%, full scan ", line)
+        self.assertIn("\u00b7 gate stale: scanned 0000000", line)
+
+    def test_a_report_without_scan_scope_counts_as_full(self) -> None:
+        head = self.git_init()
+        self.write_rule()
+        self.write_report(head, mode=None, path="arbiter-out/report.json")
+        arbiter = ma.compute_posture()["arbiter"]
+        self.assertEqual(arbiter["full"]["path"], "arbiter-out/report.json")
+        self.assertFalse(arbiter["gate"]["present"])
+
+    def test_withheld_full_grade_is_said_so(self) -> None:
+        head = self.git_init()
+        self.write_rule()
+        self.write_report(head, overall=None, mode="full")
         line = ma.format_posture(ma.compute_posture())
-        self.assertIn("arbiter grade withheld (coverage 71%", line)
+        self.assertIn("arbiter grade withheld (coverage 71%, full scan ", line)
 
     def test_malformed_report_is_present_but_not_fresh(self) -> None:
         self.write_rule()
         Path("arbiter-out/omni-gate").mkdir(parents=True)
         Path("arbiter-out/omni-gate/report.json").write_text("{not json", encoding="utf-8")
         arbiter = ma.compute_posture()["arbiter"]
-        self.assertTrue(arbiter["present"])
-        self.assertFalse(arbiter["fresh"])
-        self.assertTrue(arbiter["reason"].startswith("unreadable:"), arbiter["reason"])
+        for block in (arbiter["full"], arbiter["gate"]):  # its mode cannot be read, so it is shown as both
+            self.assertTrue(block["present"])
+            self.assertFalse(block["fresh"])
+            self.assertTrue(block["reason"].startswith("unreadable:"), block["reason"])
+        line = ma.format_posture({"arbiter": arbiter})
+        self.assertIn("arbiter full scan unreadable:", line)
+        self.assertIn("gate stale: unreadable:", line)
 
     def test_freshness_flags_a_file_changed_after_the_scan(self) -> None:
         Path("touched.txt").write_text("x", encoding="utf-8")
@@ -164,6 +248,11 @@ class TestArbiterPosture(PostureFixture):
         self.assertFalse(fresh)
         self.assertIn("HEAD is fff0000", reason)
 
+    def test_reports_root_is_the_out_dirs_parent(self) -> None:
+        self.assertEqual(ma.arbiter_reports_root(Path("arbiter-out/omni-gate")), Path("arbiter-out"))
+        self.assertEqual(ma.arbiter_reports_root(Path("arbiter-out")), Path("arbiter-out"))
+        self.assertEqual(ma.arbiter_reports_root(Path("build/arbiter/gate")), Path("build/arbiter"))
+
     def test_out_dir_comes_from_the_rule(self) -> None:
         self.assertEqual(ma.arbiter_out_dir(None), Path("arbiter-out"))
         self.assertEqual(ma.arbiter_out_dir({"validation": {"run": "arbiter gate . --out custom/dir --format json"}}), Path("custom/dir"))
@@ -177,6 +266,20 @@ class TestArbiterPosture(PostureFixture):
         os.utime(older, (past, past))
         self.assertEqual(ma.newest_arbiter_report(Path("arbiter-out")), newer)
         self.assertIsNone(ma.newest_arbiter_report(Path("nowhere")))
+
+    def test_newest_report_by_mode(self) -> None:
+        full = self.write_report("aaa", mode="full", path="arbiter-out/baseline/report.json")
+        partial = self.write_report("bbb", path="arbiter-out/omni-gate/report.json")
+        past = time.time() - 600
+        os.utime(full, (past, past))
+        self.assertEqual(ma.newest_arbiter_report(Path("arbiter-out")), partial)
+        self.assertEqual(ma.newest_arbiter_report(Path("arbiter-out"), "partial"), partial)
+        self.assertEqual(ma.newest_arbiter_report(Path("arbiter-out"), "full"), full)
+        self.assertEqual(ma.arbiter_report_mode(full), "full")
+        self.assertEqual(ma.arbiter_report_mode(partial), "partial")
+        Path("arbiter-out/omni-gate/report.json").write_text("{not json", encoding="utf-8")
+        self.assertIsNone(ma.arbiter_report_mode(partial))
+        self.assertEqual(ma.newest_arbiter_report(Path("arbiter-out"), "full"), partial)  # unreadable: surfaced, not skipped
 
     def test_open_counts_follow_the_registries(self) -> None:
         ma.write_json(ma.REQUIREMENTS_PATH, {"requirements": [
@@ -217,18 +320,42 @@ class TestDoctorReportOutput(PostureFixture):
         report.error("e")
         report.posture = ma.compute_posture()
         data = report.to_json()
-        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["schema_version"], 2)
         self.assertFalse(data["ok"])
         self.assertEqual(data["errors"], ["e"])
         self.assertIn("arbiter", data["posture"])
         json.dumps(data)  # must be serialisable as-is
+
+    def test_json_schema_2_carries_full_and_gate_blocks(self) -> None:
+        head = self.git_init()
+        self.write_rule()
+        self.write_report(head, mode="full", path="arbiter-out/baseline/report.json", overall=86.5)
+        self.write_report(head, overall=None, coverage=0.15)
+        report = ma.DoctorReport()
+        report.posture = ma.compute_posture()
+        data = json.loads(json.dumps(report.to_json()))
+        self.assertEqual(data["schema_version"], 2)
+        arbiter = data["posture"]["arbiter"]
+        self.assertTrue(arbiter["wired"])
+        self.assertEqual(set(arbiter["full"]), {
+            "present", "path", "started_at", "fresh", "reason", "grade", "score", "coverage",
+            "new_high_or_above", "existing_high_or_above", "gate_passed", "gate_reasons",
+        })
+        self.assertEqual(set(arbiter["gate"]), set(arbiter["full"]))
+        self.assertEqual(arbiter["full"]["grade"], "86.5")
+        self.assertEqual(arbiter["gate"]["grade"], "withheld")
+        # schema 1 keys stay for one release, filled from the gate block
+        for key in ("present", "fresh", "reason", "grade", "score", "coverage", "new_high_or_above",
+                    "existing_high_or_above", "gate_passed", "gate_reasons", "path"):
+            self.assertIn(key, arbiter)
+            self.assertEqual(arbiter[key], arbiter["gate"][key], key)
 
     def test_run_doctor_json_prints_parseable_json(self) -> None:
         out = io.StringIO()
         with redirect_stdout(out):
             code = ma.run_doctor(argparse.Namespace(json=True))
         data = json.loads(out.getvalue())
-        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["schema_version"], 2)
         self.assertEqual(code, 0 if data["ok"] else 1)
         self.assertIn("posture", data)
         self.assertIn("errors", data)

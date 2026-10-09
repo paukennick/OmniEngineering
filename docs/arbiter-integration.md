@@ -77,7 +77,7 @@ omni gate  (pre-commit hook, Claude Stop hook, CI)
                                     ├─ findings tagged req:<ID> from the commits since the base
                                     └─ arbiter-out/omni-gate/{report.json, report.sarif, pr-comment.md, history.jsonl}
    ▼
-omni doctor ──► Posture: arbiter score 96.7 (coverage 97%, new high+ 0, gate passed, fresh) · failures open 0 · requirements open 2
+omni doctor ──► Posture: arbiter score 96.7 (coverage 97%, full scan 2026-10-09 09:06) · gate passed (new high+ 0, fresh) · failures open 0 · requirements open 2
    ▼
 omni requirement complete REQ-0xx ──► refuses unless the newest Arbiter report was scanned at HEAD, after the last edit, and passed
    ▼
@@ -109,8 +109,25 @@ Each arrow is enforced, not advisory:
   group findings by requirement, so a review reads "REQ-042 introduced two
   highs" rather than a flat list.
 - **Doctor shows the posture.** The `Posture:` line comes after the
-  `Result:` line, which is unchanged for anything that parses it;
-  `omni doctor --json` (schema_version 1) is the machine contract.
+  `Result:` line, which is unchanged for anything that parses it. It reads two
+  reports, not one, because the gate's `--changed` run is a partial scan whose
+  grade is withheld by design: the first part is the newest *full* report
+  (`scan_scope.mode: full`, from `omni arbiter baseline` or a plain `arbiter
+  scan`) with its grade, coverage and when it ran; the second is the newest
+  *partial* report (the gate's own) with its verdict, the new high+ count and
+  whether it still describes HEAD, judged against the rule's `when_changed`
+  scope. Both are looked for under the `--out` directory's parent and one level
+  below it (`arbiter-out/baseline/`, `arbiter-out/omni-gate/`). When one is
+  missing the line names the command that makes it: `arbiter no full scan (run
+  ./omni arbiter baseline)`, `gate no report (run ./omni gate)`; a gate report
+  that no longer describes HEAD reads `gate stale: <reason>`. `omni doctor
+  --json` (schema_version 2) is the machine contract: `posture.arbiter` carries
+  `wired`, `full` and `gate`, each block with `present`, `path`, `started_at`,
+  `fresh`, `reason`, `grade`, `score`, `coverage`, `new_high_or_above`,
+  `existing_high_or_above`, `gate_passed` and `gate_reasons`. The schema 1 keys
+  at the top of `posture.arbiter` (`present`, `fresh`, `grade`, `coverage`,
+  `gate_passed`, ...) stay for one release, filled from the `gate` block; move
+  readers to `posture.arbiter.gate` before they go.
 - **Completion checks the gate.** `omni requirement complete` refuses with the
   exact command to run (`./omni gate`) when the report is missing, stale or
   red. `--no-arbiter-check REASON` records the reason in the requirement's
@@ -233,7 +250,7 @@ Every piece has a switch so a misbehaving one is disabled, not reverted.
 | Piece | Switch | Risk it bounds |
 |---|---|---|
 | Arbiter gate inside `omni gate` | remove or set `severity: recommended` on `completion.arbiter_gate` | a red Arbiter blocking unrelated work |
-| Baseline | delete `.arbiter/baseline.json` (every finding is new again) | hidden debt; doctor warns when it is stale, the posture line shows `existing high+` |
+| Baseline | delete `.arbiter/baseline.json` (every finding is new again) | hidden debt; doctor warns when it is stale, `omni doctor --json` carries `existing_high_or_above` under `posture.arbiter.full` |
 | Completion check | `--no-arbiter-check REASON` | a stale report blocking a completion; the reason is recorded |
 | Findings in the graph | `findings_report: null` in `.ai/graph-config.json` | a bad report polluting the graph |
 | Result cache | `cache.enabled: false` in `arbiter.yaml` or `--no-cache` | stale findings; CI never uses the cache, `--verify-cache` samples hits |

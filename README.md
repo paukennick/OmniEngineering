@@ -911,7 +911,7 @@ git log, ask the graph what is tied to the thing you are about to touch.
 | **code** | modules, classes, functions, tables | `calls`, `imports`, `defines`, `inherits`, ... | your source (tree-sitter, SQL migrations) |
 | **governance** | `requirement`, `changelog` | `touches`, `records`, `mentions` | requirement files, changelog |
 | **history** | `commit` | `delivers`, `modifies`, `logged_in`, `follows` | the git log |
-| **assurance** | test files, `suite`, `failure` | `verifies`, `contains`, `covers`, `affects`, `arose_in`, `guards`, `fixed_by`, `recurs` | tests, the suite registry, the failure ledger |
+| **assurance** | test files, `suite`, `failure`, `finding` | `verifies`, `contains`, `covers`, `affects`, `arose_in`, `guards`, `fixed_by`, `recurs`, `flags`, `cites`, `recorded_as` | tests, the suite registry, the failure ledger, the newest Arbiter report |
 | **workspace** | `rulepack`, `rule`, `playbook`, `checklist`, and OmniEngineering's own code | `defines`, `prevented_by` | `.ai/rules`, `.ai/playbooks`, `.ai/checklists`, `make_ai.py`, `omni_graph.py` |
 
 - A requirement `touches` the files in its declared scope (EXTRACTED) and the
@@ -932,6 +932,13 @@ git log, ask the graph what is tied to the thing you are about to touch.
   cause, linked to the code it affected, the requirement, the tests or suite that
   `guard` it, the rule or playbook that prevents a repeat (`prevented_by`, into the
   workspace layer), and any earlier failure it repeats.
+- Every unsuppressed finding in the newest Arbiter report (`arbiter-out/**/report.json`, the
+  `--out` of the `completion.arbiter_gate` rule) is a `finding` node named by its id (`f:17a59c37fc20`)
+  that `flags` the file it was raised on and the function, class or method whose span holds the
+  line, `cites` the requirement named by a `req:<ID>` tag, and is `recorded_as` the ledger entry
+  whose `how_detected` quotes the finding id. Only the id, location, rule, category, severity,
+  status and tags are copied -- never the evidence. Directory nodes `contain` their files and
+  subdirectories, so the hierarchy root > directory > file > symbol > finding is explicit.
 
 Traverse across the layers:
 
@@ -941,6 +948,8 @@ omni graph why REQ-021              # files touched, changelog entries, commits,
 omni graph why FAIL-003             # affected code, regression tests, prevention, fix commits
 omni graph why a1b2c3d              # a commit: requirements, changelog entry, files, previous/next commit
 omni graph why backend-junit        # a suite: its test files, what it covers
+omni graph why f:17a59c37fc20       # an Arbiter finding: rule, severity, category, flagged code, requirement, ledger entry
+omni graph findings --tree --severity high   # findings by directory, with what each is tied to (--under, --dimension, --json, --view)
 omni graph lineage REQ-021          # everything upstream and downstream of it, no second endpoint needed
 omni graph lineage a1b2c3d --up     # a commit: the requirement and previous commit that led to it
 omni graph lineage FAIL-003 --depth 3 --json   # a failure: cause above it, tests, rules and fixes below it
@@ -1008,7 +1017,38 @@ both were real results the first time this ran).
 - **Comfort.** Every menu section collapses (remembered), every option has a tooltip, filter groups have
   All / None, and there is a soft-grey light theme (not pure white) as well as the dark one.
 
-`omni graph render` draws the code layer only unless you pass `--all-layers`.
+- **Findings.** When the graph holds Arbiter findings, a *Findings* tab lays them out as a tree under the
+  directory, file and symbol they were raised on (`root › dir › file › Class › method › finding`), with the
+  requirements they cite and the failures they were recorded as. Two more colour modes, *finding category*
+  (Arbiter dimension) and *finding severity*, colour the findings and leave everything else in its layer
+  colour; a *Filter: findings* section has severity and category rows; the search accepts `severity:high`,
+  `dim:security` and `rule:secrets`, and matches finding ids and rule ids. A finding's panel shows
+  `path:line` with a Copy button and an editor link, the rule, severity, category and status, *Trace to
+  requirement* / *Trace to failure* buttons, and a copyable `arbiter review <report> --rule <rule_id>`
+  line. `omni graph findings --view` opens the viewer on that tab.
+
+`omni graph render` draws the code layer only unless you pass `--all-layers`; findings are coloured by
+category, sized by severity, and a `new` finding wears a ring (see the "findings by category" legend).
+
+### Trace an Arbiter finding
+
+The gate produces findings; the graph makes each one a node you can walk from the line of code to
+the requirement it belongs to and the ledger entry that closes it:
+
+```bash
+omni gate                                     # runs `arbiter gate` through completion.arbiter_gate; writes arbiter-out/omni-gate/report.json
+omni graph build                              # the newest report's unsuppressed findings become `finding` nodes
+omni graph why f:17a59c37fc20                 # rule, severity, category, the flagged file and symbol, the requirement, the failure
+omni graph findings --tree --severity high    # every high finding by directory, with the requirements, failures and suites it reaches
+omni graph view --focus f:17a59c37fc20 --open # the same finding in the viewer, its chain lit up: dir > file > symbol > finding
+arbiter review arbiter-out/omni-gate/report.json --rule arbiter/secrets.aws-access-key   # adjudicate it
+omni failure add --requirement REQ-012 --title "..." --symptom "..." --detected "arbiter finding f:17a59c37fc20"
+omni graph build                              # the finding is now `recorded_as` that ledger entry
+```
+
+`omni graph sources` names the report the build would read, or says `findings: no Arbiter report
+found (run ./omni gate)`. Set `findings_report` in `.ai/graph-config.json` to read a specific report,
+or to `null` to leave the findings out.
 
 ### Using it in your own project
 
@@ -1033,6 +1073,7 @@ Only the settings that differ from the defaults belong in `.ai/graph-config.json
 | `ci_files` | GitHub, GitLab, Cloud Build, Azure, Jenkins, Makefile | extra CI files hold your test commands |
 | `rules_dir`, `playbook_dirs`, `checklist_dirs` | `.ai/...` | your rules and playbooks live elsewhere |
 | `max_commits` | 400 | you want more or less history |
+| `findings_report` | newest `report.json` under the `completion.arbiter_gate` rule's `--out` (default `arbiter-out`) | you want the finding nodes read from one specific Arbiter report, or `null` to leave them out |
 | `tooling_paths` | `make_ai.py`, `omni_graph.py`, `omni`, `.ai/*` | set to `[]` if OmniEngineering itself is your project |
 
 A project with no `.ai/`, no git, no requirements, or no tests still builds: each
@@ -1090,7 +1131,7 @@ omni mcp serve          # serve them over stdio (JSON-RPC 2.0, one JSON object p
 
 Point an MCP client's command at `omni mcp serve` (working directory: your project
 root). Every tool is read-only -- `graph_lineage`, `graph_why`, `graph_trace`,
-`graph_timeline`, `graph_impact`, `graph_show`, `graph_sources`, `requirement_show`,
+`graph_timeline`, `graph_impact`, `graph_show`, `graph_sources`, `graph_findings`, `requirement_show`,
 `requirement_list`, `requirement_search`, `failure_show`, `gate_status` -- so a
 client can call them with no confirmation step; nothing here writes a requirement,
 a changelog entry or a waiver. `omni requirement draft`, `omni requirement add` and

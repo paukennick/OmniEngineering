@@ -31,6 +31,7 @@ import math
 import os
 import random
 import re
+import shlex
 import subprocess
 import urllib.error
 import urllib.request
@@ -106,6 +107,7 @@ NODE_KIND_LAYER = {
     "rulepack": LAYER_WORKSPACE,
     "playbook": LAYER_WORKSPACE,
     "checklist": LAYER_WORKSPACE,
+    "finding": LAYER_ASSURANCE,  # REQ-043: one Arbiter finding, read from the newest gate report
 }
 
 EDGE_LAYER = {
@@ -125,6 +127,10 @@ EDGE_LAYER = {
     "recurs": LAYER_ASSURANCE,  # failure -> earlier failure it repeats
     "contains": LAYER_ASSURANCE,  # test suite -> test file it groups
     "covers": LAYER_ASSURANCE,  # test suite -> code it is declared or inferred to cover
+    # REQ-043: Arbiter findings as nodes
+    "flags": LAYER_ASSURANCE,  # finding -> file (and the symbol whose span holds the line) it was raised on
+    "cites": LAYER_ASSURANCE,  # finding -> requirement named by a `req:<ID>` tag
+    "recorded_as": LAYER_ASSURANCE,  # finding -> failure-ledger entry whose how_detected names the finding
 }
 
 FAILURE_LEDGER_PATH = ".ai/failures/failure-ledger.json"
@@ -155,6 +161,9 @@ _DEFAULT_GRAPH_CONFIG: dict[str, Any] = {
     # vendored examples, generated output. They are still readable by an assistant (unlike .ai/.ignore entries) and
     # still appear in git history; they just never contribute symbols that would be attributed to the project.
     "exclude_code_globs": [],
+    # REQ-043: the Arbiter report the finding nodes come from. "auto" reads the newest report.json under the
+    # `completion.arbiter_gate` rule's --out directory (default arbiter-out); a path names one report; null disables them.
+    "findings_report": "auto",
 }
 _CONFIG_CACHE: dict[str, tuple[Any, dict[str, Any]]] = {}
 
@@ -191,6 +200,8 @@ def graph_config(root: Path, problems: list[str] | None = None) -> dict[str, Any
                         config[name] = value
                     else:
                         found.append(f"{GRAPH_CONFIG_PATH}: 'requirement_id_pattern' must be a regular expression string")
+                elif name == "findings_report" and value is None:
+                    config[name] = None  # REQ-043: null switches the finding nodes off
                 elif isinstance(default, int):
                     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                         config[name] = value
@@ -2989,6 +3000,8 @@ def add_assurance_layer(graph: Graph, root: Path) -> dict[str, Any]:
             else:
                 unresolved.append(f"{fid} recurrence_of: '{earlier}' is not in the ledger")
 
+    _add_finding_nodes(graph, root, index, failures, failure_nodes, stats, unresolved)  # REQ-043
+    _link_directory_contents(graph)  # REQ-043: directory -> file / subdirectory `contains` edges
     stats["unresolved"] = len(unresolved)
     if unresolved:
         graph.notes.append(
@@ -3034,6 +3047,210 @@ def check_failure_ledger(root: Path) -> dict[str, Any]:
             if not item.get("prevention_rules") and not item.get("prevention_notes"):
                 problems.append(f"{fid}: no 'prevention_rules' or 'prevention_notes' -- say what stops this recurring")
     return {"ok": not problems, "present": True, "problems": problems, "failures": len(seen)}
+
+
+# --------------------------------------------------------------------------
+# REQ-043: Arbiter findings as graph nodes
+#
+# `omni gate` runs `arbiter gate` through the `completion.arbiter_gate` command
+# rule and the report lands under that rule's --out directory. Every finding
+# that is not suppressed becomes a `finding` node in the assurance layer,
+# `flags` the file (and the function, class or method whose span holds the
+# line), `cites` the requirements its `req:<ID>` tags name, and is
+# `recorded_as` the failure-ledger entry whose how_detected quotes its id.
+# Only the finding's identity, location, rule and category are copied: never
+# the evidence, description or remediation text, which may quote the code.
+# --------------------------------------------------------------------------
+
+ARBITER_GATE_RULE_ID = "completion.arbiter_gate"
+FINDINGS_DEFAULT_OUT = "arbiter-out"
+FINDINGS_REPORT_NAME = "report.json"
+FINDINGS_NO_REPORT_NOTE = "findings: no Arbiter report found (run ./omni gate)"
+_FINDING_SYMBOL_KINDS = ("function", "method", "class", "interface")
+_FINDING_LINK_EDGES = {"flags", "cites", "recorded_as"}
+
+
+def _arbiter_out_dir(root: Path, cfg: dict[str, Any]) -> str:
+    """The --out directory of the `completion.arbiter_gate` rule's run text, else the Arbiter default."""
+    rules_dir = root / str(cfg.get("rules_dir") or ".ai/rules")
+    if not rules_dir.is_dir():
+        return FINDINGS_DEFAULT_OUT
+    for path in sorted(rules_dir.glob("*.json")):
+        data = _read_json_file(path)
+        rules = data.get("rules") if isinstance(data, dict) else None
+        for rule in rules or []:
+            if not isinstance(rule, dict) or rule.get("id") != ARBITER_GATE_RULE_ID:
+                continue
+            validation = rule.get("validation") if isinstance(rule.get("validation"), dict) else {}
+            try:
+                argv = shlex.split(str(validation.get("run") or ""))
+            except ValueError:
+                return FINDINGS_DEFAULT_OUT
+            for index, arg in enumerate(argv):
+                if arg == "--out" and index + 1 < len(argv):
+                    return argv[index + 1].replace("\\", "/").rstrip("/") or FINDINGS_DEFAULT_OUT
+                if arg.startswith("--out="):
+                    return arg[len("--out="):].replace("\\", "/").rstrip("/") or FINDINGS_DEFAULT_OUT
+            return FINDINGS_DEFAULT_OUT
+    return FINDINGS_DEFAULT_OUT
+
+
+def find_findings_report(root: Path, cfg: dict[str, Any] | None = None) -> Path | None:
+    """The report the finding nodes come from: graph-config `findings_report`, else the newest report.json under the
+    gate rule's --out directory (itself or one level below). None when disabled or nothing is there."""
+    cfg = cfg or graph_config(root)
+    setting = cfg.get("findings_report", "auto")
+    if setting is None:
+        return None
+    if isinstance(setting, str) and setting != "auto":
+        candidate = root / setting
+        return candidate if candidate.is_file() else None
+    out_dir = root / _arbiter_out_dir(root, cfg)
+    if not out_dir.is_dir():
+        return None
+    candidates = [out_dir / FINDINGS_REPORT_NAME]
+    try:
+        candidates.extend(child / FINDINGS_REPORT_NAME for child in sorted(out_dir.iterdir()) if child.is_dir())
+    except OSError:
+        return None
+    found = [c for c in candidates if c.is_file()]
+    if not found:
+        return None
+    return max(found, key=lambda c: (c.stat().st_mtime_ns, str(c)))
+
+
+def load_findings(root: Path, report: Path, problems: list[str] | None = None) -> list[dict[str, Any]]:
+    """The unsuppressed findings of an Arbiter report, reduced to the fields the graph keeps (never the evidence)."""
+    rel = report.relative_to(root).as_posix() if report.is_relative_to(root) else report.as_posix()
+    data = _read_json_file(report, problems, rel)
+    if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+        if problems is not None and data is not None:
+            problems.append(f"{rel}: no `findings` list in the report")
+        return []
+    items: list[dict[str, Any]] = []
+    for raw in data["findings"]:
+        if not isinstance(raw, dict) or not raw.get("id") or raw.get("suppressed"):
+            continue
+        location = raw.get("location") if isinstance(raw.get("location"), dict) else {}
+        path = str(location.get("path") or "").strip().replace("\\", "/")
+        if path.startswith("./"):
+            path = path[2:]
+        if not path:
+            continue
+        line = location.get("start_line")
+        line = int(line) if isinstance(line, int) and not isinstance(line, bool) and line > 0 else None
+        tags = [str(t) for t in raw.get("tags") or [] if isinstance(t, (str, int))]
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        items.append({
+            "id": str(raw["id"]), "rule_id": str(raw.get("rule_id") or ""), "dimension": str(raw.get("dimension") or "other"),
+            "severity": str(raw.get("severity") or "info"), "status": str(raw.get("status") or "new"), "tags": tags,
+            "title": _short(raw.get("title"), 300), "path": path, "line": line, "directory_path": parent, "report": rel,
+        })
+    return items
+
+
+def _add_finding_nodes(
+    graph: Graph, root: Path, index: _LayerIndex, failures: list[Any], failure_nodes: dict[str, str],
+    stats: dict[str, Any], unresolved: list[str],
+) -> None:
+    stats.update({"findings": 0, "flags": 0, "cites": 0, "recorded_as": 0})
+    cfg = graph_config(root)
+    if cfg.get("findings_report") is None:
+        return
+    report = find_findings_report(root, cfg)
+    if report is None:
+        graph.notes.append(f"assurance: {FINDINGS_NO_REPORT_NOTE}")
+        return
+    problems: list[str] = []
+    items = load_findings(root, report, problems)
+    graph.notes.extend(f"assurance: {problem}" for problem in problems)
+    if not items:
+        return
+    by_file: dict[str, list[GraphNode]] = {}
+    for node in graph.nodes.values():
+        if node.kind in _FINDING_SYMBOL_KINDS and node.file and node.start_line and node.end_line:
+            by_file.setdefault(node.file, []).append(node)
+    req_nodes = {node.name: node.id for node in graph.nodes.values() if node.kind == "requirement"}
+    detections = [(str(item.get("id")), str(item.get("how_detected") or "")) for item in failures if isinstance(item, dict) and item.get("id")]
+    for item in items:
+        node_id = f"finding:{item['id']}"
+        graph.add_node(
+            GraphNode(
+                node_id, "finding", item["id"], item["id"], item["path"], item["line"], None, None, item["title"],
+                {key: item[key] for key in ("rule_id", "dimension", "severity", "status", "tags", "line", "directory_path", "report")},
+                LAYER_ASSURANCE,
+            )
+        )
+        stats["findings"] += 1
+        covering = None
+        if item["line"] is not None:
+            spans = [n for n in by_file.get(item["path"], []) if n.start_line <= item["line"] <= n.end_line]
+            if spans:
+                covering = min(spans, key=lambda n: (n.end_line - n.start_line, n.start_line))
+        if covering is not None:  # the symbol first: the viewer treats the first `flags` target as the finding's parent
+            graph.add_edge(node_id, covering.id, "flags", "EXTRACTED", "arbiter-report", f"raised at line {item['line']} inside {covering.kind} {covering.name}")
+            stats["flags"] += 1
+        target = index.file_node(item["path"])
+        if target is None:
+            ids = index.symbol_ids(item["path"])
+            target = graph.nodes[ids[0]] if ids else None
+        if target is not None:
+            # make the directory chain explicit so the viewer's tree reads root > dir > file > symbol > finding
+            parts = item["path"].split("/")[:-1]
+            for depth in range(1, len(parts) + 1):
+                index.file_node("/".join(parts[:depth]))
+            graph.add_edge(node_id, target.id, "flags", "EXTRACTED", "arbiter-report", f"raised at {item['path']}:{item['line'] or '?'}")
+            stats["flags"] += 1
+        else:
+            unresolved.append(f"{item['id']} location: '{item['path']}' is not in the graph or on disk")
+        for tag in item["tags"]:
+            if tag.startswith("req:"):
+                requirement = tag[4:]
+                if requirement in req_nodes:
+                    graph.add_edge(node_id, req_nodes[requirement], "cites", "EXTRACTED", "arbiter-report", f"tagged {tag}")
+                    stats["cites"] += 1
+                else:
+                    unresolved.append(f"{item['id']} tag: '{requirement}' is not in the registry")
+        for fid, how in detections:
+            if item["id"] in how and fid in failure_nodes:
+                graph.add_edge(node_id, failure_nodes[fid], "recorded_as", "EXTRACTED", "failure-ledger", f"{fid} how_detected names this finding")
+                stats["recorded_as"] += 1
+
+
+def _link_directory_contents(graph: Graph) -> int:
+    """`contains` edges from every directory node to its direct files and subdirectories already in the graph."""
+    directories = {node.file: node for node in graph.nodes.values() if node.kind == "file" and node.attrs.get("directory") and node.file}
+    if not directories:
+        return 0
+    added = 0
+    for node in graph.nodes.values():
+        if node.kind not in ("module", "file") or not node.file:
+            continue
+        relpath = node.file.rstrip("/")
+        if "/" not in relpath:
+            continue
+        parent = directories.get(relpath.rsplit("/", 1)[0])
+        if parent is None or parent.id == node.id:
+            continue
+        before = len(graph.edges)
+        graph.add_edge(parent.id, node.id, "contains", "EXTRACTED", "filesystem", "directory entry")
+        added += len(graph.edges) - before
+    return added
+
+
+def describe_findings_source(root: Path, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """What `omni graph sources` reports for the findings: which report would be read, how many it holds, or why none."""
+    cfg = cfg or graph_config(root)
+    setting = cfg.get("findings_report", "auto")
+    if setting is None:
+        return {"report": None, "findings": 0, "disabled": True, "note": "findings: disabled by findings_report: null in graph-config"}
+    report = find_findings_report(root, cfg)
+    if report is None:
+        return {"report": None, "findings": 0, "disabled": False, "note": FINDINGS_NO_REPORT_NOTE, "out_dir": _arbiter_out_dir(root, cfg)}
+    problems: list[str] = []
+    items = load_findings(root, report, problems)
+    rel = report.relative_to(root).as_posix() if report.is_relative_to(root) else report.as_posix()
+    return {"report": rel, "findings": len(items), "disabled": False, "note": "", "problems": problems}
 
 
 # --------------------------------------------------------------------------
@@ -3477,7 +3694,7 @@ def _resolve_one(graph_data: dict[str, Any], query: str) -> tuple[dict[str, Any]
     if len(matches) > 1:
         # A bare name matches a file, its class and that class's constructor alike; prefer the
         # outermost exact-name match when exactly one node of that kind exists.
-        rank = ("requirement", "failure", "rule", "suite", "changelog", "commit", "file", "playbook", "checklist", "rulepack",
+        rank = ("requirement", "failure", "finding", "rule", "suite", "changelog", "commit", "file", "playbook", "checklist", "rulepack",
                 "module", "table", "class", "interface", "function", "method")
         exact = [n for n in matches if n["name"] == query]
         for kind_name in rank:
@@ -3497,6 +3714,10 @@ def _node_brief(node: dict[str, Any], via: str = "") -> dict[str, Any]:
             entry[key] = attrs[key]
     if node.get("file"):
         entry["file"] = node["file"]
+    if node["kind"] == "finding":  # REQ-043: the rule and category are what a reader needs to act on a finding
+        for key in ("rule_id", "dimension", "line"):
+            if attrs.get(key) is not None:
+                entry[key] = attrs[key]
     if via:
         entry["via"] = via
     return entry
@@ -3513,6 +3734,7 @@ LINEAGE_FLOW: dict[str, str] = {
     "arose_in": "up", "affects": "up",                         # a failure comes from a requirement and from code
     "guards": "up", "prevented_by": "down", "fixed_by": "down",  # ...and produces tests, rules and fixes
     "covers": "up", "verifies": "up",                          # tests answer the code they exercise
+    "flags": "up", "cites": "up", "recorded_as": "down",       # REQ-043: a finding comes from code and a requirement, and becomes a ledger entry
 }
 # Structural dependencies between code symbols. Off by default: they would drown a requirement's lineage in call graphs.
 LINEAGE_CODE_FLOW: dict[str, str] = {
@@ -3696,6 +3918,18 @@ def why(graph_path: Path, query: str) -> dict[str, Any]:
                 add("failures it prevents", e["source"])
             elif e["type"] == "defines":
                 add("rules", e["source"], "declared in this rulepack")
+    elif kind == "finding":  # REQ-043: the rule, where it was raised, and what it is tied to
+        attrs = node.get("attrs") or {}
+        sections["finding"] = [{
+            "id": node["id"], "kind": "finding", "name": str(attrs.get("rule_id") or "?"),
+            "summary": f"{attrs.get('severity', '?')} {attrs.get('dimension', '?')} finding ({attrs.get('status', '?')}): {node.get('summary', '')}",
+            "severity": attrs.get("severity", ""), "status": attrs.get("status", ""), "dimension": attrs.get("dimension", ""),
+            "via": f"{node.get('file', '')}:{attrs.get('line', '')}; report {attrs.get('report', '')}",
+        }]
+        for e in outgoing.get(node["id"], []):
+            section = {"flags": "flagged code", "cites": "requirement", "recorded_as": "failure"}.get(e["type"])
+            if section:
+                add(section, e["target"], e.get("detail", ""))
     else:
         # Rank the evidence: a requirement whose commits changed this file beats one that merely
         # declares it in scope, and a directory-wide scope is the weakest link of all.
@@ -3721,6 +3955,8 @@ def why(graph_path: Path, query: str) -> dict[str, Any]:
                     add("failures it prevented", e["source"])
                 elif e["type"] == "covers":
                     add("test suites", e["source"], "covers " + (by_id[anchor].get("file") or by_id[anchor]["name"]))
+                elif e["type"] == "flags":  # REQ-043
+                    add("findings", e["source"], e.get("detail", ""))
         requirement_ids = sorted(req_rank, key=lambda rid: (req_rank[rid][0], by_id[rid]["name"]))
         for req_id in requirement_ids:
             add("requirements", req_id, req_rank[req_id][1])
@@ -3891,7 +4127,7 @@ def impact_summary(result: dict[str, Any]) -> str:
 _TIMELINE_EDGES = {
     t for t, layer in EDGE_LAYER.items() if t not in ("follows", "contains", "covers", "verifies", "prevented_by")
 }
-_KIND_ORDER = {"requirement": 0, "changelog": 1, "commit": 2, "failure": 3}
+_KIND_ORDER = {"requirement": 0, "changelog": 1, "commit": 2, "failure": 3, "finding": 4}
 
 
 def timeline(graph_path: Path, query: str, depth: int = 1) -> dict[str, Any]:
@@ -3985,6 +4221,7 @@ def describe_sources(root: Path) -> dict[str, Any]:
         "detected_suites": [{"id": s["id"], "framework": s["framework"], "files": len(s["files"]), "command": s["command"]} for s in suites["auto"]],
         "failure_ledger": {"path": cfg["failure_ledger"], "exists": (root / cfg["failure_ledger"]).is_file()},
         "ci_commands": len(_ci_commands(root)),
+        "findings": describe_findings_source(root, cfg),  # REQ-043
     }
     layers["workspace"] = {
         "rulepacks": len(list((root / cfg["rules_dir"]).glob("*.json"))) if (root / cfg["rules_dir"]).is_dir() else 0,
@@ -4009,6 +4246,8 @@ def describe_sources(root: Path) -> dict[str, Any]:
         hints.append("No tests found. If you have some, add a glob to test_globs in graph-config or register a suite with `omni test add`.")
     elif suites["auto"]:
         hints.append(f"{len(suites['auto'])} detected test suite(s) are not registered: `omni test detect --write`.")
+    if layers["assurance"]["findings"].get("note"):  # REQ-043
+        hints.append(layers["assurance"]["findings"]["note"])
     report["hints"] = hints
     return report
 
@@ -4348,6 +4587,7 @@ def build_view_html(
     focus: str | None = None,
     depth: int = 2,
     mode: str = "auto",
+    view: str | None = None,
 ) -> dict[str, Any]:
     missing = [name for name in VIEWER_ASSETS if _viewer_asset_path(name) is None]
     if missing:
@@ -4386,7 +4626,7 @@ def build_view_html(
             # (requirements, changelog entries, failures, suites, playbooks, checklists, rulepacks, and the rules that
             # failures produced) so every layer is visible without hunting. Commits and tests come in by connectivity.
             linked_rules = {e["target"] for e in edges if e["type"] == "prevented_by"}
-            anchor_kinds = ("failure", "requirement", "changelog", "suite", "playbook", "checklist", "rulepack")
+            anchor_kinds = ("failure", "requirement", "changelog", "suite", "playbook", "checklist", "rulepack", "finding")
             anchors = [n for n in candidates if all_nodes[n]["kind"] in anchor_kinds or n in linked_rules]
             initial_ids.update(anchors[:max_initial])
             note = f"top {max_initial} by connections plus every requirement, changelog entry, failure, suite and workspace anchor; use search or the kind filter to find the rest"
@@ -4426,6 +4666,11 @@ def build_view_html(
         "initial": sorted(initial_ids),
         "meta": {"root": root_label, "generated_at": generated, "note": note, "mode": mode if mode in ("2d", "3d") else "auto"},
     }
+    # REQ-043: the finding palette, the start view and the absolute root (for editor links) ride along with the data
+    payload["meta"]["finding_colors"] = dict(_FINDING_DIMENSION_COLORS)
+    payload["meta"]["root_path"] = _absolute_root(raw_root)
+    if view:
+        payload["meta"]["view"] = view
     data_json = (
         json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         .replace("<", "\\u003c")
@@ -4471,7 +4716,7 @@ _LANGUAGE_COLORS = {
 _DEFAULT_NODE_COLOR = "#9a9a9a"
 _KIND_RADIUS = {
     "module": 14, "class": 10, "interface": 10, "table": 12, "function": 6, "method": 6, "external": 3,
-    "requirement": 12, "changelog": 8, "commit": 5, "failure": 12, "rule": 9, "file": 8, "suite": 13,
+    "requirement": 12, "changelog": 8, "commit": 5, "failure": 12, "rule": 9, "file": 8, "suite": 13, "finding": 7,
 }
 _SVG_BG = "#0f0f12"
 _SVG_TEXT = "#e8e8e8"
@@ -4486,10 +4731,25 @@ def _escape_svg_text(text: str) -> str:
 
 _KIND_COLORS = {
     "requirement": "#f2c14e", "changelog": "#8fbf6a", "commit": "#7d8590", "failure": "#ff5c5c", "rule": "#5fd0e0", "suite": "#b48ead",
+    "finding": "#ff8a3d",
 }
+# REQ-043: findings are coloured by Arbiter dimension (category), not by kind, so a glance separates security from quality.
+_FINDING_DIMENSION_COLORS = {
+    "security": "#ff5c5c", "quality": "#f2c14e", "drift": "#c792ea", "supply_chain": "#ff9f6b",
+    "assurance": "#5fd0e0", "resource_policy": "#8fbf6a", "judgement": "#b48ead", "other": "#9a9a9a",
+}
+_FINDING_SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
+_FINDING_SEVERITY_RADIUS = {"critical": 14, "high": 11, "medium": 9, "low": 7, "info": 5}
+
+
+def _finding_color(node: dict[str, Any]) -> str:
+    dimension = str((node.get("attrs") or {}).get("dimension") or "other")
+    return _FINDING_DIMENSION_COLORS.get(dimension, _FINDING_DIMENSION_COLORS["other"])
 
 
 def _node_color(node: dict[str, Any]) -> str:
+    if node.get("kind") == "finding":  # REQ-043
+        return _finding_color(node)
     if node.get("kind") in _KIND_COLORS:
         return _KIND_COLORS[node["kind"]]
     language = node.get("language")
@@ -4671,6 +4931,11 @@ def _render_svg(
         radius = _KIND_RADIUS.get(node["kind"], 6)
         color = _node_color(node)
         fill_opacity = "0.9" if node["kind"] in ("module", "class") else "0.75"
+        if node["kind"] == "finding":  # REQ-043: severity sets the size, a `new` finding wears a ring
+            attrs = node.get("attrs") or {}
+            radius = _FINDING_SEVERITY_RADIUS.get(str(attrs.get("severity") or ""), 6)
+            if attrs.get("status") == "new":
+                parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius + 3}" fill="none" stroke="{color}" stroke-width="1.2" opacity="0.8"/>')
         parts.append(
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" '
             f'fill-opacity="{fill_opacity}" stroke="{_SVG_BG}" stroke-width="1"/>'
@@ -4693,7 +4958,8 @@ def _render_svg(
             f'font-weight="700" fill="{_SVG_TEXT}">{text}</text>'
         )
 
-    legend_rows = len(languages_present) + 2
+    finding_dimensions = sorted({str((n.get("attrs") or {}).get("dimension") or "other") for n in nodes if n["kind"] == "finding"})  # REQ-043
+    legend_rows = len(languages_present) + 2 + (len(finding_dimensions) + 1 if finding_dimensions else 0)
     legend_x, legend_y = width - 260, height - (30 + 22 * legend_rows)
     legend_h = 20 + 22 * legend_rows
     parts.append(
@@ -4709,6 +4975,21 @@ def _render_svg(
             f'fill="{_SVG_TEXT}">{_escape_svg_text(language)}</text>'
         )
         row += 22
+    if finding_dimensions:  # REQ-043: findings by category; size is severity, a ring marks a new finding
+        parts.append(
+            f'<text x="{legend_x+12}" y="{row+4}" font-family="{_SVG_FONT}" font-size="8.5" fill="{_SVG_DIM}" '
+            f'letter-spacing="0.8">FINDINGS BY CATEGORY (size: severity, ring: new)</text>'
+        )
+        row += 22
+        for dimension in finding_dimensions:
+            color = _FINDING_DIMENSION_COLORS.get(dimension, _FINDING_DIMENSION_COLORS["other"])
+            parts.append(f'<circle cx="{legend_x+18}" cy="{row}" r="5" fill="{color}"/>')
+            parts.append(f'<circle cx="{legend_x+18}" cy="{row}" r="8" fill="none" stroke="{color}" stroke-width="1" opacity="0.8"/>')
+            parts.append(
+                f'<text x="{legend_x+32}" y="{row+4}" font-family="{_SVG_FONT}" font-size="9.5" '
+                f'fill="{_SVG_TEXT}">{_escape_svg_text(dimension)}</text>'
+            )
+            row += 22
     parts.append(f'<line x1="{legend_x+12}" y1="{row}" x2="{legend_x+28}" y2="{row}" stroke="{_SVG_DIM}" stroke-width="1" opacity="0.7"/>')
     parts.append(
         f'<text x="{legend_x+34}" y="{row+4}" font-family="{_SVG_FONT}" font-size="8.5" '
@@ -4787,3 +5068,146 @@ def render(
         "edges_total": len(all_edges),
         "truncated": truncated,
     }
+
+
+
+# --------------------------------------------------------------------------
+# REQ-043: `omni graph findings` -- Arbiter findings grouped by directory, with
+# what each one is tied to, as JSON and as a text tree.
+# --------------------------------------------------------------------------
+
+
+def _absolute_root(raw_root: str) -> str:
+    """The graph's root as an absolute posix path for editor links, or "" when it cannot be resolved."""
+    try:
+        resolved = Path(raw_root or ".").resolve()
+    except (OSError, RuntimeError):
+        return ""
+    return resolved.as_posix() if resolved.is_dir() else ""
+
+
+_FINDING_TREE_LINKS = 6  # a file touched by every requirement would otherwise fill the line; --json has the full list
+
+
+def _finding_severity_rank(severity: str) -> int:
+    return _FINDING_SEVERITY_ORDER.index(severity) if severity in _FINDING_SEVERITY_ORDER else len(_FINDING_SEVERITY_ORDER)
+
+
+def findings(graph_path: Path, under: str | None = None, dimension: str | None = None, severity: str | None = None, depth: int = 2) -> dict[str, Any]:
+    """Finding nodes, filtered and grouped by directory, each with the requirements, failures and suites reachable within
+    `depth` hops over the non-code edges (the same links `lineage` follows)."""
+    graph_data = load_graph(graph_path)
+    by_id = {n["id"]: n for n in graph_data["nodes"]}
+    prefix = (under or "").strip().replace("\\", "/").rstrip("/")
+    if prefix.startswith("./"):
+        prefix = prefix[2:]
+    want_dimension = (dimension or "").strip().lower()
+    want_severity = (severity or "").strip().lower()
+    depth = max(0, int(depth))
+    walkable = set(LINEAGE_FLOW) | set(LINEAGE_SINGLE_HOP)
+    adjacency: dict[str, list[str]] = {}
+    for edge in graph_data["edges"]:
+        if edge["type"] in walkable:
+            adjacency.setdefault(edge["source"], []).append(edge["target"])
+            adjacency.setdefault(edge["target"], []).append(edge["source"])
+
+    def reach(origin: str) -> dict[str, list[str]]:
+        seen = {origin}
+        frontier = [origin]
+        found: dict[str, list[str]] = {"requirement": [], "failure": [], "suite": []}
+        for _ in range(depth):
+            following: list[str] = []
+            for current in frontier:
+                for other_id in adjacency.get(current, []):
+                    if other_id in seen:
+                        continue
+                    seen.add(other_id)
+                    other = by_id.get(other_id)
+                    if other is None:
+                        continue
+                    if other["kind"] in found:
+                        found[other["kind"]].append(other["name"])
+                    following.append(other_id)
+            frontier = following
+        return {kind: sorted(set(names)) for kind, names in found.items()}
+
+    selected: list[dict[str, Any]] = []
+    report = ""
+    for node in graph_data["nodes"]:
+        if node["kind"] != "finding":
+            continue
+        attrs = node.get("attrs") or {}
+        file = str(node.get("file") or "")
+        if prefix and not (file == prefix or file.startswith(prefix + "/")):
+            continue
+        if want_dimension and str(attrs.get("dimension", "")).lower() != want_dimension:
+            continue
+        if want_severity and str(attrs.get("severity", "")).lower() != want_severity:
+            continue
+        report = report or str(attrs.get("report") or "")
+        symbol = next(
+            (by_id[e["target"]]["name"] for e in graph_data["edges"]
+             if e["type"] == "flags" and e["source"] == node["id"] and by_id.get(e["target"], {}).get("kind") in _FINDING_SYMBOL_KINDS),
+            None,
+        )
+        linked = reach(node["id"])
+        selected.append({
+            "id": node["id"], "name": node["name"], "file": file, "line": attrs.get("line"), "directory": attrs.get("directory_path", ""),
+            "rule_id": attrs.get("rule_id", ""), "dimension": attrs.get("dimension", ""), "severity": attrs.get("severity", ""),
+            "status": attrs.get("status", ""), "title": node.get("summary", ""), "tags": list(attrs.get("tags") or []), "symbol": symbol,
+            "requirements": linked["requirement"], "failures": linked["failure"], "suites": linked["suite"],
+        })
+    selected.sort(key=lambda f: (f["directory"], _finding_severity_rank(f["severity"]), f["file"], f["line"] or 0, f["name"]))
+    directories: list[dict[str, Any]] = []
+    for item in selected:
+        if not directories or directories[-1]["directory"] != item["directory"]:
+            directories.append({"directory": item["directory"], "count": 0, "by_dimension": {}, "by_severity": {}, "findings": []})
+        group = directories[-1]
+        group["count"] += 1
+        group["by_dimension"][item["dimension"]] = group["by_dimension"].get(item["dimension"], 0) + 1
+        group["by_severity"][item["severity"]] = group["by_severity"].get(item["severity"], 0) + 1
+        group["findings"].append(item)
+    return {
+        "ok": True, "total": len(selected), "report": report, "depth": depth,
+        "filters": {"under": prefix or None, "dimension": want_dimension or None, "severity": want_severity or None},
+        "by_dimension": _count_by(selected, "dimension"), "by_severity": _count_by(selected, "severity"),
+        "directories": directories,
+    }
+
+
+def render_findings_tree(result: dict[str, Any]) -> str:
+    """`findings()` as an indented text tree: one block per directory, one line per finding, its links beneath."""
+    def counts(mapping: dict[str, int], order: tuple[str, ...] = ()) -> str:
+        keys = sorted(mapping, key=lambda k: (order.index(k) if k in order else len(order), k))
+        return ", ".join(f"{k} {mapping[k]}" for k in keys)
+
+    lines = [
+        f"findings: {result['total']}"
+        + (f"  [{counts(result['by_severity'], _FINDING_SEVERITY_ORDER)}]" if result["by_severity"] else "")
+        + (f"  [{counts(result['by_dimension'])}]" if result["by_dimension"] else "")
+        + (f"  report {result['report']}" if result.get("report") else "")
+    ]
+    active = {k: v for k, v in result.get("filters", {}).items() if v}
+    if active:
+        lines.append("  filters: " + ", ".join(f"{k}={v}" for k, v in active.items()))
+    if not result["total"]:
+        lines.append("  (none" + (" match" if active else f"; {FINDINGS_NO_REPORT_NOTE.split(': ', 1)[1]}") + ")")
+        return "\n".join(lines)
+    for group in result["directories"]:
+        label = (group["directory"] + "/") if group["directory"] else "./"
+        lines.append(f"\n{label}  {group['count']}  [{counts(group['by_severity'], _FINDING_SEVERITY_ORDER)}]  [{counts(group['by_dimension'])}]")
+        for item in group["findings"]:
+            where = f"{item['file']}:{item['line']}" if item["line"] else item["file"]
+            flag = "" if item["status"] == "new" else f" ({item['status']})"
+            lines.append(f"  {item['name']}  {item['severity']:<8} {item['dimension']:<14} {where}" + (f" in {item['symbol']}" if item["symbol"] else "") + flag)
+            lines.append(f"      {item['rule_id']}  {item['title']}")
+            links = [
+                f"{label}: {', '.join(values[:_FINDING_TREE_LINKS])}" + (f" +{len(values) - _FINDING_TREE_LINKS} more" if len(values) > _FINDING_TREE_LINKS else "")
+                for label, values in (("requirements", item["requirements"]), ("failures", item["failures"]), ("suites", item["suites"])) if values
+            ]
+            tags = [t for t in item["tags"] if not t.startswith("req:")]
+            if tags:
+                links.append("tags: " + ", ".join(tags))
+            if links:
+                lines.append("      " + "   ".join(links))
+    return "\n".join(lines)

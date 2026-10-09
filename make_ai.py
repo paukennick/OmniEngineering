@@ -2432,6 +2432,11 @@ def run_graph_sources(args: argparse.Namespace) -> int:
           f"failure ledger {'present' if a['failure_ledger']['exists'] else 'absent'} ({a['failure_ledger']['path']}); {a['ci_commands']} CI test command(s) found")
     for s in a["detected_suites"]:
         print(f"      detected  {s['id']}  [{s['framework']}] {s['files']} file(s)  {s['command'] or '-'}")
+    fr = a.get("findings") or {}  # REQ-043
+    if fr.get("report"):
+        print(f"      findings  {fr['report']}: {fr['findings']} unsuppressed Arbiter finding(s)")
+    elif fr.get("note"):
+        print(f"      {fr['note']}")
     w = layers["workspace"]
     print(f"  workspace     {w['rulepacks']} rulepack file(s), {w['playbooks']} playbook(s), {w['checklists']} checklist(s)" + ("" if w["ai_dir"] else " (no .ai/ directory)"))
     print(f"  code          {layers['code']['source_files']} source file(s)")
@@ -2606,6 +2611,47 @@ def run_graph_impact(args: argparse.Namespace) -> int:
             print(f"  ... and {len(items) - args.limit} more (--limit or --json)")
     print()
     print(omni_graph.impact_summary(result))
+    return 0
+
+
+# --------------------------------------------------------------------------
+# REQ-043: omni graph findings -- Arbiter findings by directory, as a tree, JSON or the viewer
+# --------------------------------------------------------------------------
+
+
+def run_graph_findings(args: argparse.Namespace) -> int:
+    if not require_omni_graph():
+        return 1
+
+    graph_path = Path(args.graph)
+    if not graph_path.is_file():
+        print(f"Graph file not found: {graph_path}; run ./omni graph build first", file=sys.stderr)
+        return 1
+
+    result = omni_graph.findings(graph_path, under=args.under, dimension=args.dimension, severity=args.severity, depth=max(0, args.depth))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(omni_graph.render_findings_tree(result))
+        if not result["total"] and not any(result["filters"].values()):
+            print("  Run `./omni gate` (which runs `arbiter gate`) and then `./omni graph build` to add the findings to the graph.")
+    if not args.view:
+        return 0
+
+    view = omni_graph.build_view_html(graph_path, view="findings")  # the Findings tab seeds itself from the finding nodes
+    if not view.get("ok"):
+        print("The viewer assets are missing: " + ", ".join(f".ai/graph-viewer/{name}" for name in view.get("missing", [])) + ".", file=sys.stderr)
+        return 1
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(view["html"], encoding="utf-8")
+    print(f"\nWrote {output}: the viewer opens on the Findings tab ({result['total']} finding(s) listed above).")
+    posix_uri = output.resolve().as_uri()
+    windows_target = windows_view_target(output)
+    uri = windows_target[1] if windows_target else posix_uri
+    print(f"Open in a browser (works offline): {uri}")
+    if args.open and not open_in_browser(uri, windows_target[0] if windows_target else None):
+        print("  (no browser could be launched automatically; open the file by hand)")
     return 0
 
 
@@ -5252,6 +5298,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     graph_render.add_argument("--json", action="store_true", help="Print a machine-readable summary instead of a human summary.")
 
+    # REQ-043: Arbiter findings in the graph
+    graph_findings = graph_subparsers.add_parser(
+        "findings",
+        help="Arbiter findings from the newest gate report, grouped by directory with the requirements, failures and suites each one is tied to.",
+    )
+    graph_findings.add_argument("--graph", default=GRAPH_DEFAULT_OUTPUT, help=f"Graph file to read. Defaults to {GRAPH_DEFAULT_OUTPUT}.")
+    graph_findings.add_argument("--under", help="Only findings in this directory (or file).")
+    graph_findings.add_argument("--dimension", help="Only this Arbiter dimension (security, quality, drift, supply_chain, ...).")
+    graph_findings.add_argument("--severity", help="Only this severity (critical, high, medium, low, info).")
+    graph_findings.add_argument("--depth", type=int, default=2, help="Hops over non-code links to collect requirements, failures and suites (default 2).")
+    graph_findings.add_argument("--tree", action="store_true", help="Print the text tree (the default).")
+    graph_findings.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    graph_findings.add_argument("--view", action="store_true", help="Also write the interactive viewer, opened on the Findings tab.")
+    graph_findings.add_argument("--output", default=VIEW_DEFAULT_OUTPUT, help=f"With --view: HTML output path. Defaults to {VIEW_DEFAULT_OUTPUT}.")
+    graph_findings.add_argument("--open", action="store_true", help="With --view: open the result in the default browser.")
+
     context_parser = subparsers.add_parser(
         "context",
         help="Print the low-token file set for a context profile.",
@@ -5646,7 +5708,9 @@ def main(argv: list[str] | None = None) -> int:
             return run_graph_sources(args)
         if args.graph_command == "benchmark":
             return run_graph_benchmark(args)
-        parser.error("graph requires a subcommand (build, trace, show, why, lineage, timeline, impact, sources, benchmark, render, view, schema)")
+        if args.graph_command == "findings":  # REQ-043
+            return run_graph_findings(args)
+        parser.error("graph requires a subcommand (build, trace, show, why, lineage, timeline, impact, sources, benchmark, render, view, schema, findings)")
     if command == "test":
         handlers = {
             "detect": run_test_detect, "add": run_test_add, "remove": run_test_remove,

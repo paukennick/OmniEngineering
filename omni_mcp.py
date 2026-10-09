@@ -95,6 +95,15 @@ def _tool_graph_sources(arguments: dict[str, Any]) -> Any:
     return og.describe_sources(Path(str(arguments.get("root", "."))))
 
 
+def _tool_graph_findings(arguments: dict[str, Any]) -> Any:  # REQ-043
+    path = _graph_path(arguments)
+    _require_graph_file(path)
+    return og.findings(
+        path, under=arguments.get("under") or None, dimension=arguments.get("dimension") or None,
+        severity=arguments.get("severity") or None, depth=int(arguments.get("depth", 2)),
+    )
+
+
 def _tool_requirement_show(arguments: dict[str, Any]) -> Any:
     found = ma.find_requirement(str(arguments["id"]))
     if found is None:
@@ -231,6 +240,20 @@ TOOLS: list[MCPTool] = [
         "What each graph layer would read from this project and what is missing, without building anything.",
         {"type": "object", "properties": {"root": {"type": "string", "default": "."}}},
         _tool_graph_sources,
+    ),
+    MCPTool(  # REQ-043
+        "graph_findings",
+        "Arbiter findings from the newest gate report as graph nodes, grouped by directory with counts by dimension and "
+        "severity, and for each finding the requirements, failures and test suites it is tied to. The same data as "
+        "`omni graph findings --json`.",
+        {"type": "object", "properties": {
+            "under": {"type": "string", "description": "Only findings in this directory or file."},
+            "dimension": {"type": "string", "description": "Only this Arbiter dimension: security, quality, drift, supply_chain, assurance, resource_policy, judgement."},
+            "severity": {"type": "string", "description": "Only this severity: critical, high, medium, low, info."},
+            "depth": {"type": "integer", "default": 2, "description": "Hops over non-code links to collect requirements, failures and suites."},
+            "graph": {"type": "string", "description": f"Graph file to read. Defaults to {ma.GRAPH_DEFAULT_OUTPUT}."},
+        }},
+        _tool_graph_findings,
     ),
     MCPTool(
         "requirement_show",

@@ -55,12 +55,19 @@ is what decides its fate under `--changed` (see [ci.md](ci.md#scanning-only-what
 | `repo` | the answer depends on relationships between files | recorded as not assessed, because a subset gives a wrong answer rather than a smaller one |
 | `change` | reads a small, fixed set of files it names itself (the failure ledger, the requirement registry) plus the set of changed paths | runs; a full scan is the same probe answered with the empty change |
 
-`governance` is the one change-scoped probe. In a `--changed` scan it also
-reads the commit messages since the base: every finding in the change is
-tagged `req:<ID>` for each requirement id they cite, and the Markdown report
-and the pull-request comment add a **By requirement** table (counts by
-severity and the first three titles per id, with an `unattributed` row for
-in-change findings no commit attributed). Titles only, never evidence.
+`governance` is the one change-scoped probe. In a `--changed` scan the run
+also reads the commits since the base, once per repository, and tags every
+finding in the change with `req:<ID>` for the requirement ids cited by the
+commits that touched the finding's own file (the registry's
+`requirement_id_prefix`, old ids resolved through its `id_aliases`), marked
+`req-scope:commits`: that is attribution. A file no such commit cited falls
+back to every id the range cites, marked `req-scope:open`, which is context
+rather than a claim about which requirement introduced the finding; a full
+scan carries only the `req-scope:open` marker. The Markdown report and the
+pull-request comment add a **By requirement** table (counts by severity and
+the first three titles per id, with an `unattributed` row for in-change
+findings no commit attributed) and a note under it saying which scope each
+count came from. Titles only, never evidence.
 
 ## External adapters
 

@@ -130,10 +130,14 @@ Findings that land in a context file the branch did not touch are tagged
 `outside-this-change`, so a pull request is not blamed for a lockfile it never
 opened. The baseline is what keeps them out of the gate.
 
-Findings in the change are tagged `req:<ID>` for every requirement id the
-commits since the base cite (the prefix comes from the registry's
-`requirement_id_prefix`, `REQ` by default), and the Markdown report and the
-pull-request comment summarise them in a **By requirement** table.
+Findings in the change are tagged `req:<ID>` for the requirement ids the
+commits since the base that touched their file cite (the prefix comes from
+the registry's `requirement_id_prefix`, `REQ` by default; old ids resolve
+through `id_aliases`), marked `req-scope:commits`. A file no such commit cited
+carries every id the range cites and `req-scope:open` instead, so the tags
+read as context rather than attribution. The Markdown report and the
+pull-request comment summarise them in a **By requirement** table that names
+the scope.
 
 ## A ready-made workflow
 

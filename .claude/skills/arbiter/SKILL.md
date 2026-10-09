@@ -40,8 +40,10 @@ findings never blend, the tool never executes the target.
 - The `governance` probe reads `.ai/failures/failure-ledger.json` against the
   change (an open failure's file touched without its regression test; a fixed
   failure whose test file is gone) and is `n/a` without a ledger. Under
-  `--changed`, findings in the change carry `req:<ID>` tags from the commit
-  messages since the base, summarised in the report's **By requirement** table.
+  `--changed`, findings in the change carry `req:<ID>` tags from the commits
+  since the base that touched their file (`req-scope:commits`), or the round's
+  ids as context when none did (`req-scope:open`), summarised in the report's
+  **By requirement** table.
 
 ## Gating a change to Arbiter itself
 

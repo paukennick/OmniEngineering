@@ -159,7 +159,8 @@ def render_pr_comment(after: Report, d: ReportDiff | None = None) -> str:
         L.append("")
 
     from .report import requirement_block
-    L.extend(requirement_block(after.active(), heading="**By requirement**"))
+    L.extend(requirement_block(after.active(), heading="**By requirement**",
+                               base=(after.scan_scope or {}).get("changed_since")))
 
     skipped = [p for p in after.probes if p.status != "ran"]
     if skipped:

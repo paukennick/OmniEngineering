@@ -343,20 +343,13 @@ def run_scan(
         for f in findings:
             if f.location.path and f.location.path not in changed_set.get(f.repo_id, set()):
                 f.tags.append("outside-this-change")
-    if changed_since:
-        # Every finding in the change is attributed to the requirement ids the
-        # commits since the base cite, so a report can be read per requirement
-        # (REQ-038). Findings in context files are not: they were not
-        # introduced under any of these ids.
-        from .incremental import requirement_ids_since, requirement_prefix
-        for r in repos:
-            ids = requirement_ids_since(r.path, changed_since, prefix=requirement_prefix(r.path))
-            if not ids:
-                continue
-            in_change = changed_set.get(r.id, set())
-            for f in findings:
-                if f.repo_id == r.id and f.location.path in in_change:
-                    f.tags.extend(f"req:{i}" for i in ids)
+    # Every finding in the change is attributed to the requirement ids the
+    # commits that touched its file cite, so a report can be read per
+    # requirement (REQ-038, ARB-052); a `req-scope:` tag says whether that is
+    # attribution or context. Findings in context files are not tagged: they
+    # were not introduced under any of these ids.
+    from .incremental import attribute_requirements
+    attribute_requirements(findings, repos, changed_set, changed_since)
 
     from .learn import apply as apply_knowledge
     calibration = apply_knowledge(findings, knowledge)

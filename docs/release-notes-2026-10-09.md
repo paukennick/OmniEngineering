@@ -1,7 +1,7 @@
 # Release notes, 2026-10-09: the Arbiter loop
 
-What changed in OmniEngineering and in Arbiter on this date, what it means for
-an adopter, and the steps to take. The mechanics are explained in
+What changed in OmniEngineering and in Arbiter on this date (two rounds; the
+second is at the end), what it means for an adopter, and the steps to take. The mechanics are explained in
 [`arbiter-integration.md`](arbiter-integration.md); the per-requirement detail
 is in each repository's `CHANGELOG.md`.
 
@@ -71,6 +71,58 @@ The commands that did not exist before this date: `omni adopt
 --no-arbiter-check`, `omni graph impact`, `omni graph findings`, `omni test
 run`; inside the subtree, `arbiter gate --format annotations | --github`,
 `arbiter scan --no-cache | --verify-cache`, `arbiter dashboard`.
+
+## Round four, later the same day
+
+A second set of requirements landed on both sides before the day was out. The
+themes were speed, signal, completeness and two bigger bets, plus three
+mitigations for the limits the first round left in finding traceability.
+
+### OmniEngineering
+
+| Requirement | Change |
+|---|---|
+| REQ-046 | the `Posture:` line reads the newest full scan and the newest gate report separately (`arbiter score 86.5 (coverage 99%, full scan …) · gate passed (new high+ 0, fresh)`); `omni doctor --json` is schema version 2 with `posture.arbiter.full` and `.gate` |
+| REQ-047 | `completion.tests` is required: `omni gate` runs `omni test run --impacted`; a command rule that passed is memoised on its scoped change set and not re-run until a scoped file changes (`omni gate --no-memo` forces); durations are printed |
+| REQ-048 | `tests/test_viewer_browser.py` drives the built viewer in headless Chromium (Findings tab, search, source row, breadcrumb, traces, colour mode, no console errors); the `viewer-browser` CI job runs it |
+| REQ-049 | `omni arbiter sync` levels the subtree, the installed package, the recorded version and the baseline in one command; doctor warns on a commit whose author or committer email is not the configured identity |
+| REQ-050 | doctor's live MCP probe is memoised for a day in the git directory; `omni doctor --probe` forces it; a warm doctor run takes 0.35 s instead of 2.2 s |
+| REQ-051 | a finding traces to the requirement that introduced its line: `git blame` at the scanned commit gives an `introduced_by` edge to the commit and, through the history layer, to the one requirement; `omni graph why` prints it and the viewer gains an "Introduced by" row and trace |
+| REQ-052 | vendored workspaces' ledgers and registries join the graph, namespaced (`arbiter/FAIL-042`), so a finding traces to the entry that fixed it wherever it lives; a ledger entry names the finding id in `how_detected` |
+
+### Arbiter (ARB-045 to ARB-052)
+
+| Requirement | Change |
+|---|---|
+| ARB-045 | tool versions are memoised: adapter registration drops from 24.5 s to 0.3 s on every `arbiter` invocation, the gate included |
+| ARB-046 | the suite runs in a fast and a slow tier (`tests/test_arbiter.py` split into fourteen files, same collected ids); pr-check runs the fast tier on every cell and the slow tier in a parallel job |
+| ARB-047 | adapters run concurrently and replay from the result cache when nothing they read changed (all-or-nothing); `--verify-cache` re-runs one; integrity invariant CI-14 |
+| ARB-048 | the doc-drift probe leaves generated output, git-ignored paths and cross-repository references alone |
+| ARB-049 | the debt sweep: the self-scan went from 482 active findings (score 71) to 320 (score 81), the baseline from 411 ids to 320; the review marks are a committed draft for a person to apply |
+| ARB-050 | `arbiter_review_draft`: an assistant proposes marks with reasons and never records one |
+| ARB-051 | `arbiter bundle build | verify`, the air-gapped bundle without the analyzers; `--limiter file` shares the hosted API's limits across processes |
+| ARB-052 | a finding in a gate is tagged with the requirements cited by the commits that touched its file, not every open one (`req-scope:commits` / `req-scope:open`) |
+
+Defects found and fixed on the way: FAIL-042 (the stub detector matched a
+`pass` nested under `except`; found by code scanning on this repository's
+pull request #5), FAIL-043 (a Windows path assertion), FAIL-044
+(`use_adapters=False` only skipped registration, so the fast tier spent 28
+minutes in semgrep; now under two), FAIL-045 (the HTML report's "Read first"
+block was built and never rendered), FAIL-047, FAIL-048 and FAIL-049 (two
+probe false positives found by the sweep's own review). Open: FAIL-046, the
+workflows' actions are pinned by mutable major tag.
+
+### For an adopter, this round
+
+1. `./omni update --source <OmniEngineering checkout>` brings the tooling;
+   `completion.tests` arrives as `required`, so register your suites with
+   `omni test detect --write` or set its severity to `recommended`.
+2. `./omni arbiter sync` (subtree mode) or `./omni arbiter update` then
+   `./omni arbiter baseline --refresh` (pip mode) levels Arbiter; commit
+   `.arbiter/baseline.json`.
+3. `./omni doctor --probe` once, so the MCP memo starts from a live probe.
+4. In CI, add the `viewer-browser` job if you ship the viewer, and the
+   `slow-tier` job if you vendor Arbiter.
 
 ## For an adopter
 

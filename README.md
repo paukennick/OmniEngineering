@@ -111,8 +111,10 @@ Three ways to have it: installed beside an adopted workspace
 subtree (this repository's `main` keeps the whole Arbiter checkout
 under `arbiter/` with its own workspace, recognised by the gate, doctor and
 CI), or Arbiter governing itself with this workspace at its own root. Keep the
-two level with `./omni update` and `./omni arbiter update`; refresh the baseline
-on a green gate with `./omni arbiter baseline --refresh`.
+two level with `./omni arbiter sync` (subtree pull or pip upgrade, reinstall,
+version record, baseline refresh, doctor, stopping at the first failing step)
+and `./omni update` for the workspace template; `./omni arbiter baseline
+--refresh` alone re-cuts the baseline on a green gate.
 
 The full mechanics, the CI jobs and what each proves, the off switches and a
 finding-tracing walkthrough are in
@@ -598,12 +600,19 @@ template ref (`omni update` keeps that key). `omni doctor` warns when the
 installed `arbiter` no longer matches the record, and `omni update` warns when
 your `completion.arbiter_gate` rule runs a different command than the current
 template; the rule is yours, so update never rewrites it. One command brings
-all of it level:
+all of it level, and a narrower one does the package-and-rule part:
 
 ```bash
+./omni arbiter sync --dry-run       # prints the steps and their commands, runs nothing
+./omni arbiter sync                 # subtree pull (or pip --upgrade), pip install -e, the record, baseline, doctor
 ./omni arbiter update --dry-run     # prints every command, writes nothing
 ./omni arbiter update               # pip --upgrade, the rule, a vendored subtree, the record
 ```
+
+`arbiter sync` runs the steps in order, prints each before it runs and stops
+at the first non-zero exit naming the step and what to do (a subtree conflict:
+resolve it in `arbiter/`, commit, rerun); `--source`, `--branch`,
+`--skip-baseline` and `--dry-run` are its switches.
 
 It upgrades the package from the recorded source (or `--source`, with
 `--skip-pip` to leave pip alone), rewrites the rule's `validation` to the
@@ -784,12 +793,15 @@ omni map
 omni context review
 omni arbiter baseline
 omni arbiter update
+omni arbiter sync
 ```
 
 `arbiter baseline` cuts (or, with `--refresh`, re-cuts on a green gate) the
 `.arbiter/baseline.json` the gate rule compares against; `arbiter update`
 upgrades Arbiter, its gate rule and a vendored subtree, and re-records the
-version. See [Arbiter alongside the workspace](#arbiter-alongside-the-workspace)
+version; `arbiter sync` runs the subtree pull (or pip upgrade), the reinstall,
+the version record, the baseline refresh and doctor in order, stopping at the
+first failing step. See [Arbiter alongside the workspace](#arbiter-alongside-the-workspace)
 and [Updating an adopted workspace](#updating-an-adopted-workspace).
 
 `sync` verifies that the required `.ai/` source-of-truth files exist, then
@@ -847,7 +859,12 @@ The doctor checks:
   the current `arbiter.yaml` (`config_hash`); each gap names
   `omni arbiter baseline`.
 - Arbiter version: the installed `arbiter` must match the version recorded in
-  `.ai/omni-version.json`; drift names `omni arbiter update`.
+  `.ai/omni-version.json`; drift names `omni arbiter sync`.
+- Commit identity: every commit since the gate base (the last 20 when there is
+  none) must carry `git config user.email` as author and committer, and never a
+  `.local` or `localhost` domain; a mismatch is a warning naming the commit,
+  the email and the fix (`git commit --amend --reset-author`, or a rebase).
+  Skipped when no email is configured.
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.
@@ -1249,21 +1266,28 @@ not pass; `--json` gives the same as data. `--impacted` resolves the change set
 (`--changed BASE`, else the merge-base `omni gate` uses) through the graph and picks
 the suites whose files, paths or declared coverage meet a changed file or a test
 file the walk reached, directory prefixes included; without a graph it says so and
-runs every suite. The completion rulepack ships a `completion.tests` rule as the
-worked example of wiring it into the gate:
+runs every suite. The completion rulepack ships `completion.tests` as a required
+rule, so `omni gate` runs it:
 
 ```json
 {
   "id": "completion.tests",
-  "severity": "recommended",
+  "severity": "required",
   "validation": {"type": "command", "run": "omni test run --impacted", "when_changed": ["**"],
                  "ignore": [".ai/**", "*.md", "docs/**"], "timeout": 900}
 }
 ```
 
-It is `recommended`, and `omni gate` executes only `required` rules, so the
-pre-commit hook stays fast by default; an adopter whose suite registry is complete
-promotes it to `required` and every commit then runs the tests its change reaches.
+Every commit then runs the suites its change reaches; with no suite registered
+there is nothing to run, which passes. The gate keeps the hook fast another way:
+a `command` rule that passed is memoised in the gate state file
+(`.git/omni-gate-last.json`) on the changed paths its own globs select, their
+mtimes and sizes, and its run text, and the next `omni gate` reports it as
+`passed (memo)` instead of re-running it until a scoped file changes. A failed
+rule is never memoised; `omni gate --no-memo` forces every rule; the non-hook
+output prints each command rule's duration (`ran     completion.tests 41.2s PASS`).
+Skip the rule for one change with `omni waive completion.tests --reason "..."`,
+or set its severity to `recommended` to switch it off.
 
 ### MCP server: the graph as tools for any assistant
 

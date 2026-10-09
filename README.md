@@ -449,6 +449,23 @@ wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
 server for real. Arbiter is a separate, proprietary product; this command
 installs and wires it, it does not vendor it.
 
+### The `arbiter` branch
+
+On the `arbiter` branch of this repository, Arbiter's own source tree is
+vendored under `arbiter/` as a git subtree with its full history, so the
+workspace and the evaluator can be read, cloned and run from one place:
+
+```bash
+git checkout arbiter
+pip install -e "arbiter[mcp]"                                   # install from the subtree
+git subtree pull --prefix=arbiter https://github.com/paukennick/arbiter main   # take later arbiter changes
+```
+
+Arbiter keeps its own `LICENSE` (all rights reserved) and `NOTICE.md` under
+`arbiter/`; the Apache-2.0 licence of this repository does not extend to it.
+`main` carries only the workspace, and `omni adopt --with-arbiter` installs
+Arbiter from its own repository.
+
 ### Updating an adopted workspace
 
 Once a project has adopted OmniEngineering and customized its rules,

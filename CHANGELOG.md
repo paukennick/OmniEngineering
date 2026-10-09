@@ -4,6 +4,13 @@
 
 ### Completed
 
+- `REQ-034` | Process | Arbiter published into this repository on the `arbiter` branch, as a git subtree
+  under `arbiter/` with its full history (`git subtree pull --prefix=arbiter ... main` takes later
+  changes). The branch adds `arbiter` to the ruleset's allowed root paths and exempts `arbiter/**` from
+  the `data.privacy` content check, because Arbiter's fixture corpus is planted secrets by design.
+  Arbiter keeps its own licence and notice under `arbiter/`; `main` is unchanged and carries only the
+  workspace.
+
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install
     --source SOURCE` pip-install `arbiter-eval[mcp]` (editable from a local checkout, or from the GitHub

@@ -1166,6 +1166,38 @@
         "Arbiter is proprietary and not on PyPI; the default source is its GitHub URL",
         "which needs access. The pip step reports failure with the output tail and leaves the wiring in place."
       ]
+    },
+    {
+      "id": "REQ-034",
+      "category": "Process",
+      "title": "Publish Arbiter into this repository as a subtree on the arbiter branch",
+      "description": "The arbiter branch vendors Arbiter's source under arbiter/ as a git subtree with its full history, so the workspace and the evaluator can be read, cloned and run from one place. main carries only the workspace. The branch allows arbiter as a root path and exempts arbiter/** from the data.privacy content check (Arbiter's fixture corpus is planted secrets by design). Arbiter keeps its own LICENSE and NOTICE.md under arbiter/.",
+      "priority": "low",
+      "status": "completed",
+      "minimum_access_scope": [
+        "arbiter/ (subtree)",
+        "README.md",
+        ".ai/rules/universal-engineering-ruleset.json",
+        ".ai/rules/data-governance.json",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "git log --oneline arbiter/ shows Arbiter's history",
+        "./omni doctor reports no errors on the branch",
+        "./omni gate passes"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "Mixed licensing on one branch: Apache-2.0 for the workspace",
+        "all rights reserved for arbiter/. Not merged to main."
+      ]
     }
   ]
 }

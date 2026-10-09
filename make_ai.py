@@ -1124,6 +1124,44 @@ def validate_requirement_ids(report: DoctorReport) -> None:
         )
 
 
+# --- Requirement id aliases (REQ-044) --------------------------------------------------------------
+
+
+def validate_requirement_aliases(report: DoctorReport) -> None:
+    """Every `id_aliases` entry must point at a requirement that exists (registry or archive), and no alias key
+    may still be a live id: one id names one requirement, so it cannot be both an alias and an entry. Alias
+    keys are not requirement ids, so the duplicate check (`validate_requirement_ids`) never sees them."""
+    if not REQUIREMENTS_PATH.is_file():
+        return
+    try:
+        registry = load_json(REQUIREMENTS_PATH)
+    except (OSError, json.JSONDecodeError):
+        return  # already reported by the JSON checks
+    if not isinstance(registry, dict) or "id_aliases" not in registry:
+        return
+    aliases = registry["id_aliases"]
+    if not isinstance(aliases, dict):
+        report.error("Requirements registry: id_aliases must be an object of {old id: current id}")
+        return
+    live = all_requirement_ids()
+    errors_before = len(report.errors)
+    for old, new in sorted(aliases.items(), key=lambda pair: str(pair[0])):
+        if not isinstance(new, str) or not REQUIREMENT_ID_PATTERN.fullmatch(str(old)) or not REQUIREMENT_ID_PATTERN.fullmatch(new):
+            report.error(f"Requirements registry: id alias {old!r} -> {new!r} must map one PREFIX-### id to another")
+            continue
+        if new not in live:
+            report.error(
+                f"Requirements registry: id alias {old} -> {new} points at a requirement that is in neither the registry "
+                f"nor the archive"
+            )
+        if old in live:
+            report.error(
+                f"Requirements registry: {old} is both a live requirement id and an alias (for {new}); an id cannot be both"
+            )
+    if aliases and len(report.errors) == errors_before:
+        report.pass_check(f"Requirement id aliases resolve to registered ids ({len(aliases)} alias(es))")
+
+
 def validate_failure_ledger(ledger: Any, report: DoctorReport) -> None:
     if ledger is None:
         return  # missing or unreadable files are already reported by the required-file and JSON checks
@@ -2893,12 +2931,13 @@ def run_failure_check(args: argparse.Namespace) -> int:
         problems.extend(omni_graph.check_failure_ledger(Path("."))["problems"])
     ledger = load_failure_ledger()
     ids = known_requirement_ids()
+    aliases = requirement_id_aliases()  # REQ-044: an entry recorded under a since-renumbered id still resolves
     known = {i.get("id") for i in ledger.get("failures", []) if isinstance(i, dict)}
     for item in ledger.get("failures", []):
         if not isinstance(item, dict):
             continue
         fid = item.get("id")
-        if item.get("requirement") and ids and item["requirement"] not in ids:
+        if item.get("requirement") and ids and resolve_requirement_id(str(item["requirement"]), aliases) not in ids:
             problems.append(f"{fid}: requirement {item['requirement']} is not in the registry")
         if item.get("recurrence_of") and item["recurrence_of"] not in known:
             problems.append(f"{fid}: recurrence_of {item['recurrence_of']} is not in the ledger")
@@ -3355,6 +3394,7 @@ def build_doctor_report() -> DoctorReport:
     validate_rulepacks(parsed, report)
     validate_requirements(parsed.get(".ai/requirements/requirements.json"), report)
     validate_requirement_ids(report)
+    validate_requirement_aliases(report)  # REQ-044
     validate_failure_ledger(parsed.get(".ai/failures/failure-ledger.json"), report)
     validate_test_suites(parsed.get(".ai/test-suites.json"), report)
     validate_graph_config(report)
@@ -4761,7 +4801,8 @@ def normalize_requirement_id(value: str) -> str:
             except (OSError, json.JSONDecodeError):
                 pass
         return f"{prefix}-{int(value):03d}"
-    return value
+    # REQ-044: an id the registry has since renumbered resolves to its current one (REQ-001 -> ARB-001).
+    return resolve_requirement_id(value)
 
 
 def all_requirement_ids() -> set[str]:
@@ -4806,6 +4847,55 @@ def vendored_requirement_ids() -> set[str]:
                 if isinstance(item, dict) and isinstance(item.get("id"), str):
                     ids.add(item["id"])
     return ids
+
+
+# --- Requirement id aliases (REQ-044) --------------------------------------------------------------
+#
+# `omni requirement renumber` changes the prefix of every id (REQ-012 -> ARB-012) and records the old
+# ids under the registry's optional top-level `id_aliases` object, {"REQ-012": "ARB-012"}. Commit
+# messages, waivers and other history that cite the old id stay valid: every reader resolves an alias
+# before deciding an id is unknown. An alias is followed once (an alias never points at another alias;
+# renumber rewrites the targets of the aliases it inherits).
+
+REQUIREMENT_ID_PATTERN = re.compile(r"[A-Z]+-\d{3}")
+
+
+def requirement_id_aliases(registry: dict[str, Any] | None = None) -> dict[str, str]:
+    """`id_aliases` of the root registry (or of the registry object given): old id -> current id. Malformed
+    entries are skipped here and reported by `validate_requirement_aliases` in the doctor."""
+    if registry is None:
+        if not REQUIREMENTS_PATH.is_file():
+            return {}
+        try:
+            registry = load_json(REQUIREMENTS_PATH)
+        except (OSError, json.JSONDecodeError):
+            return {}
+    aliases = registry.get("id_aliases") if isinstance(registry, dict) else None
+    if not isinstance(aliases, dict):
+        return {}
+    return {old: new for old, new in aliases.items() if isinstance(old, str) and isinstance(new, str)}
+
+
+def vendored_requirement_id_aliases() -> dict[str, str]:
+    """The `id_aliases` of every vendored workspace's registries: a subtree's commits cite the ids its registry
+    carried at the time, and a renumber there must not turn that history into gate failures here."""
+    aliases: dict[str, str] = {}
+    for workspace in vendored_workspace_dirs():
+        for path in sorted((workspace / ".ai" / "requirements").glob("requirements*.json")):
+            try:
+                registry = load_json(path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            aliases.update(requirement_id_aliases(registry))
+    return aliases
+
+
+def resolve_requirement_id(requirement_id: str, aliases: dict[str, str] | None = None) -> str:
+    """Follow an alias once (REQ-038 -> ARB-038). An id with no alias passes through unchanged, so callers
+    can resolve every cited id without first asking whether it was renamed."""
+    if aliases is None:
+        aliases = requirement_id_aliases()
+    return aliases.get(requirement_id, requirement_id)
 
 
 def find_requirement(requirement_id: str) -> tuple[Path, dict[str, Any], dict[str, Any]] | None:
@@ -5000,7 +5090,8 @@ def run_requirement_archive(args: argparse.Namespace) -> int:
         print(f"{REQUIREMENTS_PATH} must contain a requirements array", file=sys.stderr)
         return 1
 
-    wanted = set(split_csv(getattr(args, "id", None)))
+    # REQ-044: an old (aliased) id names the entry it was renumbered to.
+    wanted = {normalize_requirement_id(rid) for rid in split_csv(getattr(args, "id", None))}
     if wanted:
         by_id = {str(item.get("id")): item for item in items if isinstance(item, dict)}
         unknown = sorted(wanted - set(by_id))
@@ -5057,6 +5148,179 @@ def run_requirement_archive(args: argparse.Namespace) -> int:
     active["requirements"] = remaining
     write_json(REQUIREMENTS_PATH, active)
     print(f"Wrote {REQUIREMENTS_ARCHIVE_PATH} and {REQUIREMENTS_PATH}.")
+    return 0
+
+
+# --- omni requirement renumber (REQ-044) ----------------------------------------------------------
+#
+# Change the prefix of every requirement id, keeping the number (REQ-012 -> ARB-012), in the registry,
+# the archive, the failure ledger, the gate waivers and the governance text that cites them. Code,
+# tests, `.git`, vendored workspaces and Arbiter output are never touched: git history keeps the old
+# ids, and the `id_aliases` the command records keep that history valid for the gate and the CLI.
+
+RENUMBER_DEFAULT_PATHS = [
+    ".ai/**/*.md",
+    ".ai/**/*.json",
+    "*.md",
+    "docs/**/*.md",
+    ".claude/**/*.md",
+    ".claude/skills/**",
+]
+RENUMBER_EXCLUDED_DIRS = DEFAULT_MAP_EXCLUDED_DIRS | {"arbiter-out"}
+
+
+def _renumber_strings(value: Any, pattern: re.Pattern[str], replacement: str) -> tuple[Any, int]:
+    """The JSON value with every matching id inside its strings rewritten, and how many were. Object keys
+    are left alone: a key is never a requirement id a reader resolves (alias keys must stay the old ids)."""
+    if isinstance(value, str):
+        return pattern.subn(replacement, value)
+    if isinstance(value, list):
+        items: list[Any] = []
+        total = 0
+        for item in value:
+            rewritten, count = _renumber_strings(item, pattern, replacement)
+            items.append(rewritten)
+            total += count
+        return items, total
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        total = 0
+        for key, item in value.items():
+            rewritten, count = _renumber_strings(item, pattern, replacement)
+            result[key] = rewritten
+            total += count
+        return result, total
+    return value, 0
+
+
+def _renumber_text_files(
+    patterns: list[str], skip: set[Path], pattern: re.Pattern[str], replacement: str
+) -> list[tuple[Path, str, int]]:
+    """(path, rewritten text, change count) for every allow-listed text file the rewrite changes. Files the
+    command handles structurally (`skip`), anything under `.git`, a vendored workspace, `arbiter-out` or
+    another excluded directory, and files that are not UTF-8 text are left out whatever the globs say."""
+    root = Path(".")
+    vendored = [workspace.resolve() for workspace in vendored_workspace_dirs()]
+    seen: set[Path] = set()
+    results: list[tuple[Path, str, int]] = []
+    for glob_pattern in patterns:
+        try:
+            matches = sorted(root.glob(glob_pattern))
+        except (ValueError, NotImplementedError):
+            continue
+        for path in matches:
+            if not path.is_file() or any(part in RENUMBER_EXCLUDED_DIRS for part in path.parts):
+                continue
+            resolved = path.resolve()
+            if resolved in seen or resolved in skip or any(workspace in resolved.parents for workspace in vendored):
+                continue
+            seen.add(resolved)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            rewritten, count = pattern.subn(replacement, text)
+            if count:
+                results.append((path, rewritten, count))
+    return sorted(results, key=lambda entry: entry[0].as_posix())
+
+
+def run_requirement_renumber(args: argparse.Namespace) -> int:
+    new_prefix = str(getattr(args, "prefix", "") or "").strip()
+    if not re.fullmatch(r"[A-Z]+", new_prefix):
+        print(f"Refusing to renumber: the prefix must be upper-case letters only (got {new_prefix!r}).", file=sys.stderr)
+        return 1
+    if not REQUIREMENTS_PATH.is_file():
+        print(f"Missing {REQUIREMENTS_PATH}", file=sys.stderr)
+        return 1
+    registry = load_json(REQUIREMENTS_PATH)
+    if not isinstance(registry, dict) or not isinstance(registry.get("requirements"), list):
+        print(f"{REQUIREMENTS_PATH} must contain a requirements array", file=sys.stderr)
+        return 1
+    old_prefix = str(registry.get("requirement_id_prefix", "REQ"))
+    if new_prefix == old_prefix:
+        print(f"Requirement ids already use the prefix {new_prefix}; nothing to renumber.")
+        return 0
+    archive = load_json(REQUIREMENTS_ARCHIVE_PATH) if REQUIREMENTS_ARCHIVE_PATH.is_file() else None
+    if archive is not None and (not isinstance(archive, dict) or not isinstance(archive.get("requirements"), list)):
+        print(f"{REQUIREMENTS_ARCHIVE_PATH} must contain a requirements array", file=sys.stderr)
+        return 1
+
+    pattern = re.compile(rf"\b{re.escape(old_prefix)}-(\d{{3}})\b")
+    replacement = f"{new_prefix}-\\1"
+    mapping: dict[str, str] = {}
+    counts = {"active": 0, "archived": 0}
+    for label, source in (("active", registry), ("archived", archive)):
+        for item in source.get("requirements", []) if isinstance(source, dict) else []:
+            rid = item.get("id") if isinstance(item, dict) else None
+            if isinstance(rid, str) and pattern.fullmatch(rid):
+                mapping[rid] = pattern.sub(replacement, rid)
+                counts[label] += 1
+    # An alias this registry already carries keeps its key (the oldest id) and follows the rename.
+    aliases = {old: pattern.sub(replacement, new) for old, new in requirement_id_aliases(registry).items()}
+    aliases.update(mapping)
+
+    json_writes: list[tuple[Path, Any, int]] = []
+    body = {key: value for key, value in registry.items() if key != "id_aliases"}
+    rewritten, count = _renumber_strings(body, pattern, replacement)
+    new_registry: dict[str, Any] = {}
+    for key, value in rewritten.items():
+        new_registry[key] = new_prefix if key == "requirement_id_prefix" else value
+        if key == "requirement_id_prefix":
+            new_registry["id_aliases"] = dict(sorted(aliases.items()))
+    new_registry.setdefault("requirement_id_prefix", new_prefix)
+    new_registry.setdefault("id_aliases", dict(sorted(aliases.items())))
+    json_writes.append((REQUIREMENTS_PATH, new_registry, count + 1 + len(aliases)))
+    if archive is not None:
+        rewritten, count = _renumber_strings(archive, pattern, replacement)
+        rewritten["requirement_id_prefix"] = new_prefix
+        json_writes.append((REQUIREMENTS_ARCHIVE_PATH, rewritten, count + 1))
+    ledger_path = failure_ledger_path()
+    if ledger_path.is_file():
+        try:
+            rewritten, count = _renumber_strings(load_json(ledger_path), pattern, replacement)
+        except (OSError, json.JSONDecodeError):
+            count = 0
+        if count:
+            json_writes.append((ledger_path, rewritten, count))
+
+    text_writes: list[tuple[Path, str, int]] = []
+    if GATE_WAIVERS_PATH.is_file():
+        lines: list[str] = []
+        count = 0
+        for line in GATE_WAIVERS_PATH.read_text(encoding="utf-8").splitlines():
+            try:
+                entry = json.loads(line) if line.strip() else None
+            except json.JSONDecodeError:
+                entry = None
+            if isinstance(entry, dict):
+                rewritten, changed = _renumber_strings(entry, pattern, replacement)
+                lines.append(json.dumps(rewritten) if changed else line)
+            else:
+                rewritten, changed = pattern.subn(replacement, line)
+                lines.append(rewritten)
+            count += changed
+        if count:
+            text_writes.append((GATE_WAIVERS_PATH, "\n".join(lines) + "\n", count))
+    skip = {path.resolve() for path in (REQUIREMENTS_PATH, REQUIREMENTS_ARCHIVE_PATH, ledger_path, GATE_WAIVERS_PATH)}
+    text_writes.extend(_renumber_text_files(list(getattr(args, "paths", None) or RENUMBER_DEFAULT_PATHS), skip, pattern, replacement))
+
+    print(
+        f"Renumbering {old_prefix}-### -> {new_prefix}-###: {len(mapping)} requirement id(s) "
+        f"({counts['active']} active, {counts['archived']} archived); {len(aliases)} alias(es) recorded in {REQUIREMENTS_PATH}."
+    )
+    for path, _value, count in json_writes:
+        print(f"  {path.as_posix()}: {count} change(s)")
+    for path, _text, count in text_writes:
+        print(f"  {path.as_posix()}: {count} change(s)")
+    if getattr(args, "dry_run", False):
+        print("Dry run: no files written.")
+        return 0
+    for path, value, _count in json_writes:
+        write_json(path, value)
+    for path, text, _count in text_writes:
+        path.write_text(text, encoding="utf-8")
+    print(f"Wrote {len(json_writes) + len(text_writes)} file(s). Commit messages keep the old ids; the aliases keep them valid.")
     return 0
 
 
@@ -5179,10 +5443,15 @@ def _gate_check_requirement_registry_entry(rule: dict[str, Any], validation: dic
     shape; it cannot see a typo'd or invented REQ-### that some other file merely claims about it."""
     target = Path(str(validation.get("target", REQUIREMENTS_PATH)))
     try:
-        prefix = str(load_json(target).get("requirement_id_prefix", "REQ")) if target.is_file() else "REQ"
+        registry = load_json(target) if target.is_file() else {}
+        prefix = str(registry.get("requirement_id_prefix", "REQ")) if isinstance(registry, dict) else "REQ"
     except (OSError, json.JSONDecodeError):
         return None  # a malformed registry is already reported by doctor; do not double up here
-    pattern = re.compile(rf"\b{re.escape(prefix)}-\d+\b")
+    # REQ-044: history cites the prefix the registry carried at the time, so every alias prefix is matched
+    # too, and a cited id is resolved through the aliases (this registry's and the vendored ones') first.
+    aliases = {**vendored_requirement_id_aliases(), **requirement_id_aliases(registry)}
+    prefixes = sorted({prefix} | {old.split("-", 1)[0] for old in aliases if REQUIREMENT_ID_PATTERN.fullmatch(old)})
+    pattern = re.compile(rf"\b(?:{'|'.join(re.escape(p) for p in prefixes)})-\d+\b")
     cited: set[str] = set()
     if base:
         cited.update(pattern.findall(git_run("log", f"{base}..HEAD", "--format=%B") or ""))
@@ -5190,6 +5459,7 @@ def _gate_check_requirement_registry_entry(rule: dict[str, Any], validation: dic
         cited.update(pattern.findall(Path("CHANGELOG.md").read_text(encoding="utf-8", errors="replace")))
     if not cited:
         return None
+    cited = {resolve_requirement_id(rid, aliases) for rid in cited}
     unknown = sorted(cited - all_requirement_ids() - vendored_requirement_ids())
     if not unknown:
         return None
@@ -6176,6 +6446,25 @@ def build_parser() -> argparse.ArgumentParser:
     requirement_archive.add_argument("--keep-recent", type=int, default=25, help="Completed requirements to keep active (default 25).")
     requirement_archive.add_argument("--dry-run", action="store_true", help="Report what would move without writing.")
 
+    # REQ-044
+    requirement_renumber = requirement_subparsers.add_parser(
+        "renumber",
+        help=(
+            "Change the id prefix of every requirement, keeping the number (REQ-012 -> ARB-012), in the registry, "
+            "the archive, the failure ledger, the gate waivers and the governance text that cites them; records "
+            "id_aliases so commits and waivers that cite the old ids stay valid. Code, tests, .git, vendored "
+            "workspaces and arbiter-out are never touched."
+        ),
+    )
+    requirement_renumber.add_argument("--prefix", required=True, help="New prefix: upper-case letters only, e.g. ARB.")
+    requirement_renumber.add_argument("--dry-run", action="store_true", help="Print the per-file change counts without writing.")
+    requirement_renumber.add_argument(
+        "--paths",
+        nargs="+",
+        metavar="GLOB",
+        help=f"Globs of text files to rewrite instead of the default list ({', '.join(RENUMBER_DEFAULT_PATHS)}).",
+    )
+
     gate_parser = subparsers.add_parser(
         "gate",
         help="Check that changed files carry the changelog/registry updates the completion rulepack requires.",
@@ -6344,6 +6633,7 @@ def main(argv: list[str] | None = None) -> int:
             "update": run_requirement_update,
             "complete": run_requirement_complete,
             "archive": run_requirement_archive,
+            "renumber": run_requirement_renumber,  # REQ-044
         }
         if args.requirement_command in handlers:
             return handlers[args.requirement_command](args)

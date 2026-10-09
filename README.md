@@ -1283,6 +1283,27 @@ omni requirement archive --keep-recent 25   # move old completed and all withdra
 omni requirement archive --id REQ-041,REQ-043  # or name them; live (pending, blocked) work is refused
 ```
 
+**Renaming the prefix.** A project that vendors several workspaces, or that adopted the
+template under the default `REQ` and later wants ids that say which registry they belong
+to, can change the prefix in one step:
+
+```bash
+omni requirement renumber --prefix ARB --dry-run   # per-file change counts, nothing written
+omni requirement renumber --prefix ARB             # REQ-012 -> ARB-012, keeping the number
+```
+
+It rewrites every id in the registry and the archive, sets `requirement_id_prefix`,
+rewrites the `requirement` fields of the failure ledger and the gate waivers, and
+replaces `REQ-###` with `ARB-###` in governance text only: `.ai/**/*.md`,
+`.ai/**/*.json`, the root `*.md` files (`CHANGELOG.md`, `README.md`), `docs/**/*.md`,
+`.claude/**/*.md` and `.claude/skills/**` (`--paths GLOB ...` replaces that list). Code,
+tests, `.git`, vendored workspaces and `arbiter-out` are never touched, so git history
+keeps citing the old ids. That history stays valid because the command records
+`id_aliases` (`{"REQ-012": "ARB-012"}`) in the registry: the gate, `omni requirement
+show|update|complete|archive` and `omni failure check` resolve an old id to its current
+one, and `omni doctor` fails on an alias that points at nothing or that is still a live
+id. Running the command again with the same prefix is a no-op.
+
 Enforce the completion rulepack instead of trusting the assistant to remember it:
 
 ```bash

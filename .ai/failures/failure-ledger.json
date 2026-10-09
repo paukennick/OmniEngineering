@@ -411,6 +411,30 @@
       ],
       "prevention_notes": "A test that creates a git repository and removes it disables auto-gc; the macOS cell is the control that showed the race.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-018",
+      "date": "2026-10-09",
+      "title": "Lineage test teardown raced git's detached auto-gc on macOS CI (recurrence of FAIL-017 in a fixture subclass)",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "CI (macos-latest, Python 3.10) on the push run for upstream OmniEngineering branch arbiter at 3d1a17d: ERROR in test_lineage.TestLineage.test_a_walk_terminates_on_a_cycle: TemporaryDirectory cleanup raised OSError Errno 66 Directory not empty: 'objects'. The same cell passed on the pull-request run of the same commit.",
+      "how_detected": "CI on the upstream branch, read by test name; the twin job on the pull-request run passed",
+      "root_cause": "FAIL-017 disabled auto-gc in the three history-layer tests that call git init themselves, but TestLineage (and every other subclass of the shared Fixture in tests/test_graph_layers.py) commits into its own temporary repository through Fixture.git without that setting, so git could still detach a gc that writes under .git/objects after the commit returns, racing shutil.rmtree in teardown.",
+      "requirement": "REQ-041",
+      "affected": [
+        "tests/test_graph_layers.py",
+        "tests/test_lineage.py"
+      ],
+      "fix_summary": "Fixture.git passes -c gc.auto=0 on every git invocation, so every fixture repository (layers, lineage, findings, benchmark, vendored-and-blame) runs without a background gc; the fix lives in the one helper every subclass uses instead of in each test.",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A timing race in test teardown; the fix removes the background process rather than asserting on it, as for FAIL-017.",
+      "prevention_rules": [
+        "completion.verify_target_environment"
+      ],
+      "prevention_notes": "A test that creates and removes a git repository runs git with auto-gc off; doing it in the shared helper means a new subclass cannot forget it.",
+      "recurrence_of": "FAIL-017"
     }
   ]
 }

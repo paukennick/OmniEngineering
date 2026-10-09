@@ -135,6 +135,9 @@
     `arbiter.yaml` with the reason written out, the baseline is re-cut without them, and the handbook
     says which findings belong in a suppression rather than the baseline. The four unpinned-action
     notes stay active: real low-severity debt, visible in the Security tab, not a check failure.
+  - The FAIL-017 teardown race came back on macOS in `test_lineage` (FAIL-018): that test inherits the
+    shared `Fixture` and commits through its `git` helper, which the FAIL-017 fix did not cover. The
+    helper now runs every git call with `-c gc.auto=0`, so every fixture subclass is covered at once.
 
 - `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
   --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other

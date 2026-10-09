@@ -29,6 +29,7 @@ def test_the_service_layer_exposes_no_way_to_record_a_verdict():
         assert "apply" not in json.dumps(tool["inputSchema"]).lower()
 
 
+@pytest.mark.slow
 def test_a_review_queue_from_the_service_is_unmarked(tmp_path):
     """A queue is a question, not an answer. Every mark leaves blank."""
     from arbiter import service
@@ -240,6 +241,7 @@ def test_an_oversized_upload_is_refused(tmp_path, monkeypatch):
         assert not any(ws.source.iterdir()), "an oversized upload was written anyway"
 
 
+@pytest.mark.slow
 def test_a_hosted_scan_keeps_nothing_and_returns_no_server_paths(tmp_path):
     """The simplest answer to 'what do you hold of ours?' is 'nothing'.
 

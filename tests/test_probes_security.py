@@ -451,6 +451,7 @@ def test_an_unguarded_uncompensated_disabled_check_still_reports_high(tmp_path):
     assert hits and hits[0].severity == "high" and hits[0].confidence == "high"
 
 
+@pytest.mark.slow
 def test_no_criticals_or_highs_from_authored_on_well_maintained_go(tmp_path):
     """The end state: the probe produces nothing build-breaking on Traefik,
     which is the tuning-set repository that exposed two of the three causes."""

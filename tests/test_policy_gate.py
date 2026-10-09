@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from helpers import ROOT
 
 from arbiter.core import Finding, Location
@@ -370,6 +371,12 @@ def test_offline_profile_refuses_model_calls(tmp_path, monkeypatch):
     assert j.status == "skipped" and "forbids" in j.reason
 
 
+# Slow inside the suite, not on its own: the scan asks for use_adapters=False,
+# but that only skips registering the adapters, and an earlier test in the
+# same process has registered them already, so this full scan runs the real
+# analyzers (ARB-046). Standalone it is under two seconds; the engine quirk is
+# reported, not worked around here.
+@pytest.mark.slow
 def test_judgement_probe_always_counts_against_coverage(tmp_path, monkeypatch):
     """A probe that does not register never shows up as missing, which would
     quietly flatter every scan that has no model configured."""

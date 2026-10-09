@@ -141,6 +141,7 @@ def test_an_oversized_upload_is_refused_by_the_endpoint(tmp_path, monkeypatch):
     assert response.status_code == 413
 
 
+@pytest.mark.slow
 def test_a_scan_over_http_returns_the_report_and_leaves_nothing(tmp_path):
     """The whole path, once: upload, scan, report back, nothing kept."""
     from arbiter import api
@@ -434,6 +435,7 @@ def test_nothing_the_client_can_call_records_a_verdict():
         assert not any(banned in n for n in public), f"{banned} is reachable"
 
 
+@pytest.mark.slow
 def test_a_scan_goes_out_and_comes_back_renderable(tmp_path, monkeypatch):
     """End to end through the real application: the client packs a directory,
     the endpoint accepts the multipart field and the key, and what comes back

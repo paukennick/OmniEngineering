@@ -108,7 +108,7 @@ analyzers, a scorecard that refuses to grade what it did not inspect). Since
 
 Three ways to have it: installed beside an adopted workspace
 (`./omni adopt --with-arbiter` or `./omni arbiter install`), vendored as a
-subtree (this repository's `arbiter` branch keeps the whole Arbiter checkout
+subtree (this repository's `main` keeps the whole Arbiter checkout
 under `arbiter/` with its own workspace, recognised by the gate, doctor and
 CI), or Arbiter governing itself with this workspace at its own root. Keep the
 two level with `./omni update` and `./omni arbiter update`; refresh the baseline
@@ -526,19 +526,18 @@ newest `fixed` failure-ledger entry (it may list findings that no longer
 exist), and when `arbiter.yaml` changed since it was cut (`config_hash`); all
 three clear with `omni arbiter baseline --refresh`.
 
-### The `arbiter` branch
+### The vendored Arbiter subtree
 
-On the `arbiter` branch of this repository, Arbiter's own source tree is
-vendored under `arbiter/` as a git subtree with its full history, so the
-workspace and the evaluator can be read, cloned and run from one place:
+Since 2026-10-09 this repository's `main` vendors Arbiter's own source tree
+under `arbiter/` as a git subtree with its full history, so the workspace and
+the evaluator can be read, cloned and run from one place:
 
 ```bash
-git checkout arbiter
 pip install -e "arbiter[mcp]"                                   # install from the subtree
 git subtree pull --prefix=arbiter https://github.com/paukennick/arbiter main   # take later arbiter changes
 ```
 
-On this branch the two run together: `omni gate` runs `arbiter gate . --changed`
+Here the two run together: `omni gate` runs `arbiter gate . --changed`
 over this repository (with `arbiter/**` suppressed, because the subtree is
 gated by its own `arbiter.yaml`), `.mcp.json` registers both the `arbiter` and
 `omni` servers, `omni doctor` checks that the subtree runs the same CLI files
@@ -550,9 +549,9 @@ from `arbiter/.ai/requirements/` rather than as typos here.
 
 Arbiter keeps its own `LICENSE` (all rights reserved) and `NOTICE.md` under
 `arbiter/`; the Apache-2.0 licence of this repository does not extend to it,
-and `NOTICE` and `LICENSES/README.md` at the root say so. `main` carries only
-the workspace, and `omni adopt --with-arbiter` installs Arbiter from its own
-repository.
+and `NOTICE` and `LICENSES/README.md` at the root say so. A project adopting
+this workspace never receives the subtree: `omni adopt --with-arbiter` installs
+Arbiter from its own repository.
 
 ### Updating an adopted workspace
 
@@ -832,7 +831,7 @@ The doctor checks:
 - Fallback rule availability.
 - License, notice, and trademark policy presence.
 - Vendored workspaces: a directory carrying its own `.ai/omni-version.json` (a
-  subtree such as `arbiter/` on the `arbiter` branch) must run the same CLI files as
+  subtree such as `arbiter/` here) must run the same CLI files as
   this checkout; drift names the directory and the `omni update` command that
   brings it level.
 - Registered MCP servers: every stdio server in `.mcp.json` is launched for real,

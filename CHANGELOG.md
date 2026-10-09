@@ -116,8 +116,8 @@
   content check (Arbiter's fixture corpus is planted secrets by design), keeps `arbiter/` out of this
   repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not
   extend to `arbiter/`, and wires Arbiter to gate this repository too: `arbiter gate . --changed` runs
-  inside `omni gate`, and the `arbiter` MCP server is registered beside `omni`. `main` is unchanged and
-  carries only the workspace.
+  inside `omni gate`, and the `arbiter` MCP server is registered beside `omni`. Merged into `main` on
+  2026-10-09 (pull request #3) once the whole loop was green on both sides.
 
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install

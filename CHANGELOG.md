@@ -17,6 +17,8 @@
     the two (`test_schema_enum_matches_the_cli_vocabulary`) was misread as the known environment failure
     in the hook test. Recorded as FAIL-011: from now on a failing suite is read by test name, never by
     count.
+  - CI also runs on pushes to the `arbiter` branch, so the vendored-Arbiter job exercises the subtree
+    there without a pull request.
 
 - `REQ-035` | Process | Arbiter published into this repository on the `arbiter` branch, as a git subtree
   under `arbiter/` with its full history (`git subtree pull --prefix=arbiter ... main` takes later

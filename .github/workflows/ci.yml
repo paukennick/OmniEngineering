@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - arbiter   # the branch that vendors Arbiter; its subtree job must run on every push there
 
 jobs:
   test:

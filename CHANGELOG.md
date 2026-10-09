@@ -19,6 +19,12 @@
     fall back to shelling out without saying so. Remote `url` servers are reported as not probed. `.mcp.json`
     is now an allowed root file. Tests exercise the probe against `omni mcp serve` itself, so the server and
     the check are verified against each other.
+  - Two graph fixes found while re-syncing the arbiter adopter: `exclude_code_globs` in `.ai/graph-config.json`
+    keeps named directories (test corpora with planted defects, vendored examples, generated output) out of
+    the code layer while they stay tracked and readable, so their symbols are never attributed to the project;
+    and a changelog that keeps dated `###` sections under one `## [Unreleased]` heading now yields one dated
+    entry per section instead of a single undated block. `omni doctor` also stopped reporting the requirements
+    registry as "partially readable" whenever an unrelated earlier check had failed.
 
 ## 2026-09-22
 

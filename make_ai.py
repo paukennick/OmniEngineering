@@ -990,6 +990,7 @@ def validate_requirements(requirements: Any, report: DoctorReport) -> None:
         report.error("Requirements registry must contain a requirements array")
         return
 
+    errors_before = len(report.errors)
     seen_ids: set[str] = set()
     check_requirement_entries(items, "Requirement", report, seen_ids)
 
@@ -1004,7 +1005,7 @@ def validate_requirements(requirements: Any, report: DoctorReport) -> None:
         elif archive is not None:
             report.error(f"{REQUIREMENTS_ARCHIVE_PATH} must contain a requirements array")
 
-    if not report.errors:
+    if len(report.errors) == errors_before:
         report.pass_check("Requirements registry is structurally valid (types and enums checked)")
     elif seen_ids:
         report.warning("Requirements registry was partially readable")

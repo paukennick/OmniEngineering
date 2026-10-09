@@ -1094,7 +1094,8 @@
       ],
       "risk_notes": [
         "The live probe starts a subprocess per registered server and waits up to 30s each; a server that needs credentials or a network is better registered as a remote url",
-        "which is not probed."
+        "which is not probed.",
+        "Also: exclude_code_globs for the graph's code layer, dated ### sections under an Unreleased heading parsed as entries, and the doctor's partially-readable registry warning scoped to its own errors."
       ]
     }
   ]

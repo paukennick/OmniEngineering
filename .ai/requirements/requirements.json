@@ -1453,7 +1453,7 @@
       "title": "Requirement id aliases and omni requirement renumber",
       "description": "Two workspaces that both use the REQ prefix collide the moment one is vendored into the other. The registry gains an optional id_aliases map (old id to new id). The gate's requirement-id check, requirement show/update/complete, the failure ledger check and doctor resolve an alias to its target, and doctor errors on an alias that points nowhere. omni requirement renumber --prefix NEW [--dry-run] changes the prefix, renumbers the registry and archive keeping the numbers, writes the aliases, and rewrites references in the workspace's governance text (ledger, changelog, .ai, root and docs markdown, .claude) but never in code, tests or git history, so Arbiter can move to ARB-### while its commits that cite REQ-### stay valid.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         ".ai/schemas/requirements.schema.json",

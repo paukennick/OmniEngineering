@@ -4,16 +4,22 @@
 
 ### In progress
 
-- `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
-  --prefix NEW`, so a vendored workspace can move to its own prefix (Arbiter to `ARB-###`) while the
-  commits that cite the old ids stay valid.
-
 - `REQ-041` | CI / repo hygiene | The adopt loop proven end to end: a CI job and a unittest adopt the
   workspace with Arbiter into a temp directory, plant a defect, prove `omni gate` fails on
   `completion.arbiter_gate` and passes after the fix; CI uploads the gate's SARIF to code scanning and
   reads Arbiter's Python floor from `arbiter/pyproject.toml`.
 
 ### Completed
+
+- `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
+  --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other
+  (both held a REQ-035). The registry gains an optional `id_aliases` map (old id to new id) that the
+  gate's requirement-id check, `requirement show/update/complete/archive`, `failure add/update/check`
+  and doctor resolve; doctor errors on an alias that points nowhere or that is still a live id.
+  `renumber` changes the prefix, renumbers the registry and archive keeping the numbers, writes the
+  aliases, rewrites `requirement` fields in the ledger and the waiver file, and rewrites references in
+  governance text only (`.ai`, root and docs markdown, `.claude`), never in code, tests, vendored
+  workspaces or git history; `--dry-run` previews, a second run is a no-op.
 
 - `REQ-043` | Code understanding | Arbiter findings are graph nodes. `omni graph build` reads the newest
   report under the `completion.arbiter_gate` rule's output directory (or `findings_report` in

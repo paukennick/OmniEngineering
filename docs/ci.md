@@ -31,7 +31,7 @@ three ways:
 |---|---|---|
 | the job log and the diff | one annotation per finding: `::error` for what failed the gate, `::notice` for findings in files the change did not touch, `::warning` for the rest | workflow commands on stdout, on automatically when `GITHUB_ACTIONS=true` |
 | the job summary | the pull-request comment: verdict, reasons, grade, what was not assessed | appended to `$GITHUB_STEP_SUMMARY` |
-| the Security tab | every active finding, with its rule and remediation | `report.sarif` uploaded with `github/codeql-action/upload-sarif` |
+| the Security tab | the active findings at or above `--sarif-min-severity` (pr-check uses `medium`; without the flag, every active finding), with rule and remediation | `report.sarif` uploaded with `github/codeql-action/upload-sarif` |
 
 The SARIF upload needs `permissions: security-events: write` (and `contents:
 read`) on the job or the workflow; the annotations and the summary need

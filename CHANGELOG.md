@@ -25,8 +25,8 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   with `.arbiter/baseline.json` cut from a full scan and committed, so "new"
   means new since this baseline; the installed Arbiter version is recorded in
   `.ai/omni-version.json`; the recommended `completion.tests` example rule is
-  present. The handbook for the whole loop is
-  `docs/arbiter-integration.md` in the OmniEngineering repository.
+  present. The handbook for the whole loop lives in the OmniEngineering repository:
+  https://github.com/paukennick/OmniEngineering/blob/main/docs/arbiter-integration.md.
 - ARB-042 | Run history and the trend dashboard. Every `scan` and `gate`
   appends one line to `<out>/history.jsonl` (time, commit, system, profile,
   mode, grade, score, coverage, counts by severity, new high-or-above, gate
@@ -71,7 +71,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   test no longer exists is `arbiter/governance.regression-test-missing`; both
   medium, both n/a without a ledger. Findings inside the change carry
   `req:<ID>` tags from the commits since the base (the registry's own prefix),
-  and `REPORT.md` and the pull-request comment gain a "By requirement" block.
+  and the Markdown report and the pull-request comment gain a "By requirement" block.
 - Closed ARB-024 with the pull-request check deliberately advisory. The
   Windows matrix has now run for real and found two defects (FAIL-035,
   FAIL-039), which was its purpose; the remaining criterion, a required

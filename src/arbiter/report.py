@@ -13,7 +13,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from .core import SARIF_LEVEL, Finding, Report
+from .core import sev_at_least, SARIF_LEVEL, Finding, Report
 
 SEV_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -172,10 +172,14 @@ def write_json(report: Report, path: str) -> None:
     Path(path).write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
 
 
-def write_sarif(report: Report, path: str) -> None:
+def write_sarif(report: Report, path: str, min_severity: str | None = None) -> None:
+    """SARIF 2.1.0 of the active findings. `min_severity` drops everything below it: a code-scanning
+    upload of every low and info finding buries the ones a reviewer should see."""
     rules: dict[str, dict] = {}
     results = []
     for f in report.active():
+        if min_severity and not sev_at_least(f.severity, min_severity):
+            continue
         if f.rule_id not in rules:
             rules[f.rule_id] = {
                 "id": f.rule_id,
@@ -693,13 +697,13 @@ Coverage above counts only checks that actually ran.</p>
 </div></body></html>"""
 
 
-def write_all(report: Report, outdir: str, formats: list[str]) -> dict[str, str]:
+def write_all(report: Report, outdir: str, formats: list[str], sarif_min_severity: str | None = None) -> dict[str, str]:
     Path(outdir).mkdir(parents=True, exist_ok=True)
     written: dict[str, str] = {}
     if "json" in formats:
         p = str(Path(outdir) / "report.json"); write_json(report, p); written["json"] = p
     if "sarif" in formats:
-        p = str(Path(outdir) / "report.sarif"); write_sarif(report, p); written["sarif"] = p
+        p = str(Path(outdir) / "report.sarif"); write_sarif(report, p, sarif_min_severity); written["sarif"] = p
     if "html" in formats:
         p = str(Path(outdir) / "report.html")
         Path(p).write_text(render_html(report), encoding="utf-8"); written["html"] = p

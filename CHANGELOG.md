@@ -2,6 +2,14 @@
 
 ## 2026-10-09
 
+### In progress
+
+- `REQ-046` | Developer tooling | (in progress) Posture reads the newest full and the newest partial Arbiter report separately.
+- `REQ-047` | Developer tooling | (in progress) The registered test suites are required in the gate, with impact selection and a per-rule pass memo.
+- `REQ-048` | CI / repo hygiene | (in progress) The viewer is exercised in headless Chromium: a finding is traced to its requirement.
+- `REQ-049` | CLI / template maintainability | (in progress) `omni arbiter sync`; doctor warns on a mismatched commit identity.
+- `REQ-050` | Developer tooling | (in progress) Doctor's live MCP probe is memoised; `omni gate` uses the memo.
+
 ### Completed
 
 - `REQ-045` | Documentation | The integration handbook `docs/arbiter-integration.md` (division of

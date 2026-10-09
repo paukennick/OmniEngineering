@@ -1553,6 +1553,161 @@
       "risk_notes": [
         "command names must be re-checked against the final Arbiter release"
       ]
+    },
+    {
+      "id": "REQ-046",
+      "category": "Developer tooling",
+      "title": "Posture reads the newest full and the newest partial Arbiter report separately",
+      "description": "The Posture line showed grade withheld (coverage 15%) because the gate's --changed report is partial by design. arbiter_report_state finds the newest full report (grade, coverage, existing highs, when it ran) and the newest partial one (gate result, new highs, freshness judged against the rule's scope) and the line says which is which; when one kind is missing it names the command that makes it. --json schema_version 2 carries arbiter.full and arbiter.gate.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/",
+        "docs/arbiter-integration.md"
+      ],
+      "acceptance_criteria": [
+        "posture shows the full scan's grade and the gate's freshness at once",
+        "a missing full scan says to run ./omni arbiter baseline",
+        "a missing gate report says to run ./omni gate",
+        "doctor --json has arbiter.full and arbiter.gate"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "python3 -m unittest discover -s tests"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/arbiter-integration.md"
+      ],
+      "risk_notes": [
+        "report readers that assumed one report must read scan_scope.mode"
+      ]
+    },
+    {
+      "id": "REQ-047",
+      "category": "Developer tooling",
+      "title": "The registered test suites are required in the gate, with impact selection and a per-rule pass memo",
+      "description": "completion.tests becomes required on this repository and in the vendored Arbiter workspace, running omni test run --impacted so only suites the change reaches run. omni gate --hook does not re-run a command rule that passed on the same scoped change set (per-rule pass records in the gate state file keyed on the scoped files and their mtimes); a scoped file change invalidates the memo. The adopt-loop CI script asserts the rule passes on a repository with no suites.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "make_ai.py",
+        ".ai/rules/completion-workflow.json",
+        ".github/workflows/ci.yml",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "omni gate fails when a reached suite fails",
+        "a passed rule is not re-run by the hook until a scoped file changes",
+        "the adopt loop stays green",
+        "the unit suite covers the memo"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "python3 -m unittest discover -s tests"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/arbiter-integration.md"
+      ],
+      "risk_notes": [
+        "hook latency grows by one suite run per change; the fast tier on Arbiter keeps it under three minutes"
+      ]
+    },
+    {
+      "id": "REQ-048",
+      "category": "CI / repo hygiene",
+      "title": "The viewer is exercised in a browser: a finding is traced to its requirement in headless Chromium",
+      "description": "tests/test_viewer_browser.py builds a graph from a fixture repository plus a synthetic Arbiter report, renders the viewer, opens it in headless Chromium through Playwright, switches to the Findings view, selects a finding, and asserts the source row, the breadcrumb (directory, file, finding) and the Trace to requirement result; the severity colour mode is checked through the exported meta. The test skips without Playwright or a Chromium; a dedicated CI job installs both.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "tests/test_viewer_browser.py",
+        ".github/workflows/ci.yml",
+        ".ai/graph-viewer/viewer.html",
+        "docs/arbiter-integration.md"
+      ],
+      "acceptance_criteria": [
+        "the test passes in CI on ubuntu",
+        "it skips cleanly elsewhere",
+        "the handbook says the trace is proven in a browser"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "python3 -m unittest discover -s tests"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/arbiter-integration.md"
+      ],
+      "risk_notes": [
+        "the browser download is a CI dependency; its own job keeps the matrix independent"
+      ]
+    },
+    {
+      "id": "REQ-049",
+      "category": "CLI / template maintainability",
+      "title": "omni arbiter sync levels the subtree, the installed package, the recorded version and the baseline in one command; doctor warns on a mismatched commit identity",
+      "description": "The three-way sync (subtree pull, pip install, version record, baseline refresh, doctor) was manual and error-prone. omni arbiter sync runs the steps in order and stops at the first failure naming the step; --dry-run prints the commands; in pip mode it updates and re-baselines. Doctor warns (never errors) when a commit since the gate base carries an author or committer email that differs from git config user.email or ends in .local or localhost.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/",
+        "docs/arbiter-integration.md"
+      ],
+      "acceptance_criteria": [
+        "omni arbiter sync --dry-run lists the steps",
+        "a failing step stops the sequence with its name",
+        "doctor warns on an omni@local author",
+        "the adopt loop stays quiet"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "python3 -m unittest discover -s tests"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/arbiter-integration.md"
+      ],
+      "risk_notes": [
+        "subtree pull conflicts still need a person; sync stops and says so"
+      ]
+    },
+    {
+      "id": "REQ-050",
+      "category": "Developer tooling",
+      "title": "Doctor's live MCP probe is memoised on the registration and the server executables; omni gate uses the memo",
+      "description": "omni gate ran both MCP servers for real on every commit. The probe result is stored in the local gate state directory keyed on the .mcp.json digest, each stdio server's resolved executable (path, mtime, size) and PATH; a hit within 24 hours skips the launch and the doctor line says when it was probed. omni doctor --probe forces a live probe; omni gate never forces one; a changed executable or registration invalidates the memo.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/"
+      ],
+      "acceptance_criteria": [
+        "a second omni doctor within 24 hours does not launch the servers",
+        "--probe launches them",
+        "a changed executable invalidates the memo",
+        "the memo file is git-ignored"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate",
+        "python3 -m unittest discover -s tests"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/arbiter-integration.md"
+      ],
+      "risk_notes": [
+        "a server that breaks without its file changing is caught at the next --probe or after 24 hours"
+      ]
     }
   ]
 }

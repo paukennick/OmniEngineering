@@ -4,6 +4,10 @@
 
 ### In progress
 
+- `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
+  --prefix NEW`, so a vendored workspace can move to its own prefix (Arbiter to `ARB-###`) while the
+  commits that cite the old ids stay valid.
+
 - `REQ-041` | CI / repo hygiene | The adopt loop proven end to end: a CI job and a unittest adopt the
   workspace with Arbiter into a temp directory, plant a defect, prove `omni gate` fails on
   `completion.arbiter_gate` and passes after the fix; CI uploads the gate's SARIF to code scanning and

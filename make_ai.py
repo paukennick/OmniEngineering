@@ -45,6 +45,11 @@ REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_re
 TERMINAL_REQUIREMENT_STATUSES = {"completed", "withdrawn"}
 MCP_REGISTRATION_PATH = Path(".mcp.json")
 MCP_PROBE_TIMEOUT_SECONDS = 30.0
+# REQ-050: a successful live probe is remembered in the git directory (beside the gate's own state, never
+# tracked) and reused for a day while .mcp.json, PATH and each server's executable are unchanged.
+MCP_PROBE_MEMO_FILE = "omni-mcp-probe.json"
+MCP_PROBE_MEMO_MAX_AGE_SECONDS = 24 * 60 * 60
+MCP_PROBE_NO_MEMO_ENV = "OMNI_DOCTOR_NO_MEMO"
 REQUIREMENT_PRIORITIES = ["critical", "high", "medium", "low"]
 REQUIREMENT_STRING_FIELDS = ("id", "category", "title", "description")
 REQUIREMENT_LIST_FIELDS = (
@@ -746,9 +751,12 @@ class DoctorReport:
         return not self.errors
 
     def to_json(self) -> dict[str, Any]:
-        """The `--json` shape. `schema_version` 1 is the stable contract: keys are only ever added."""
+        """The `--json` shape. `schema_version` 2 (REQ-046): `posture.arbiter` carries `wired`, `full` and `gate`;
+        keys are only ever added. The schema 1 top-level keys under `posture.arbiter` (`present`, `fresh`,
+        `reason`, `grade`, `coverage`, `new_high_or_above`, `gate_passed`, ...) are kept for one release,
+        populated from the gate block; readers should move to `posture.arbiter.gate` before they go."""
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "ok": self.ok,
             "passed": list(self.passed),
             "warnings": list(self.warnings),
@@ -1615,6 +1623,64 @@ def validate_recent_commits_tracked(report: DoctorReport) -> None:
         report.pass_check("No commits postdating the last CHANGELOG.md update are missing changelog coverage")
 
 
+def _commit_identity_problem(email: str, configured: str) -> str | None:
+    """Why a commit's email is suspect (REQ-049): it is not the configured one, or its domain is a
+    machine-local placeholder (`.local`, `localhost`) that no forge can attribute. None when it is fine."""
+    normalised = email.strip().lower()
+    domain = normalised.rsplit("@", 1)[-1] if "@" in normalised else normalised
+    if domain == "localhost" or domain.endswith(".local"):
+        return f"has the machine-local domain `{domain}`"
+    if normalised != configured:
+        return f"differs from git config user.email ({configured})"
+    return None
+
+
+def validate_commit_identity(report: DoctorReport) -> None:
+    """Warn (never error) when a commit since the gate base, or one of the last 20 when there is no base,
+    carries an author or committer email other than `git config user.email`, or one ending in `.local`
+    or `localhost`: the identity an assistant or a fresh machine commits under is easy to get wrong and
+    is only noticed after the push. A repository with no configured email skips the check (REQ-049)."""
+    if not Path(".git").exists():
+        return
+    configured = (git_run("config", "user.email") or "").strip().lower()
+    if not configured:
+        return
+    head = (git_run("rev-parse", "--verify", "-q", "HEAD") or "").strip()
+    if not head:
+        return
+    base = gate_base_commit()
+    log_format = "--format=%h%x09%ae%x09%ce"
+    if base and base != head:
+        log = git_run("log", "--no-merges", log_format, f"{base}..HEAD")
+        span = "since the gate base"
+    else:
+        log = git_run("log", "--no-merges", "-20", log_format, "HEAD")
+        span = "among the last 20"
+    commits = [line.split("\t") for line in (log or "").splitlines() if line.count("\t") == 2]
+    if not commits:
+        return
+    problems: list[str] = []
+    for index, (short, author, committer) in enumerate(commits):
+        for role, email in (("author", author), ("committer", committer)):
+            problem = _commit_identity_problem(email, configured)
+            if problem is None:
+                continue
+            fix = (
+                "git commit --amend --reset-author" if index == 0
+                else f"git rebase -i {base[:12] if base and base != head else 'HEAD~' + str(len(commits))} and --reset-author it"
+            )
+            problems.append(f"{short} {role} {email} {problem}; fix: {fix}")
+    if problems:
+        preview = "; ".join(problems[:5])
+        suffix = "" if len(problems) <= 5 else f" (+{len(problems) - 5} more)"
+        report.warning(
+            f"Commit identity: {len(problems)} email(s) on commits {span} look wrong: {preview}{suffix}. "
+            "Set `git config user.email` to the address the forge knows and rewrite the commits before pushing."
+        )
+    else:
+        report.pass_check(f"{len(commits)} commit(s) {span} carry the configured identity ({configured})")
+
+
 def validate_cli_entrypoints(report: DoctorReport) -> None:
     omni_path = Path("omni")
     if not omni_path.is_file():
@@ -1775,15 +1841,102 @@ def probe_mcp_server(
         process.stdout.close()
 
 
-def validate_mcp_registrations(report: DoctorReport) -> None:
+def mcp_probe_memo_file() -> Path | None:
+    """Where the live-probe memo lives: inside the git directory beside `omni-gate-last.json`, which git never
+    tracks; None outside a git checkout, where every probe is live."""
+    git_dir = git_run("rev-parse", "--git-dir")
+    return Path(git_dir.strip()) / MCP_PROBE_MEMO_FILE if git_dir else None
+
+
+def mcp_probe_memo_disabled() -> bool:
+    """`OMNI_DOCTOR_NO_MEMO=1` (CI may set it) turns the memo off: every probe is live and nothing is stored."""
+    return os.environ.get(MCP_PROBE_NO_MEMO_ENV, "").strip().lower() not in ("", "0", "false", "no")
+
+
+def mcp_executable_fingerprint(command: str) -> dict[str, Any] | None:
+    """What the memo keys a server on: the resolved executable's path, mtime and size, read through any
+    symlink so a retargeted `python` or a reinstalled console script invalidates it. None when the command
+    does not resolve, which the live probe then reports."""
+    executable = shutil.which(command) or (command if Path(command).is_file() else None)
+    if executable is None:
+        return None
+    try:
+        resolved = Path(executable).resolve()
+        stat = resolved.stat()
+    except OSError:
+        return None
+    return {"path": str(resolved), "mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
+
+
+def mcp_probe_memo_key(registration_text: str) -> dict[str, str]:
+    """The part of the key shared by every server: the digest of `.mcp.json` as written and PATH as seen."""
+    return {
+        "registration_digest": hashlib.sha256(registration_text.encode("utf-8")).hexdigest(),
+        "path": os.environ.get("PATH", ""),
+    }
+
+
+def load_mcp_probe_memo(memo_file: Path | None, key: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """The remembered servers by name, or {} when the memo is missing, unreadable, or was written for another
+    registration or PATH."""
+    if memo_file is None:
+        return {}
+    try:
+        memo = json.loads(memo_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(memo, dict) or any(memo.get(field) != value for field, value in key.items()):
+        return {}
+    servers = memo.get("servers")
+    return {name: record for name, record in servers.items() if isinstance(record, dict)} if isinstance(servers, dict) else {}
+
+
+def mcp_probe_memo_hit(record: dict[str, Any] | None, fingerprint: dict[str, Any] | None, now: float) -> str | None:
+    """The ISO time of the remembered probe when `record` still applies: the executable is the same file
+    (path, mtime, size), the probe is younger than a day and it listed tools. Otherwise None, and the server
+    is launched for real."""
+    if not record or fingerprint is None or record.get("executable") != fingerprint:
+        return None
+    probed_at = record.get("probed_at")
+    stamp = _arbiter_timestamp(probed_at)
+    if stamp is None or not 0 <= now - stamp < MCP_PROBE_MEMO_MAX_AGE_SECONDS:
+        return None
+    tools = record.get("tools")
+    if not isinstance(tools, list) or not tools or not isinstance(record.get("server_name"), str):
+        return None
+    return str(probed_at)
+
+
+def store_mcp_probe_memo(memo_file: Path | None, key: dict[str, str], servers: dict[str, dict[str, Any]]) -> None:
+    """Write the memo: the shared key plus one record per server that answered. A write that fails is not a
+    doctor finding; the next run simply probes live again."""
+    if memo_file is None:
+        return
+    try:
+        write_json(memo_file, {"schema_version": 1, **key, "servers": servers})
+    except OSError:
+        pass
+
+
+def validate_mcp_registrations(report: DoctorReport, force_probe: bool = False) -> None:
     """`.mcp.json` tells assistants which MCP servers to start for this repo. A registration that looks right
     but cannot start is worse than none, because the assistant silently falls back to shelling out, so every
     stdio server listed is launched for real and must answer with at least one tool. Remote (`url`) servers
-    are not probed: reaching them is a network question, not a workspace one."""
+    are not probed: reaching them is a network question, not a workspace one.
+
+    A successful probe is memoised (REQ-050): while `.mcp.json`, PATH and the server's resolved executable
+    (path, mtime, size) are unchanged and the probe is younger than a day, the next run reads the memo instead
+    of launching the server, and its line says when it was probed. `force_probe` (`omni doctor --probe`)
+    launches every server and refreshes the memo; a failed probe is never remembered; `OMNI_DOCTOR_NO_MEMO=1`
+    turns the memo off. `omni gate` runs the doctor with the memo, so a commit no longer starts the servers."""
     if not MCP_REGISTRATION_PATH.is_file():
         return
     try:
-        registration = load_json(MCP_REGISTRATION_PATH)
+        registration_text = MCP_REGISTRATION_PATH.read_text(encoding="utf-8")
+        registration = json.loads(registration_text)
+    except OSError as exc:
+        report.error(f"Cannot read {MCP_REGISTRATION_PATH}: {exc}")
+        return
     except json.JSONDecodeError as exc:
         report.error(f"Invalid JSON in {MCP_REGISTRATION_PATH}: line {exc.lineno}, column {exc.colno}")
         return
@@ -1791,6 +1944,12 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
     if not isinstance(servers, dict) or not servers:
         report.error(f"{MCP_REGISTRATION_PATH} must contain a non-empty mcpServers object")
         return
+
+    memo_file = None if mcp_probe_memo_disabled() else mcp_probe_memo_file()
+    memo_key = mcp_probe_memo_key(registration_text)
+    memo = {} if force_probe else load_mcp_probe_memo(memo_file, memo_key)
+    remembered: dict[str, dict[str, Any]] = {}
+    now = time.time()
 
     for name, config in servers.items():
         if not isinstance(config, dict):
@@ -1811,6 +1970,16 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
         if not isinstance(env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
             report.error(f"MCP server {name!r} env must be an object of string values")
             continue
+        fingerprint = mcp_executable_fingerprint(command)
+        record = memo.get(name)
+        probed_at = mcp_probe_memo_hit(record, fingerprint, now)
+        if probed_at is not None and record is not None:
+            remembered[name] = record
+            report.pass_check(
+                f"MCP server {name!r} ({record['server_name']}) answers initialize and lists "
+                f"{len(record['tools'])} tool(s) (probed {probed_at}, run omni doctor --probe to re-check)"
+            )
+            continue
         tools, detail = probe_mcp_server(command, args, env, Path.cwd())
         rendered = " ".join([command, *args])
         if tools is None:
@@ -1819,6 +1988,14 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
             report.error(f"MCP server {name!r} (`{rendered}`) started but lists no tools")
         else:
             report.pass_check(f"MCP server {name!r} ({detail}) answers initialize and lists {len(tools)} tool(s)")
+            if fingerprint is not None:
+                remembered[name] = {
+                    "executable": fingerprint,
+                    "probed_at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"),
+                    "server_name": detail,
+                    "tools": list(tools),
+                }
+    store_mcp_probe_memo(memo_file, memo_key, remembered)
 
 
 def find_placeholders(value: Any) -> set[str]:
@@ -2566,9 +2743,15 @@ def run_graph_why(args: argparse.Namespace) -> int:
         return 1
 
     node = result["node"]
-    print(f"{node['name']} ({node['kind']})" + (f"  {node['file']}" if node.get("file") else ""))
+    print(f"{node['name']} ({node['kind']})" + (f"  {node['file']}" if node.get("file") else "") + (f"  [workspace {node['workspace']}]" if node.get("workspace") else ""))
     if node.get("summary"):
         print(f"  {node['summary']}")
+    introduced = result["sections"].pop("introduced by", None)  # REQ-051: one line, right under the finding
+    if introduced:
+        item = introduced[0]
+        print("  " + omni_graph.describe_introduced_by(
+            {"commit": item["name"], "subject": item.get("summary"), "requirements": item.get("requirements")} if item.get("kind") == "commit" else {"commit": None}
+        ))
     if not result["sections"]:
         print("  Nothing in the governance or assurance layers touches this node.")
         print("  (If you expected something, rebuild with `omni graph build` and check `omni graph show --all --layer governance`.)")
@@ -3385,7 +3568,9 @@ def run_context(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_doctor_report() -> DoctorReport:
+def build_doctor_report(probe: bool = False) -> DoctorReport:
+    """Every doctor check. `probe` forces the MCP servers to be launched (`omni doctor --probe`, REQ-050);
+    `omni gate` never passes it, so a commit reuses the day's memo."""
     report = DoctorReport()
     verify_required_ai_files(report)
     parsed = validate_json_files(report)
@@ -3407,8 +3592,9 @@ def build_doctor_report() -> DoctorReport:
     validate_project_map_freshness(report)
     validate_project_graph(report)
     validate_recent_commits_tracked(report)
+    validate_commit_identity(report)  # REQ-049
     validate_cli_entrypoints(report)
-    validate_mcp_registrations(report)
+    validate_mcp_registrations(report, force_probe=probe)
     validate_vendored_workspaces(report)
     validate_arbiter_baseline(report)
     validate_arbiter_version(report)
@@ -3418,7 +3604,7 @@ def build_doctor_report() -> DoctorReport:
 
 
 def run_doctor(args: argparse.Namespace | None = None) -> int:
-    report = build_doctor_report()
+    report = build_doctor_report(probe=bool(getattr(args, "probe", False)))
     if getattr(args, "json", False):
         print(json.dumps(report.to_json(), indent=2))
     else:
@@ -3758,12 +3944,39 @@ def arbiter_out_dir(rule: dict[str, Any] | None) -> Path:
     return ARBITER_DEFAULT_OUT_DIR
 
 
-def newest_arbiter_report(out_dir: Path) -> Path | None:
-    """The most recently written `report.json` directly in `out_dir` or one level below it, by mtime."""
-    candidates = [path for path in [out_dir / "report.json", *out_dir.glob("*/report.json")] if path.is_file()]
-    if not candidates:
+def arbiter_report_mode(path: Path) -> str | None:
+    """The `scan_scope.mode` of the report at `path`: "full" (a baseline or a plain scan) or "partial" (the
+    gate's `--changed` run, whose grade is withheld by design). A report without the key is full, which is how
+    Arbiter itself reads it; a report that cannot be parsed is None."""
+    try:
+        report = load_json(path)
+    except (OSError, ValueError):
         return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    if not isinstance(report, dict):
+        return None
+    scope = report.get("scan_scope")
+    mode = scope.get("mode") if isinstance(scope, dict) else None
+    return mode.strip() if isinstance(mode, str) and mode.strip() else "full"
+
+
+def arbiter_reports_root(out_dir: Path) -> Path:
+    """The directory the posture reads reports from. The gate writes under its `--out` (`arbiter-out/omni-gate/`)
+    and `omni arbiter baseline` beside it (`arbiter-out/baseline/`), so the root is the `--out` directory's
+    parent when it has one, read together with everything one level below it; a top-level `--out` is read
+    as is."""
+    parent = out_dir.parent
+    return out_dir if parent in (Path("."), out_dir) else parent
+
+
+def newest_arbiter_report(out_dir: Path, mode: str | None = None) -> Path | None:
+    """The most recently written `report.json` directly in `out_dir` or one level below it (baseline/,
+    omni-gate/), by mtime. With `mode` ("full" or "partial"), the newest whose `scan_scope.mode` is that one;
+    a report that cannot be parsed matches either mode, so a corrupt newest report is shown, not skipped."""
+    candidates = [path for path in [out_dir / "report.json", *out_dir.glob("*/report.json")] if path.is_file()]
+    for path in sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True):
+        if mode is None or arbiter_report_mode(path) in (mode, None):
+            return path
+    return None
 
 
 def _arbiter_timestamp(value: Any) -> float | None:
@@ -3848,36 +4061,58 @@ def arbiter_rule_scope(rule: dict[str, Any], changed: set[str]) -> set[str]:
     return {p for p in changed if matches_any(p, when) and not matches_any(p, ignore)}
 
 
-def arbiter_report_state() -> dict[str, Any]:
-    """The Arbiter part of the posture: wired, present, fresh, and the newest report's headline numbers.
-    A malformed report never raises; it is recorded as present but not fresh, with the reason."""
-    state: dict[str, Any] = {
-        "wired": False, "present": False, "fresh": False, "reason": "not wired",
+def _arbiter_report_block(path: Path | None, out_dir: Path, head: str, changed: set[str]) -> dict[str, Any]:
+    """One report's share of the posture: whether it exists, where, when it started, its headline numbers and
+    whether it still describes HEAD (judged against `changed`, the rule's scope). A malformed report never
+    raises; it is recorded as present but not fresh, with the reason."""
+    block: dict[str, Any] = {
+        "present": False, "path": None, "started_at": None,
+        "fresh": False, "reason": f"no report under {out_dir.as_posix()}",
         "grade": None, "score": None, "coverage": None,
         "new_high_or_above": 0, "existing_high_or_above": 0,
-        "gate_passed": None, "gate_reasons": [], "path": None,
+        "gate_passed": None, "gate_reasons": [],
     }
-    rule = arbiter_gate_rule()
-    if rule is None:
-        return state
-    state["wired"] = True
-    out_dir = arbiter_out_dir(rule)
-    path = newest_arbiter_report(out_dir)
     if path is None:
-        state["reason"] = f"no report under {out_dir.as_posix()}"
-        return state
-    state["present"] = True
-    state["path"] = path.as_posix()
+        return block
+    block["present"] = True
+    block["path"] = path.as_posix()
     try:
         report = load_json(path)
         if not isinstance(report, dict):
             raise ValueError("report is not a JSON object")
-        state.update(arbiter_report_summary(report))
-        head = (git_run("rev-parse", "HEAD") or "").strip()
-        changed = arbiter_rule_scope(rule, {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, out_dir)})
-        state["fresh"], state["reason"] = arbiter_report_freshness(report, head, changed)
+        block.update(arbiter_report_summary(report))
+        started = report.get("started_at")
+        block["started_at"] = started if isinstance(started, str) and started.strip() else None
+        block["fresh"], block["reason"] = arbiter_report_freshness(report, head, changed)
     except (OSError, ValueError, TypeError, AttributeError, KeyError, IndexError) as exc:
-        state["fresh"], state["reason"] = False, f"unreadable: {exc}"
+        block["fresh"], block["reason"] = False, f"unreadable: {exc}"
+    return block
+
+
+def arbiter_report_state() -> dict[str, Any]:
+    """The Arbiter part of the posture (REQ-046). Two reports are read, not one: `full` is the newest report
+    whose `scan_scope.mode` is full (`omni arbiter baseline`, a plain `arbiter scan`), the only kind that
+    carries a grade, real coverage and the existing high+ count; `gate` is the newest partial report (the
+    gate's `--changed` run), which carries the verdict on the change, the new high+ count and the freshness
+    judged against the rule's scope. Each block is present/absent on its own, so a missing full scan never
+    hides a fresh gate and vice versa.
+
+    Compatibility: the schema_version 1 keys (`present`, `fresh`, `reason`, `grade`, `coverage`,
+    `new_high_or_above`, `gate_passed`, ...) stay at the top level for one release, filled from the gate
+    block, which is what they always described; `wired` is unchanged."""
+    rule = arbiter_gate_rule()
+    root = arbiter_reports_root(arbiter_out_dir(rule))
+    empty = _arbiter_report_block(None, root, "", set())
+    state: dict[str, Any] = {"wired": rule is not None, "full": dict(empty), "gate": dict(empty)}
+    if rule is None:
+        state.update(empty)
+        state["reason"] = "not wired"
+        return state
+    head = (git_run("rev-parse", "HEAD") or "").strip()
+    changed = arbiter_rule_scope(rule, {p for p in gate_changed_paths(gate_base_commit()) if not _path_under(p, root)})
+    state["full"] = _arbiter_report_block(newest_arbiter_report(root, "full"), root, head, changed)
+    state["gate"] = _arbiter_report_block(newest_arbiter_report(root, "partial"), root, head, changed)
+    state.update(state["gate"])  # schema_version 1 compatibility, one release (REQ-046)
     return state
 
 
@@ -3913,25 +4148,49 @@ def compute_posture() -> dict[str, Any]:
     }
 
 
+def _arbiter_scan_time_text(started_at: Any) -> str:
+    """A report's `started_at` as `YYYY-MM-DD HH:MM` in local time, or `?` when unreadable."""
+    stamp = _arbiter_timestamp(started_at)
+    if stamp is None:
+        return "?"
+    return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
+
+
+def _format_posture_full(full: dict[str, Any]) -> str:
+    """The full scan's share of the Posture line: its grade and coverage, and when it ran."""
+    if not full.get("present"):
+        return "arbiter no full scan (run ./omni arbiter baseline)"
+    reason = str(full.get("reason") or "")
+    if full.get("grade") is None and reason.startswith("unreadable:"):
+        return f"arbiter full scan {reason}"
+    coverage = full.get("coverage")
+    coverage_text = f"{round(float(coverage) * 100)}%" if isinstance(coverage, (int, float)) else "?"
+    grade = full.get("grade")
+    grade_text = "grade withheld" if grade in (None, "withheld") else f"score {grade}"
+    return f"arbiter {grade_text} (coverage {coverage_text}, full scan {_arbiter_scan_time_text(full.get('started_at'))})"
+
+
+def _format_posture_gate(gate: dict[str, Any]) -> str:
+    """The gate report's share of the Posture line: its verdict on the change and whether it is still fresh."""
+    if not gate.get("present"):
+        return "gate no report (run ./omni gate)"
+    if not gate.get("fresh"):
+        return f"gate stale: {gate.get('reason')}"
+    passed = gate.get("gate_passed")
+    verdict = "gate passed" if passed is True else ("gate failed" if passed is False else "gate unknown")
+    return f"{verdict} (new high+ {gate.get('new_high_or_above', 0)}, fresh)"
+
+
 def format_posture(posture: dict[str, Any]) -> str:
+    """One line: the full scan's grade, the gate report's verdict and freshness, open failures, open
+    requirements (REQ-046). Each missing report names the command that produces it."""
     arbiter = posture.get("arbiter") if isinstance(posture.get("arbiter"), dict) else {}
     if not arbiter.get("wired"):
         part = "arbiter not wired"
-    elif not arbiter.get("present"):
-        part = "arbiter no report (run ./omni gate)"
-    elif not arbiter.get("fresh"):
-        part = f"arbiter stale: {arbiter.get('reason')}"
     else:
-        coverage = arbiter.get("coverage")
-        coverage_text = f"{round(float(coverage) * 100)}%" if isinstance(coverage, (int, float)) else "?"
-        gate = arbiter.get("gate_passed")
-        gate_text = "gate passed" if gate is True else ("gate failed" if gate is False else "gate unknown")
-        grade = arbiter.get("grade")
-        grade_text = "grade withheld" if grade in (None, "withheld") else f"score {grade}"
-        part = (
-            f"arbiter {grade_text} (coverage {coverage_text}, "
-            f"new high+ {arbiter.get('new_high_or_above', 0)}, {gate_text}, fresh)"
-        )
+        full = arbiter.get("full") if isinstance(arbiter.get("full"), dict) else {}
+        gate = arbiter.get("gate") if isinstance(arbiter.get("gate"), dict) else {}
+        part = f"{_format_posture_full(full)} \u00b7 {_format_posture_gate(gate)}"
     open_requirements = posture.get("requirements_open") if isinstance(posture.get("requirements_open"), dict) else {}
     buckets = ", ".join(
         f"{status} {open_requirements[status]}"
@@ -3955,13 +4214,17 @@ def arbiter_completion_block() -> str | None:
     """Why `omni requirement complete` must not proceed yet, or None when it may. Nothing blocks a workspace
     without the Arbiter rule; with it, the first of: `arbiter` not installed, no report under the rule's
     --out directory, a report that no longer describes HEAD, a report whose gate failed. Every message ends
-    with the command that produces a fresh report, because `omni gate` is what runs the rule."""
+    with the command that produces a fresh report, because `omni gate` is what runs the rule.
+
+    The report judged is the gate's own (the newest partial scan, REQ-046); when there is none, the newest
+    full scan stands in, since a full scan at HEAD carries a gate verdict of its own."""
     rule = arbiter_gate_rule()
     if rule is None:
         return None
     if arbiter_executable() is None:
         return f"arbiter is not installed; `omni arbiter install` puts it on PATH, then run {ARBITER_GATE_COMMAND}"
-    state = arbiter_report_state()
+    reports = arbiter_report_state()
+    state = reports["gate"] if reports["gate"]["present"] else reports["full"]
     if not state["present"]:
         return f"no Arbiter report under {arbiter_out_dir(rule).as_posix()}; run {ARBITER_GATE_COMMAND}"
     if not state["fresh"]:
@@ -4315,7 +4578,8 @@ def validate_arbiter_version(report: DoctorReport) -> None:
     if wanted != installed:
         report.warning(
             f"Arbiter drift: {OMNI_VERSION_FILE} recorded {wanted}, installed {installed}: "
-            "run `omni arbiter update` (upgrades, refreshes the gate rule and re-records the version)"
+            "run `omni arbiter sync` (levels the subtree or package, the record and the baseline) "
+            "or `omni arbiter update` (upgrades, refreshes the gate rule and re-records the version)"
         )
     else:
         report.pass_check(f"Installed Arbiter {installed} matches {OMNI_VERSION_FILE}")
@@ -4480,6 +4744,128 @@ def run_arbiter_update(args: argparse.Namespace) -> int:
     print("Next: run `omni arbiter baseline --refresh` after the gate is green, so the baseline")
     print("matches what the upgraded Arbiter reports; `omni doctor` confirms the versions agree.")
     return status
+
+
+def _omni_cli_argv() -> list[str]:
+    """How a subprocess runs this CLI: the `omni` script beside this module under the interpreter running
+    now (so an adopted repository, where `omni` is not on PATH, still works), else this module itself."""
+    here = Path(__file__).resolve().parent
+    script = here / "omni"
+    return [sys.executable, str(script if script.is_file() else Path(__file__).resolve())]
+
+
+def _arbiter_sync_git_source(target_root: Path, source: str) -> str:
+    """What `git subtree pull` fetches from: the pip source minus its `git+`, unless that is a local
+    path inside the target (the vendored subtree itself, which `adopt --with-arbiter ./arbiter` records)
+    or no directory at all; then Arbiter's upstream."""
+    git_source = _arbiter_git_source(source)
+    local = Path(git_source)
+    if local.is_dir():
+        resolved = local.resolve()
+        if resolved == target_root or target_root in resolved.parents:
+            return _arbiter_git_source(ARBITER_DEFAULT_SOURCE)
+    elif not source.startswith(("git+", "http://", "https://", "ssh://", "git@")):
+        return _arbiter_git_source(ARBITER_DEFAULT_SOURCE)
+    return git_source
+
+
+def run_arbiter_sync(args: argparse.Namespace) -> int:
+    """Level the vendored subtree, the installed package, the recorded version and the baseline in one
+    go (REQ-049). Subtree mode (arbiter/pyproject.toml present): git subtree pull, pip install -e
+    ./arbiter[mcp], the version record, `omni arbiter baseline` (--refresh when one exists) unless
+    --skip-baseline, then `omni doctor`. Pip mode: pip --upgrade from the recorded source, then the
+    same tail. Every step is printed before it runs; the first non-zero exit stops the sequence naming
+    the step and what to do; --dry-run prints the commands only."""
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    info = read_omni_version_file(target_root)
+    recorded = info.get("arbiter") if isinstance(info, dict) else None
+    recorded = recorded if isinstance(recorded, dict) else {}
+    recorded_source = str(recorded.get("source") or "")
+    source = args.source or recorded_source or ARBITER_DEFAULT_SOURCE
+    origin = "given" if args.source else ("recorded at install" if recorded_source else "default")
+    branch = str(getattr(args, "branch", None) or "main")
+    subtree = (target_root / "arbiter" / "pyproject.toml").is_file()
+    dry_run = bool(args.dry_run)
+    omni = _omni_cli_argv()
+
+    steps: list[dict[str, Any]] = []
+    if subtree:
+        git_source = _arbiter_sync_git_source(target_root, source)
+        pull = ["git", "subtree", "pull", "--prefix=arbiter", git_source, branch, "-m", f"Pull Arbiter {branch} into arbiter/"]
+        mode = arbiter_subtree_mode(target_root)
+        if mode == "squash":
+            pull.append("--squash")
+        steps.append({
+            "name": "subtree pull", "argv": pull, "timeout": 600,
+            "advice": "Resolve the conflict in arbiter/ (`git status` lists the files), commit the merge, and rerun `omni arbiter sync`.",
+        })
+        steps.append({
+            "name": "pip install", "argv": [sys.executable, "-m", "pip", "install", "-e", f"./arbiter[{ARBITER_PIP_EXTRAS}]"], "timeout": 1800,
+            "advice": "Fix the install error above (the interpreter running omni must be able to install into its environment), then rerun `omni arbiter sync`.",
+        })
+        # The record names the upstream, never the subtree path, so the next sync knows where to pull from.
+        record_source = source if source.startswith(("git+", "http://", "https://", "ssh://", "git@")) else ARBITER_DEFAULT_SOURCE
+    else:
+        steps.append({
+            "name": "pip upgrade", "argv": _arbiter_pip_command(source) + ["--upgrade"], "timeout": 1800,
+            "advice": "Fix the install error above, or pass --source with the checkout or URL to install from, then rerun `omni arbiter sync`.",
+        })
+        record_source = source
+    steps.append({"name": "record version", "call": lambda: record_arbiter_version(target_root, record_source) or 0,
+                  "describe": f"re-record the installed Arbiter version and its source in {OMNI_VERSION_FILE}"})
+    if getattr(args, "skip_baseline", False):
+        steps.append({"name": "baseline", "skipped": "--skip-baseline"})
+    else:
+        baseline = omni + ["arbiter", "baseline"] + (["--refresh"] if (target_root / ARBITER_BASELINE_PATH).is_file() else [])
+        steps.append({
+            "name": "baseline", "argv": baseline, "timeout": 2400,
+            "advice": "Get the gate green (`omni gate`), then `omni arbiter baseline --refresh` (`--force` accepts the open findings as known), then `omni doctor`.",
+        })
+    steps.append({
+        "name": "doctor", "argv": omni + ["doctor"], "timeout": 600,
+        "advice": "Fix the errors doctor lists above, then rerun `omni doctor`; the other steps are done and need not be repeated.",
+    })
+
+    print(f"Arbiter sync in {target_root} ({'subtree mode: arbiter/pyproject.toml present' if subtree else 'pip mode: no vendored arbiter/'})")
+    print(f"Source: {source} ({origin})" + (f"; subtree pulled from {steps[0]['argv'][4]}" if subtree else ""))
+    if subtree:
+        print(f"Branch: {branch}")
+    print(f"Mode: {'dry-run (commands printed, nothing run or written)' if dry_run else 'apply'}")
+    print("")
+    total = len(steps)
+    for number, step in enumerate(steps, 1):
+        label = f"[{number}/{total}] {step['name']}"
+        if step.get("skipped"):
+            print(f"{label}: skipped ({step['skipped']})")
+            continue
+        if "call" in step:
+            if dry_run:
+                print(f"{label}: would {step['describe']}")
+                continue
+            print(f"{label}: {step['describe']}")
+            step["call"]()
+            continue
+        command = " ".join(shlex.quote(part) for part in step["argv"])
+        if dry_run:
+            print(f"{label}: would run {command}")
+            continue
+        print(f"{label}: {command}")
+        started = time.monotonic()
+        code, tail = _arbiter_run(step["argv"], target_root, step["timeout"])
+        elapsed = time.monotonic() - started
+        if code != 0:
+            print(f"omni arbiter sync: step {number}/{total} ({step['name']}) failed with exit {code} after {elapsed:.1f}s:", file=sys.stderr)
+            for line in tail.splitlines():
+                print(f"    {line}", file=sys.stderr)
+            print(step["advice"], file=sys.stderr)
+            return 1
+        print(f"    done ({elapsed:.1f}s)")
+    print("")
+    print("Arbiter sync complete." if not dry_run else "Dry run complete; rerun without --dry-run to apply.")
+    return 0
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -5532,14 +5918,26 @@ def _gate_check_content_forbidden(rule: dict[str, Any], validation: dict[str, An
     return f"{rule_id}: {example}"
 
 
+def _gate_command_argv(argv: list[str]) -> list[str] | None:
+    """The argv a `command` rule actually runs. `omni` in a run text is this CLI: the `omni` script beside
+    this module, run by the interpreter running the gate, so a rule such as `omni test run --impacted`
+    works where `omni` is not on PATH (an adopted repository runs `python omni ...`) and never picks up
+    some other omni that happens to be installed. Anything else resolves through PATH; None when it
+    cannot (REQ-047)."""
+    if argv[0] == "omni":
+        sibling = Path(__file__).resolve().parent / "omni"
+        if sibling.is_file():
+            return [sys.executable, str(sibling), *argv[1:]]
+    executable = shutil.which(argv[0])
+    return None if executable is None else [executable, *argv[1:]]
+
+
 def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], changed: set[str], base: str | None) -> str | None:
     """Run the project's own check -- a scanner, a test suite, a linter -- as a gate. The command runs only
     when a changed path matches `when_changed` (minus `ignore`), `{base}` in `run` is the gate's base commit,
     and a non-zero exit, a timeout, or an executable that is not on PATH all fail the rule: an unrunnable
     check is not a pass. The last lines of its output ride along so the failure says why, not just that."""
-    when = [str(p) for p in validation.get("when_changed", ["**"])]
-    ignore = [str(p) for p in validation.get("ignore", [])]
-    if not any(matches_any(p, when) and not matches_any(p, ignore) for p in changed):
+    if not arbiter_rule_scope(rule, changed):
         return None
     rule_id = str(rule["id"])
     run = str(validation.get("run", "")).strip()
@@ -5552,8 +5950,8 @@ def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], change
         return f"{rule_id}: cannot parse `{rendered}`: {exc}"
     if not argv:
         return f"{rule_id}: command validation has no `run` to execute"
-    executable = shutil.which(argv[0])
-    if executable is None:
+    command = _gate_command_argv(argv)
+    if command is None:
         return f"{rule_id}: `{argv[0]}` is not on PATH, so `{rendered}` could not run (an unrunnable check is not a pass)"
     try:
         timeout = float(validation.get("timeout", 600))
@@ -5561,7 +5959,7 @@ def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], change
         timeout = 600.0
     try:
         completed = subprocess.run(
-            [executable, *argv[1:]], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return f"{rule_id}: `{rendered}` did not finish within {timeout:.0f}s"
@@ -5598,12 +5996,42 @@ def gate_waivers(base: str | None) -> dict[str, str]:
     return waivers
 
 
-def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None = None) -> tuple[list[str], list[str]]:
+def gate_rule_memo_signature(rule: dict[str, Any], changed: set[str], base: str | None = None) -> str:
+    """What a passed `command` rule's memo is keyed on (REQ-047): the rule's run text (with `{base}`
+    rendered, so a moved base re-runs it) and, for every changed path the rule's own globs select
+    (`arbiter_rule_scope`), its mtime and size. Any edit to a scoped file changes the signature; an edit
+    to a file the rule ignores (the registry, the changelog, a document) does not."""
+    validation = rule.get("validation") if isinstance(rule, dict) else None
+    validation = validation if isinstance(validation, dict) else {}
+    parts = ["run=" + str(validation.get("run", "")).strip().replace("{base}", base or "HEAD")]
+    for path in sorted(arbiter_rule_scope(rule, changed)):
+        try:
+            stat = Path(path).stat()
+            parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
+        except OSError:
+            parts.append(f"{path}:gone")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def gate_evaluate(
+    changed: set[str],
+    waivers: dict[str, str],
+    base: str | None = None,
+    memo: dict[str, str] | None = None,
+    outcomes: list[dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Every gated rule against the change set. `memo` (rule id -> memo signature, from the gate state
+    file) is consulted and updated in place for `command` rules: one whose stored signature matches the
+    current scoped change set is reported as passed (memo) and not re-run, a pass records its signature,
+    and a failure removes any record, so the memo never applies to a rule that failed (REQ-047). With
+    `memo=None` nothing is memoised. `outcomes`, when given, collects one record per rule."""
     failures: list[str] = []
     waived: list[str] = []
     for rule in gate_rules():
         validation = rule["validation"]
         vtype = validation.get("type")
+        rule_id = str(rule["id"])
+        outcome: dict[str, Any] = {"rule": rule_id, "type": vtype, "status": "pass", "duration_s": 0.0}
         if vtype == "co_changed":
             failure = _gate_check_co_changed(rule, validation, changed)
         elif vtype == "requirement_registry_entry":
@@ -5611,22 +6039,71 @@ def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None =
         elif vtype == "content_forbidden":
             failure = _gate_check_content_forbidden(rule, validation, changed)
         elif vtype == "command":
+            if not arbiter_rule_scope(rule, changed):
+                outcome["status"] = "skipped"
+                if outcomes is not None:
+                    outcomes.append(outcome)
+                continue
+            signature = gate_rule_memo_signature(rule, changed, base)
+            if memo is not None and memo.get(rule_id) == signature:
+                outcome["status"] = "memo"
+                if outcomes is not None:
+                    outcomes.append(outcome)
+                continue
+            started = time.monotonic()
             failure = _gate_check_command(rule, validation, changed, base)
+            outcome["duration_s"] = round(time.monotonic() - started, 1)
+            if memo is not None:
+                if failure is None:
+                    memo[rule_id] = signature
+                else:
+                    memo.pop(rule_id, None)
         else:
             continue
         if failure is None:
+            if outcomes is not None:
+                outcomes.append(outcome)
             continue
-        rule_id = str(rule["id"])
         if rule_id in waivers:
             waived.append(f"{rule_id}: waived ({waivers[rule_id]})")
-            continue
-        failures.append(failure)
+            outcome["status"] = "waived"
+        else:
+            failures.append(failure)
+            outcome["status"] = "fail"
+        if outcomes is not None:
+            outcomes.append(outcome)
     return failures, waived
 
 
 def gate_state_file() -> Path | None:
     git_dir = git_run("rev-parse", "--git-dir")
     return Path(git_dir.strip()) / "omni-gate-last.json" if git_dir else None
+
+
+def gate_state_load() -> dict[str, Any]:
+    """The gate state file's contents (`{"signature": ..., "memo": {rule id: signature}}`), or {}."""
+    state_file = gate_state_file()
+    if state_file is None:
+        return {}
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def gate_state_save(update: dict[str, Any]) -> None:
+    """Merge `update` into the gate state file; the hook's failure signature and the per-rule memo share
+    the file, so neither write may drop the other's key. Best effort: a read-only .git is not an error."""
+    state_file = gate_state_file()
+    if state_file is None:
+        return
+    state = gate_state_load()
+    state.update(update)
+    try:
+        state_file.write_text(json.dumps(state), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def gate_signature(failures: list[str], changed: set[str]) -> str:
@@ -5667,11 +6144,27 @@ def run_gate(args: argparse.Namespace) -> int:
             pass
     failures: list[str] = []
     waived: list[str] = []
+    outcomes: list[dict[str, Any]] = []
     if changed:
         doctor = build_doctor_report()
         failures.extend(f"doctor: {message}" for message in doctor.errors)
-        rule_failures, waived = gate_evaluate(changed, gate_waivers(base), base)
+        # REQ-047: a command rule that passed on exactly this scoped change set is not re-run (hook or
+        # not) until a scoped file changes; --no-memo forces every rule, and still records the passes.
+        stored = gate_state_load().get("memo")
+        memo: dict[str, str] = {} if getattr(args, "no_memo", False) or not isinstance(stored, dict) else dict(stored)
+        rule_failures, waived = gate_evaluate(changed, gate_waivers(base), base, memo=memo, outcomes=outcomes)
         failures.extend(rule_failures)
+        gate_state_save({"memo": memo})
+
+    if not args.hook:
+        for outcome in outcomes:
+            if outcome["type"] != "command" or outcome["status"] == "skipped":
+                continue
+            if outcome["status"] == "memo":
+                print(f"  memo    {outcome['rule']} passed (memo)")
+            else:
+                verdict = {"pass": "PASS", "fail": "FAIL", "waived": "FAIL (waived)"}[outcome["status"]]
+                print(f"  ran     {outcome['rule']} {outcome['duration_s']:.1f}s {verdict}")
 
     if not failures:
         if not args.hook:
@@ -5689,18 +6182,11 @@ def run_gate(args: argparse.Namespace) -> int:
         print(message)
         return 1
 
-    state_file = gate_state_file()
     signature = gate_signature(failures, changed)
-    if state_file is not None:
-        try:
-            if json.loads(state_file.read_text(encoding="utf-8")).get("signature") == signature:
-                return 0
-        except (OSError, ValueError):
-            pass
-        try:
-            state_file.write_text(json.dumps({"signature": signature}), encoding="utf-8")
-        except OSError:
-            pass
+    if gate_state_file() is not None:
+        if gate_state_load().get("signature") == signature:
+            return 0
+        gate_state_save({"signature": signature})
     print(message, file=sys.stderr)
     return 2
 
@@ -5906,9 +6392,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite existing non-Omni assistant files instead of skipping them.",
     )
     doctor_parser = subparsers.add_parser("doctor", help="Check OmniEngineering workspace health.")
-    doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
+    doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
+    doctor_parser.add_argument(
+        "--probe", action="store_true",
+        help="Launch every stdio MCP server in .mcp.json for real instead of trusting the day's memo.",
+    )
     validate_parser = subparsers.add_parser("validate", help="Alias for doctor.")
-    validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 1).")
+    validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
+    validate_parser.add_argument(
+        "--probe", action="store_true",
+        help="Launch every stdio MCP server in .mcp.json for real instead of trusting the day's memo.",
+    )
 
     map_parser = subparsers.add_parser(
         "map",
@@ -6493,6 +6987,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check that changed files carry the changelog/registry updates the completion rulepack requires.",
     )
     gate_parser.add_argument("--hook", action="store_true", help="Claude Code Stop-hook mode: read hook JSON on stdin, exit 2 to block.")
+    gate_parser.add_argument("--no-memo", action="store_true",
+                             help="Run every command rule, ignoring the per-rule pass memo in the gate state file (REQ-047).")
 
     waive_parser = subparsers.add_parser("waive", help="Record an explicit, auditable waiver for a gate rule.")
     waive_parser.add_argument("rule", help="Gate rule ID, e.g. completion.changelog_gate.")
@@ -6542,6 +7038,17 @@ def build_parser() -> argparse.ArgumentParser:
     arbiter_update_parser.add_argument("--force", action="store_true", help="Pull the subtree even when --squash disagrees with how arbiter/ was added.")
     arbiter_update_parser.add_argument("--skip-pip", action="store_true", help="Do not pip install --upgrade.")
     arbiter_update_parser.add_argument("--dry-run", action="store_true", help="Print every command without running or writing anything.")
+    arbiter_sync_parser = arbiter_subparsers.add_parser(
+        "sync",
+        help="Level everything in one go: pull the vendored arbiter/ subtree (or pip --upgrade), reinstall, re-record the version, "
+             "refresh the baseline and run doctor; stops at the first failing step.",
+    )
+    arbiter_sync_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_sync_parser.add_argument("--source", default=None,
+                                     help=f"Git URL or pip source (default: the source recorded at install, else {ARBITER_DEFAULT_SOURCE}).")
+    arbiter_sync_parser.add_argument("--branch", default="main", help="Branch to pull into arbiter/ in subtree mode (default main).")
+    arbiter_sync_parser.add_argument("--skip-baseline", action="store_true", help="Do not run `omni arbiter baseline` after the install.")
+    arbiter_sync_parser.add_argument("--dry-run", action="store_true", help="Print the steps and their commands without running anything.")
 
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
@@ -6672,7 +7179,9 @@ def main(argv: list[str] | None = None) -> int:
             return run_arbiter_baseline(args)
         if args.arbiter_command == "update":
             return run_arbiter_update(args)
-        parser.error("arbiter requires a subcommand (install, baseline, update)")
+        if args.arbiter_command == "sync":
+            return run_arbiter_sync(args)
+        parser.error("arbiter requires a subcommand (install, baseline, update, sync)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

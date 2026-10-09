@@ -261,12 +261,22 @@ file-scoped findings identical to a full scan on the files both read.
 ### Testing
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest -q -m "not slow"   # the fast tier: about two minutes
+python -m pytest -q -m slow         # the slow tier: real analyzers, about five minutes
+python -m pytest -q                 # both
 ```
 
 The golden-fixture tests are the ones that matter: `fixtures/legacy-platform`
 holds fourteen deliberately planted defects that `.arbiter-expected.yaml`
 enumerates, and any change that regresses on one of them fails the suite.
+
+The suite is split by area under `tests/` (`test_probes_security.py`,
+`test_probes_iac.py`, `test_policy_gate.py`, `test_adapters.py`,
+`test_mcp_api.py` and so on), with the fixture scans in `conftest.py` and the
+helpers more than one file needs in `helpers.py`. Tests marked `slow` run a
+real external analyzer through the adapters (`./tools/install_tools.sh`
+installs them) or scan more than the fixtures; CI runs that tier once, in its
+own job, and the fast tier on every platform.
 
 ## Documentation
 

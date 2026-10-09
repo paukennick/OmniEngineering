@@ -2743,9 +2743,15 @@ def run_graph_why(args: argparse.Namespace) -> int:
         return 1
 
     node = result["node"]
-    print(f"{node['name']} ({node['kind']})" + (f"  {node['file']}" if node.get("file") else ""))
+    print(f"{node['name']} ({node['kind']})" + (f"  {node['file']}" if node.get("file") else "") + (f"  [workspace {node['workspace']}]" if node.get("workspace") else ""))
     if node.get("summary"):
         print(f"  {node['summary']}")
+    introduced = result["sections"].pop("introduced by", None)  # REQ-051: one line, right under the finding
+    if introduced:
+        item = introduced[0]
+        print("  " + omni_graph.describe_introduced_by(
+            {"commit": item["name"], "subject": item.get("summary"), "requirements": item.get("requirements")} if item.get("kind") == "commit" else {"commit": None}
+        ))
     if not result["sections"]:
         print("  Nothing in the governance or assurance layers touches this node.")
         print("  (If you expected something, rebuild with `omni graph build` and check `omni graph show --all --layer governance`.)")

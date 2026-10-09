@@ -99,7 +99,7 @@ arbiter review arbiter-out/omni-gate/report.json --apply marked.md --ledger .ai/
    ▼
 omni failure update FAIL-### --root-cause ... --fix ... --tests ...   (the ledger demands the reasoning)
    ▼
-omni graph build ──► finding nodes (flags → file/symbol, cites → requirement, recorded_as → failure)
+omni graph build ──► finding nodes (flags → file/symbol, introduced_by → commit → requirement, cites → requirement as context, recorded_as → failure)
 omni graph view  ──► click the finding: breadcrumb root › dir › file › class › method › finding, chain lit both ways
 ```
 
@@ -167,7 +167,10 @@ Each arrow is enforced, not advisory:
 - **Adjudication feeds the ledger.** `arbiter review --apply --ledger` drafts
   one `open` ledger entry per true positive, deduplicated on the finding id in
   `how_detected`; `omni failure check` then insists on root cause, fix and a
-  regression test (or an honest reason there is none).
+  regression test (or an honest reason there is none). The convention that ties
+  the two together is that a ledger entry names the finding id (`f:...`) in its
+  `how_detected`; that is the only thing `recorded_as` looks for, in this
+  repository's ledger and in every vendored workspace's.
 
 ## 5. Findings in the graph, and how to trace one
 
@@ -182,17 +185,49 @@ Edges:
 | Edge | From → to | Meaning |
 |---|---|---|
 | `flags` | finding → file, and the function/class whose span covers the line | where it sits in the code |
-| `cites` | finding → requirement | the requirement being worked when it appeared (from the `req:` tag) |
-| `recorded_as` | finding → failure | the ledger entry it became after adjudication |
-| `contains` | directory → file / subdirectory | the tree from the root down to the file |
+| `introduced_by` | finding → commit | the commit `git blame` holds for the line (REQ-051); the commit's `delivers` edge names the requirement that introduced it |
+| `cites` | finding → requirement | context: a requirement being worked when the scan ran (from the `req:` tag); it did not necessarily write the line |
+| `recorded_as` | finding → failure | the ledger entry it became after adjudication, in this ledger or a vendored workspace's (`arbiter/FAIL-042`) |
+| `contains` | directory → file / subdirectory, and a vendored workspace's registry or ledger → its entries | the tree from the root down to the file, or to `arbiter/FAIL-042` |
 
-A finding is traceable along four axes:
+**Who introduced it.** The `req:` tags are context: Arbiter tags a finding with
+every requirement the commits since the base cite, so a finding raised during a
+five-requirement round cited all five. `omni graph build` therefore blames each
+finding's line (`git blame --porcelain -L`, one call per distinct file with all
+of its flagged lines, at the commit the report scanned, falling back to HEAD and
+then the working tree) and links the finding `introduced_by` to that commit,
+whose `delivers` edge from the history layer names the one requirement that
+wrote the line. `omni graph why f:<id>` prints `introduced by  <commit> <subject>
+(<requirement>)` under the finding, `omni graph findings` prints the same line
+per finding, and the viewer's panel has an "Introduced by" row with its own
+"Trace to introducing requirement" button (finding → commit → requirement). A
+line with no blame (an uncommitted edit, an untracked file, a path outside git)
+gets no edge and reads `introduced by  uncommitted change`; it is never an error.
+
+**Vendored workspaces.** A directory with its own `.ai/omni-version.json` (the
+`arbiter/` subtree) has its own ledger and registry, both numbered from 001, so
+their entries join the graph with the directory as a prefix: `arbiter/FAIL-042`,
+`arbiter/ARB-048`, `attrs.workspace: "arbiter"`, hung under the workspace's
+directory node (root › arbiter › failure-ledger.json › arbiter/FAIL-042). The
+root's ids stay bare. A finding whose id appears in a vendored entry's
+`how_detected` (or `symptom`) is `recorded_as` that prefixed node; the entry's
+`affected` and `regression_tests` paths resolve relative to the workspace; its
+`requirement` resolves through the workspace's own registry and `id_aliases`
+(ARB-041, or the REQ-041 it was called before the renumber); a commit here that
+cites a vendored id delivers the prefixed requirement. Only the ledger and the
+registry are read, never the workspace's code. `omni graph why arbiter/FAIL-042`
+and `omni graph findings` print the prefixed ids; the viewer shows the
+workspace on the node, in its tooltip and in the breadcrumb, and a search for
+`FAIL-042` or `arbiter/FAIL-042` finds it.
+
+A finding is traceable along five axes:
 
 | Axis | CLI | Viewer |
 |---|---|---|
 | by id | `omni graph why f:<id>`, `omni graph show f:<id>` | search `f:<id>`, click it |
+| by who introduced it | `omni graph why f:<id>` (the `introduced by` line), `omni graph lineage f:<id> --depth 2` | the "Introduced by" row; "Trace to introducing requirement" |
 | by category and severity | `omni graph findings --dimension security --severity high` | colour mode "dimension" or "severity"; the findings filter section |
-| by depth | `omni graph lineage f:<id> --depth 3` (1 stops at the file, 3 reaches the requirement) | select a node: upstream chain in cyan, downstream in gold; "Trace to requirement" / "Trace to failure" buttons |
+| by depth | `omni graph lineage f:<id> --depth 3` (1 stops at the file, 3 reaches the requirement) | select a node: upstream chain in cyan, downstream in gold; "Trace to requirement" (the context requirement) / "Trace to failure" buttons |
 | by directory tree | `omni graph findings --tree --under src/` | Tree layout; the Findings tab opens on it; `--focus <directory>` |
 
 Walkthrough:
@@ -201,7 +236,7 @@ Walkthrough:
 ./omni gate                                   # Arbiter writes arbiter-out/omni-gate/report.json
 ./omni graph build                            # findings become nodes
 ./omni graph findings --tree --severity high  # roll-up by directory, counts by category and severity
-./omni graph why f:17a59c37fc20               # the file, the symbol, the requirement, the failure (if adjudicated)
+./omni graph why f:17a59c37fc20               # the file, the symbol, who introduced the line, the context requirement, the failure (if adjudicated)
 ./omni graph view --focus f:17a59c37fc20 --open
 #   the detail panel shows path:line with a copy button and an editor link,
 #   the rule, severity, category and status, and the arbiter review command
@@ -210,6 +245,7 @@ arbiter review arbiter-out/omni-gate/report.json --rule arbiter/secrets.aws-acce
 arbiter review arbiter-out/omni-gate/report.json --apply queue.md --ledger .ai/failures/failure-ledger.json
 ./omni failure update FAIL-015 --root-cause "..." --fix "..." --tests tests/test_x.py::test_y
 ./omni graph build                            # the finding now links recorded_as → FAIL-015
+./omni graph why arbiter/FAIL-042             # an entry of the vendored Arbiter ledger, with its workspace, requirement and tests
 ```
 
 The same queries are MCP tools (`graph_why`, `graph_findings`, `graph_impact`,
@@ -218,10 +254,15 @@ the whole trace without leaving the conversation.
 
 The viewer side of that trace is proven in a browser, not only read from the
 template: `tests/test_viewer_browser.py` builds the graph from a fixture
-repository and a synthetic report, opens the page in headless Chromium through
-Playwright, switches to the Findings tab, selects a finding, reads the
-`path:line` row and the breadcrumb, clicks "Trace to requirement" and "Trace to
-failure", switches the colour mode to severity, and fails on any console error;
+repository (a real git repository with one commit per requirement, the second
+writing the flagged line, and a vendored workspace with a ledger of its own) and
+a synthetic report, opens the page in headless Chromium through Playwright,
+switches to the Findings tab, selects a finding, reads the `path:line` row, the
+breadcrumb and the "Introduced by" row (the second commit and its requirement),
+clicks "Trace to requirement", "Trace to introducing requirement" (finding →
+commit → requirement) and "Trace to failure" (the vendored `sub/FAIL-001`),
+searches by the bare and the prefixed id, switches the colour mode to severity,
+and fails on any console error;
 the `viewer-browser` CI job installs Playwright and Chromium and runs it for
 real (it skips itself anywhere they are missing).
 

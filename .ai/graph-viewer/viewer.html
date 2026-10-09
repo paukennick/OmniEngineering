@@ -252,7 +252,7 @@
     <li><b>Trace a path</b> between any two things: set a From and a To in the &ldquo;Trace a path&rdquo; menu (or use the buttons in the right panel). The route is drawn in pink, step by step.</li>
     <li><b>2D or 3D:</b> 2D is flat and light (no GPU memory needed). Drag to pan, scroll to zoom. 3D orbits in space.</li>
     <li><b>Double-click</b> a node (or press <b>E</b>) to bring in its neighbours. <b>Esc</b> clears the selection, <b>F</b> fits the screen, <b>/</b> jumps to search.</li>
-    <li><b>Findings:</b> when the graph holds Arbiter findings (<code>omni gate</code>, then <code>omni graph build</code>), a Findings tab shows each one under its directory, file and symbol, coloured by category. Its panel has the source line, a copy button, an editor link, and &ldquo;Trace to requirement&rdquo; / &ldquo;Trace to failure&rdquo;.</li>
+    <li><b>Findings:</b> when the graph holds Arbiter findings (<code>omni gate</code>, then <code>omni graph build</code>), a Findings tab shows each one under its directory, file and symbol, coloured by category. Its panel has the source line, a copy button, an editor link, the commit git blame holds for the line (&ldquo;Introduced by&rdquo;, with &ldquo;Trace to introducing requirement&rdquo;), the requirements being worked when the scan ran (context), and &ldquo;Trace to requirement&rdquo; / &ldquo;Trace to failure&rdquo;. A vendored workspace&rsquo;s ledger entries carry its directory as a prefix (arbiter/FAIL-042).</li>
     <li>Every menu can be collapsed, and every option has a tooltip: hover it.</li>
   </ol>
   <div class="row"><button id="helpclose" type="button" class="primary">Got it</button></div>
@@ -299,8 +299,8 @@
   var ROLE_COLORS = { controller: '#e0475c', service: '#4fb3bf', repository: '#c9a869', entity: '#ffb454', component: '#9ece6a', configuration: '#b48ead', table: '#00c2ff' };
   var LANG_COLORS = { python: '#e0475c', javascript: '#4fb3bf', typescript: '#c9a869', java: '#f0a23c', sql: '#b48ead', go: '#5fd0e0', rust: '#e58b5a', csharp: '#8fbf6a' };
   var TYPE_COLORS = {
-    dark: { calls: '#d4d8e0', imports: '#7fd0dc', inherits: '#ff6b81', implements: '#ffc36b', defines: '#8d8d99', references: '#c792ea', maps_to: '#f78c6c', uses: '#8a8a99', touches: '#f2c14e', records: '#8fbf6a', mentions: '#6f9a55', delivers: '#c9d1d9', modifies: '#7d8590', verifies: '#5fd0e0', affects: '#ff5c5c', arose_in: '#ff9f6b', guards: '#7ee787', prevented_by: '#5fd0e0', fixed_by: '#7ee787', recurs: '#ff5c5c', logged_in: '#8fbf6a', follows: '#5a6270', contains: '#b48ead', covers: '#c9a0dc', flags: '#ff8a3d', cites: '#ffb000', recorded_as: '#ff4d4d' },
-    light: { calls: '#4a5160', imports: '#1b7f96', inherits: '#c2334d', implements: '#b7791f', defines: '#8a92a0', references: '#7a4bb0', maps_to: '#c0562b', uses: '#8a92a0', touches: '#a67100', records: '#3f8a3f', mentions: '#5b8a4a', delivers: '#5a6472', modifies: '#7d8590', verifies: '#0f8aa0', affects: '#c92a2a', arose_in: '#c2611f', guards: '#1f9a53', prevented_by: '#0f8aa0', fixed_by: '#1f9a53', recurs: '#c92a2a', logged_in: '#3f8a3f', follows: '#8a92a0', contains: '#7a4bb0', covers: '#8b5cc4', flags: '#c2611f', cites: '#a67100', recorded_as: '#c92a2a' } };
+    dark: { calls: '#d4d8e0', imports: '#7fd0dc', inherits: '#ff6b81', implements: '#ffc36b', defines: '#8d8d99', references: '#c792ea', maps_to: '#f78c6c', uses: '#8a8a99', touches: '#f2c14e', records: '#8fbf6a', mentions: '#6f9a55', delivers: '#c9d1d9', modifies: '#7d8590', verifies: '#5fd0e0', affects: '#ff5c5c', arose_in: '#ff9f6b', guards: '#7ee787', prevented_by: '#5fd0e0', fixed_by: '#7ee787', recurs: '#ff5c5c', logged_in: '#8fbf6a', follows: '#5a6270', contains: '#b48ead', covers: '#c9a0dc', flags: '#ff8a3d', cites: '#ffb000', recorded_as: '#ff4d4d', introduced_by: '#a06cff' },
+    light: { calls: '#4a5160', imports: '#1b7f96', inherits: '#c2334d', implements: '#b7791f', defines: '#8a92a0', references: '#7a4bb0', maps_to: '#c0562b', uses: '#8a92a0', touches: '#a67100', records: '#3f8a3f', mentions: '#5b8a4a', delivers: '#5a6472', modifies: '#7d8590', verifies: '#0f8aa0', affects: '#c92a2a', arose_in: '#c2611f', guards: '#1f9a53', prevented_by: '#0f8aa0', fixed_by: '#1f9a53', recurs: '#c92a2a', logged_in: '#3f8a3f', follows: '#8a92a0', contains: '#7a4bb0', covers: '#8b5cc4', flags: '#c2611f', cites: '#a67100', recorded_as: '#c92a2a', introduced_by: '#7a4bb0' } };
   var TYPE_TIP = {
     calls: 'A function or method calls another.', imports: 'A file imports another.', defines: 'Contains: a file defines a class, a class defines a method.', inherits: 'A class extends another.', implements: 'A class implements an interface.',
     references: 'A table has a foreign key to another.', maps_to: 'An entity class is mapped to a table.', uses: 'A weaker reference to another symbol.', touches: 'A requirement touches a file: declared in its scope, or changed by its commits.',
@@ -308,14 +308,15 @@
     follows: 'A commit comes right after another.', verifies: 'A test file exercises code (inferred from its calls and imports).', contains: 'A test suite groups a test file.', covers: 'A test suite is meant to cover this code.',
     affects: 'A failure affected this code.', arose_in: 'A failure surfaced while working on this requirement.', guards: 'A regression test (or suite) guards against a failure returning.', prevented_by: 'A failure produced this rule or playbook.',
     fixed_by: 'A commit fixed this failure.', recurs: 'A failure repeats an earlier one.',
-    flags: 'An Arbiter finding was raised on this file, or inside this function, class or method.', cites: 'A finding names this requirement in a req:<ID> tag.', recorded_as: 'A finding was adjudicated into this failure-ledger entry (its how_detected names the finding).' };
+    flags: 'An Arbiter finding was raised on this file, or inside this function, class or method.', cites: 'Context: this requirement was being worked when the scan ran (the finding\'s req:<ID> tag). It did not necessarily write the line.', recorded_as: 'A finding was adjudicated into this failure-ledger entry (its how_detected names the finding).',
+    introduced_by: 'REQ-051: git blame holds this commit for the finding\'s line; the requirement that commit delivers is the one that introduced it.' };
   var THEMES = {
     dark: { stage: '#0f0f12', text: '#e8e8e8', dim: '#3a3a48', select: '#ffffff', chain: '#ffc300', up: '#35d0e6', path: '#ff4fd8', halo: '#0f0f12', edge: '#6b7280' },
     light: { stage: '#dde1e6', text: '#23272e', dim: '#b3b9c3', select: '#101318', chain: '#b07d00', up: '#0b7d92', path: '#c2189c', halo: '#dde1e6', edge: '#7b8492' } };
   var theme = 'dark';
   function TH() { return THEMES[theme]; }
   function typeColor(t) { return TYPE_COLORS[theme][t] || TH().edge; }
-  var TYPE_WIDTH = { calls: 1, imports: 1, inherits: 1.8, implements: 1.5, defines: 0.9, references: 1.6, maps_to: 1.5, uses: 0.7, touches: 1.1, records: 1.1, mentions: 0.8, delivers: 1.2, modifies: 0.7, verifies: 1, affects: 1.8, arose_in: 1.3, guards: 1.7, prevented_by: 1.6, fixed_by: 1.4, recurs: 1.9, logged_in: 1.4, follows: 0.8, contains: 1, covers: 1, flags: 1.5, cites: 1.2, recorded_as: 1.6 };
+  var TYPE_WIDTH = { calls: 1, imports: 1, inherits: 1.8, implements: 1.5, defines: 0.9, references: 1.6, maps_to: 1.5, uses: 0.7, touches: 1.1, records: 1.1, mentions: 0.8, delivers: 1.2, modifies: 0.7, verifies: 1, affects: 1.8, arose_in: 1.3, guards: 1.7, prevented_by: 1.6, fixed_by: 1.4, recurs: 1.9, logged_in: 1.4, follows: 0.8, contains: 1, covers: 1, flags: 1.5, cites: 1.2, recorded_as: 1.6, introduced_by: 1.3 };
   var LANE_ORDER = ['workspace', 'governance', 'code', 'assurance', 'history'];
   // REQ-043: Arbiter findings are coloured by category (dimension) or severity; everything else keeps its layer colour under those modes.
   var FINDING_COLORS = { security: '#ff5c5c', quality: '#f2c14e', drift: '#c792ea', supply_chain: '#ff9f6b', assurance: '#5fd0e0', resource_policy: '#8fbf6a', judgement: '#b48ead', other: '#9a9a9a' };
@@ -403,7 +404,8 @@
   // Keep in step with LINEAGE_FLOW in omni_graph.py, which `omni graph lineage` uses.
   var LFLOW = { defines: 'down', contains: 'down', touches: 'down', modifies: 'down', mentions: 'down', delivers: 'up', records: 'up', logged_in: 'down',
     arose_in: 'up', affects: 'up', guards: 'up', prevented_by: 'down', fixed_by: 'down', covers: 'up', verifies: 'up',
-    flags: 'up', cites: 'up', recorded_as: 'down' };   // REQ-043: a finding comes from code and a requirement, and becomes a ledger entry
+    flags: 'up', cites: 'up', recorded_as: 'down',       // REQ-043: a finding comes from code and a requirement, and becomes a ledger entry
+    introduced_by: 'up' };                                 // REQ-051: a finding comes from the commit that wrote its line
   var LCODE = { calls: 'up', imports: 'up', inherits: 'up', implements: 'up', uses: 'up', references: 'up', maps_to: 'up' };
   var LHOP = { follows: 'up', recurs: 'up' };            // sequence links: shown one step from the node asked about, never walked on
   var lineageOpts = { dir: 'both', depth: 4, code: false }, LINEAGE_CAP = 400;
@@ -500,12 +502,12 @@
       seed: function () { var s = new Set(); nodes.forEach(function (n) { if (n.kind === 'table') s.add(n.id); }); edges.forEach(function (e) { if (e.type === 'maps_to' && s.has(e.t)) s.add(e.s); }); return s; } },
     // REQ-043: Arbiter findings under the directory, file and symbol they were raised on, with what they cite and what they became
     { id: 'findings', name: 'Findings', sub: 'Arbiter, by category', color: '#ff8a3d', layers: ['assurance', 'code', 'governance'], colorMode: 'dimension', layout: 'tree',
-      desc: 'Every Arbiter finding from the newest gate report, coloured by category and sized by severity, under the directory, file and symbol it was raised on, with the requirements it cites and the failures it was recorded as.',
+      desc: 'Every Arbiter finding from the newest gate report, coloured by category and sized by severity, under the directory, file and symbol it was raised on, with the commit that introduced its line, the requirements being worked when it appeared and the failures it was recorded as.',
       seed: function () {
         var s = new Set();
         nodes.forEach(function (n) {
           if (n.kind !== 'finding') return; s.add(n.id); ancestry(n.id).forEach(function (id) { s.add(id); });
-          (out[n.id] || []).forEach(function (i) { var e = edges[i]; if ((e.type === 'cites' || e.type === 'recorded_as') && byId[e.t]) s.add(e.t); });
+          (out[n.id] || []).forEach(function (i) { var e = edges[i]; if ((e.type === 'cites' || e.type === 'recorded_as' || e.type === 'introduced_by') && byId[e.t]) s.add(e.t); });
         });
         return s; } }
   ];
@@ -919,7 +921,7 @@
     var lc = LAYER_COLORS[layerName(n)];
     return '<div style="font:12px monospace;background:' + (theme === 'dark' ? '#141418' : '#eef0f3') + ';color:' + (theme === 'dark' ? '#e8e8e8' : '#23272e') + ';border:1px solid ' + lc + ';padding:6px 8px;border-radius:4px;max-width:360px">' +
       '<b>' + esc(n.name) + '</b> <span style="color:' + lc + '">' + esc(n.kind) + ' &middot; ' + esc(LAYER_LABEL[layerName(n)] || layerName(n)) + '</span><br>' +
-      (n.summary ? '<span>' + esc(n.summary.slice(0, 150)) + '</span><br>' : '') + '<span style="opacity:.7">' + esc(n.file || '') + (n.start ? ':' + esc(n.start) : '') + (dateOf(n) ? ' &middot; ' + esc(dateOf(n)) : '') + '</span></div>';
+      (n.summary ? '<span>' + esc(n.summary.slice(0, 150)) + '</span><br>' : '') + (n.attrs && n.attrs.workspace ? '<span style="color:' + lc + '">workspace ' + esc(n.attrs.workspace) + '/</span><br>' : '') + '<span style="opacity:.7">' + esc(n.file || '') + (n.start ? ':' + esc(n.start) : '') + (dateOf(n) ? ' &middot; ' + esc(dateOf(n)) : '') + '</span></div>';
   }
   // one tooltip element serves both the menus (data-tip) and the canvas (node details); native title attributes are too slow and clip
   var tt = $('tt');
@@ -1158,9 +1160,9 @@
     $(which === 'from' ? 'tfrom' : 'tto').value = n.name; $('tsuggest').textContent = '';
     $('sec-trace').classList.remove('collapsed'); if (traceFrom && traceTo) runTrace();
   }
-  function runTrace() {
+  function runTrace(forced) {
     if (!traceFrom || !traceTo) { status('pick both a From and a To first'); return; }
-    var p = pathBetween(traceFrom, traceTo), a = byId[traceFrom], b = byId[traceTo], box = $('tsteps'); box.textContent = '';
+    var p = forced || pathBetween(traceFrom, traceTo), a = byId[traceFrom], b = byId[traceTo], box = $('tsteps'); box.textContent = '';
     if (!p) { pathSet = pathEdges = pathInfo = null; box.appendChild(el('div', 'hint', 'No chain of links connects these two.')); status('no path between ' + a.name + ' and ' + b.name); renderContext(); restyle(); return; }
     pathSet = new Set(p.nodes); pathEdges = new Set(p.edges); p.nodes.forEach(function (id) { ensureVisible(id); });
     pathInfo = { label: a.name + '  →  ' + b.name, desc: p.edges.length + ' step' + (p.edges.length === 1 ? '' : 's') + ' from ' + a.kind + ' to ' + b.kind + '. The route is drawn in pink; every node on it is labelled.' };
@@ -1174,6 +1176,13 @@
     var x = el('button', 'mini', 'clear'); x.type = 'button'; x.addEventListener('click', function () { clearTrace(); }); bar.appendChild(x);
     refresh(''); renderDetail(); focusOn(pathSet);
   }
+  // REQ-051: a trace that must pass through a given node (finding -> introducing commit -> requirement), whatever shorter route exists
+  function traceThrough(from, via, to) {
+    var p1 = pathBetween(from, via), p2 = pathBetween(via, to);
+    if (!byId[from] || !byId[to] || !p1 || !p2) { status('no chain of links runs through ' + ((byId[via] || {}).name || via)); return; }
+    traceFrom = from; traceTo = to; $('tfrom').value = byId[from].name; $('tto').value = byId[to].name; $('tsuggest').textContent = ''; $('sec-trace').classList.remove('collapsed');
+    runTrace({ nodes: p1.nodes.concat(p2.nodes.slice(1)), edges: p1.edges.concat(p2.edges) });
+  }
   function clearTrace(quiet) {
     pathSet = pathEdges = pathInfo = null; $('tracebar').style.display = 'none'; $('tsteps').textContent = '';
     if (!quiet) { renderContext(); restyle(); }
@@ -1183,7 +1192,7 @@
   var lastResults = [], resIdx = -1, RESULT_CAP = 400, ADD_CAP = 800, timer = null;
   function haystack(n) {
     if (n._h) return n._h; var a = n.attrs || {};
-    n._h = [n.name, n.qn, n.file, n.summary, n.kind, layerName(n), n.lang, dateOf(n), (a.requirements || []).join(' '), a.status, a.category, a.symptom, a.root_cause, a.command, a.framework, a.rule_id, a.severity, a.dimension, (a.tags || []).join(' ')].join(' ').toLowerCase(); return n._h;
+    n._h = [n.name, n.qn, n.file, n.summary, n.kind, layerName(n), n.lang, dateOf(n), (a.requirements || []).join(' '), a.workspace, a.bare_id, a.status, a.category, a.symptom, a.root_cause, a.command, a.framework, a.rule_id, a.severity, a.dimension, (a.tags || []).join(' ')].join(' ').toLowerCase(); return n._h;
   }
   function parseQuery(raw) {
     var f = {}, terms = [];
@@ -1284,7 +1293,7 @@
   }
   function renderAttrs(d, n) {
     var a = n.attrs; if (!a) return; var m = [];
-    if (a.stereotype) m.push(a.stereotype); if (a.endpoint) m.push(a.endpoint); if (a.annotations && a.annotations.length) m.push('@' + a.annotations.join(' @')); if (a.table_name) m.push('table ' + a.table_name); if (a.test) m.push('test code (assurance layer)'); if (a.tooling) m.push('OmniEngineering tooling');
+    if (a.stereotype) m.push(a.stereotype); if (a.endpoint) m.push(a.endpoint); if (a.annotations && a.annotations.length) m.push('@' + a.annotations.join(' @')); if (a.table_name) m.push('table ' + a.table_name); if (a.test) m.push('test code (assurance layer)'); if (a.tooling) m.push('OmniEngineering tooling'); if (a.workspace) m.push('vendored workspace: ' + a.workspace + '/');
     ['status', 'priority', 'category', 'severity', 'date'].forEach(function (k) { if (a[k]) m.push(k + ': ' + a[k]); });
     [['symptom', 'symptom'], ['root_cause', 'root cause'], ['fix_summary', 'fix'], ['no_test_reason', 'no test because'], ['prevention_notes', 'prevention']].forEach(function (p) { if (a[p[0]]) m.push(p[1] + ': ' + a[p[0]]); });
     if (a.requirements && a.requirements.length) m.push('requirements: ' + a.requirements.join(', '));
@@ -1351,9 +1360,11 @@
   }
   function absoluteRoot() { var r = String(meta.root_path || meta.root || ''); return /^(\/|[A-Za-z]:[\\/])/.test(r) ? r.replace(/\\/g, '/').replace(/\/$/, '') : ''; }
   function findingLinks(id) {
-    var req = null, fail = null;
-    (out[id] || []).forEach(function (i) { var e = edges[i]; if (e.type === 'cites' && !req && byId[e.t]) req = e.t; if (e.type === 'recorded_as' && !fail && byId[e.t]) fail = e.t; });
-    return { requirement: req, failure: fail };
+    var req = null, fail = null, commit = null, context = [];
+    (out[id] || []).forEach(function (i) { var e = edges[i]; if (e.type === 'cites' && byId[e.t]) { if (!req) req = e.t; context.push(e.t); } if (e.type === 'recorded_as' && !fail && byId[e.t]) fail = e.t; if (e.type === 'introduced_by' && !commit && byId[e.t]) commit = e.t; });
+    var delivered = [];   // REQ-051: the requirement(s) the introducing commit delivers
+    if (commit) (out[commit] || []).forEach(function (i) { var e = edges[i]; if (e.type === 'delivers' && byId[e.t]) delivered.push(e.t); });
+    return { requirement: req, failure: fail, context: context, commit: commit, introducing: delivered[0] || null, delivered: delivered };
   }
   function traceButton(label, target, what, from) {
     var tip = target ? 'Draw the chain of links from this finding to ' + byId[target].name + '.' : 'No ' + what + ' is tied to this finding, so there is nothing to trace to.';
@@ -1375,6 +1386,19 @@
     if (n.summary) d.appendChild(el('div', 'summary', n.summary));
     var tags = (a.tags || []).filter(function (t) { return t.indexOf('req:') !== 0; }); if (tags.length) d.appendChild(el('div', 'dim', 'tags: ' + tags.join(', ')));
     var links = findingLinks(n.id), row = el('div', 'row');
+    // REQ-051: who introduced the line (git blame at the scanned commit), and the requirement(s) that commit delivers
+    var intro = el('div', 'edge'); intro.style.cursor = 'default'; intro.appendChild(el('span', 't', 'introduced by'));
+    if (links.commit) {
+      var c = byId[links.commit], cb = el('button', 'mini', c.name); cb.type = 'button'; cb.setAttribute('data-tip', 'Select commit ' + c.name + ': ' + (c.summary || '')); cb.addEventListener('click', function () { select(links.commit); }); intro.appendChild(cb);
+      intro.appendChild(el('span', 'n', ' ' + (c.summary || '') + (links.delivered.length ? '  (' + links.delivered.map(function (r) { return byId[r].name; }).join(', ') + ')' : '  (no requirement cited)')));
+    } else intro.appendChild(el('span', 'n', a.introduced_by === 'uncommitted' ? 'uncommitted change (no blame for this line)' : 'unknown (rebuild the graph with omni graph build)'));
+    intro.setAttribute('data-tip', links.commit ? 'git blame holds ' + byId[links.commit].name + ' for ' + where + '.' : 'The line has no blame: an uncommitted edit, an untracked file, or a path outside git.');
+    d.appendChild(intro);
+    if (links.context.length) { var ctx = el('div', 'edge'); ctx.style.cursor = 'default'; ctx.appendChild(el('span', 't', 'context')); ctx.appendChild(el('span', 'n', links.context.map(function (r) { return byId[r].name; }).join(', ') + ' · being worked when the scan ran')); ctx.setAttribute('data-tip', 'The req:<ID> tags: the requirements open when the scan ran, not necessarily the one that wrote the line.'); d.appendChild(ctx); }
+    var introBtn = actionButton('Trace to introducing requirement', links.introducing ? 'Draw finding → ' + byId[links.commit].name + ' → ' + byId[links.introducing].name + '.' : (links.commit ? 'The introducing commit cites no requirement in the registry.' : 'No introducing commit is known for this finding.'),
+      function () { if (links.introducing) traceThrough(n.id, links.commit, links.introducing); }, links.introducing ? 'primary' : '');
+    if (!links.introducing) introBtn.disabled = true;
+    row.appendChild(introBtn);
     row.appendChild(traceButton('Trace to requirement', links.requirement, 'requirement (no req:<ID> tag names one in the registry)', n.id));
     row.appendChild(traceButton('Trace to failure', links.failure, 'failure-ledger entry (none has a how_detected naming this finding)', n.id));
     d.appendChild(row);
@@ -1388,7 +1412,7 @@
       if (pathInfo) d.appendChild(el('p', null, 'A trace is showing: ' + pathInfo.label)); return;
     }
     var n = selected, h = el('h3', null, n.name + ' '), bd = el('span', 'badge', n.kind); bd.style.background = LAYER_COLORS[layerName(n)]; h.appendChild(bd); d.appendChild(h);
-    d.appendChild(el('div', 'where', (LAYER_LABEL[layerName(n)] || layerName(n)) + ' · ' + (n.file || '(external)') + (n.start ? ':' + n.start + (n.end && n.end !== n.start ? '–' + n.end : '') : '') + (n.lang ? '  · ' + n.lang : '')));
+    d.appendChild(el('div', 'where', (LAYER_LABEL[layerName(n)] || layerName(n)) + ' · ' + (n.file || '(external)') + (n.start ? ':' + n.start + (n.end && n.end !== n.start ? '–' + n.end : '') : '') + (n.lang ? '  · ' + n.lang : '') + (n.attrs && n.attrs.workspace ? '  · workspace ' + n.attrs.workspace + '/' : '')));   // REQ-052
     var path = ancestry(n.id);
     if (path.length > 1 || (childrenOf[n.id] || []).length) {
       d.appendChild(el('h2', null, 'Where it sits'));

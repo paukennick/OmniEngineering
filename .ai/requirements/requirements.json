@@ -1560,7 +1560,7 @@
       "title": "Posture reads the newest full and the newest partial Arbiter report separately",
       "description": "The Posture line showed grade withheld (coverage 15%) because the gate's --changed report is partial by design. arbiter_report_state finds the newest full report (grade, coverage, existing highs, when it ran) and the newest partial one (gate result, new highs, freshness judged against the rule's scope) and the line says which is which; when one kind is missing it names the command that makes it. --json schema_version 2 carries arbiter.full and arbiter.gate.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/",
@@ -1582,7 +1582,8 @@
         "docs/arbiter-integration.md"
       ],
       "risk_notes": [
-        "report readers that assumed one report must read scan_scope.mode"
+        "report readers that assumed one report must read scan_scope.mode",
+        "Posture reads the newest full (arbiter-out/baseline) and newest partial (arbiter-out/omni-gate) report separately; the line names ./omni arbiter baseline or ./omni gate when one is missing; doctor --json schema_version 2 with posture.arbiter.full and .gate, schema 1 keys kept one release; the completion check judges the gate report and falls back to the full scan. Validated: 410 unit tests OK, ./omni doctor 0 errors, ./omni gate PASS."
       ]
     },
     {
@@ -1591,7 +1592,7 @@
       "title": "The registered test suites are required in the gate, with impact selection and a per-rule pass memo",
       "description": "completion.tests becomes required on this repository and in the vendored Arbiter workspace, running omni test run --impacted so only suites the change reaches run. omni gate --hook does not re-run a command rule that passed on the same scoped change set (per-rule pass records in the gate state file keyed on the scoped files and their mtimes); a scoped file change invalidates the memo. The adopt-loop CI script asserts the rule passes on a repository with no suites.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         ".ai/rules/completion-workflow.json",
@@ -1614,7 +1615,8 @@
         "docs/arbiter-integration.md"
       ],
       "risk_notes": [
-        "hook latency grows by one suite run per change; the fast tier on Arbiter keeps it under three minutes"
+        "hook latency grows by one suite run per change; the fast tier on Arbiter keeps it under three minutes",
+        "completion.tests promoted to required with a rewritten statement; per-rule pass memo keyed on the scoped change set (mtime, size, run text) in the gate state file, never applied to a failed rule, --no-memo forces, durations printed; omni in run texts resolves to the sibling CLI; the adopt loop asserts the tests rule passes with no suites; handbook and README updated. Gate 175.6 s cold / 6.4 s warm on a make_ai.py change. Validated: unittest 410 OK, doctor 0 errors, gate PASS, failure check OK."
       ]
     },
     {
@@ -1623,7 +1625,7 @@
       "title": "The viewer is exercised in a browser: a finding is traced to its requirement in headless Chromium",
       "description": "tests/test_viewer_browser.py builds a graph from a fixture repository plus a synthetic Arbiter report, renders the viewer, opens it in headless Chromium through Playwright, switches to the Findings view, selects a finding, and asserts the source row, the breadcrumb (directory, file, finding) and the Trace to requirement result; the severity colour mode is checked through the exported meta. The test skips without Playwright or a Chromium; a dedicated CI job installs both.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "tests/test_viewer_browser.py",
         ".github/workflows/ci.yml",
@@ -1645,7 +1647,8 @@
         "docs/arbiter-integration.md"
       ],
       "risk_notes": [
-        "the browser download is a CI dependency; its own job keeps the matrix independent"
+        "the browser download is a CI dependency; its own job keeps the matrix independent",
+        "tests/test_viewer_browser.py drives the built viewer in headless Chromium (Findings tab, search, source row, breadcrumb, trace to requirement and to failure, severity colour mode, no console errors) in 3.5 s; viewer.html exposes colorMode and nodeColor(id); the viewer-browser CI job pins playwright 1.63.0, caches Chromium and retries the install once. Validated: the test ran for real, 410 unit tests OK, doctor 0 errors, gate PASS."
       ]
     },
     {
@@ -1654,7 +1657,7 @@
       "title": "omni arbiter sync levels the subtree, the installed package, the recorded version and the baseline in one command; doctor warns on a mismatched commit identity",
       "description": "The three-way sync (subtree pull, pip install, version record, baseline refresh, doctor) was manual and error-prone. omni arbiter sync runs the steps in order and stops at the first failure naming the step; --dry-run prints the commands; in pip mode it updates and re-baselines. Doctor warns (never errors) when a commit since the gate base carries an author or committer email that differs from git config user.email or ends in .local or localhost.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/",
@@ -1676,7 +1679,8 @@
         "docs/arbiter-integration.md"
       ],
       "risk_notes": [
-        "subtree pull conflicts still need a person; sync stops and says so"
+        "subtree pull conflicts still need a person; sync stops and says so",
+        "omni arbiter sync runs subtree pull (or pip --upgrade), pip install -e, version record, baseline (--refresh when present, --skip-baseline), doctor in order, printing each step, stopping at the first failure with its name and advice, --dry-run prints only; doctor validate_commit_identity warns (never errors) on an author or committer email other than git config user.email or a .local/localhost domain for commits since the gate base (last 20 without one, merges skipped), skipped without a configured email; handbook section 9 rewritten around sync. Validated: unittest 410 OK, doctor 0 errors, gate PASS, sync --dry-run lists the steps."
       ]
     },
     {
@@ -1685,7 +1689,7 @@
       "title": "Doctor's live MCP probe is memoised on the registration and the server executables; omni gate uses the memo",
       "description": "omni gate ran both MCP servers for real on every commit. The probe result is stored in the local gate state directory keyed on the .mcp.json digest, each stdio server's resolved executable (path, mtime, size) and PATH; a hit within 24 hours skips the launch and the doctor line says when it was probed. omni doctor --probe forces a live probe; omni gate never forces one; a changed executable or registration invalidates the memo.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "tests/"
@@ -1706,7 +1710,8 @@
         "docs/arbiter-integration.md"
       ],
       "risk_notes": [
-        "a server that breaks without its file changing is caught at the next --probe or after 24 hours"
+        "a server that breaks without its file changing is caught at the next --probe or after 24 hours",
+        "Live MCP probe memoised in <git-dir>/omni-mcp-probe.json keyed on the .mcp.json digest, PATH and each executable's path, mtime and size, for 24 h; omni doctor --probe forces, omni gate never forces, failed probes are not stored, OMNI_DOCTOR_NO_MEMO=1 disables. Warm doctor 2.2 s to 0.35 s. Validated: 410 unit tests OK (14 memo tests), doctor 0 errors, gate PASS."
       ]
     }
   ]

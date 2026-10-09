@@ -2,15 +2,65 @@
 
 ## 2026-10-09
 
-### In progress
-
-- `REQ-046` | Developer tooling | (in progress) Posture reads the newest full and the newest partial Arbiter report separately.
-- `REQ-047` | Developer tooling | (in progress) The registered test suites are required in the gate, with impact selection and a per-rule pass memo.
-- `REQ-048` | CI / repo hygiene | (in progress) The viewer is exercised in headless Chromium: a finding is traced to its requirement.
-- `REQ-049` | CLI / template maintainability | (in progress) `omni arbiter sync`; doctor warns on a mismatched commit identity.
-- `REQ-050` | Developer tooling | (in progress) Doctor's live MCP probe is memoised; `omni gate` uses the memo.
-
 ### Completed
+
+- `REQ-047` | Developer tooling | `completion.tests` is `required`: `omni gate` runs `omni test run --impacted`,
+  so the registered suites the change reaches must pass (nothing to run, and a pass, when no suite is
+  registered). Each `command` rule that passed is memoised in the gate state file (`.git/omni-gate-last.json`)
+  on its scoped change set (the changed paths its own globs select via `arbiter_rule_scope`, their mtimes and
+  sizes, and the rendered run text); the next `omni gate`, hook or not, reports it as `passed (memo)` and does
+  not re-run it until a scoped file changes. A failed or waived rule is never memoised; `omni gate --no-memo`
+  forces every rule; the non-hook output prints each command rule's duration (`ran     completion.tests
+  144.1s PASS`). `omni` in a rule's run text resolves to the CLI beside `make_ai.py`, so the rule works where
+  `omni` is not on PATH (an adopted repository, CI). The adopt loop (CI and `tests/test_adopt_loop.py`) asserts
+  the tests rule runs and passes with no suites while `completion.arbiter_gate` still fails alone, and runs
+  again after the fix. On a change touching `make_ai.py` the gate took 175.6 s cold and 6.4 s warm.
+
+- `REQ-049` | CLI / template maintainability | `omni arbiter sync [--source URL] [--branch main]
+  [--skip-baseline] [--dry-run]` levels the vendored subtree, the installed package, the recorded version and
+  the baseline in one command: in subtree mode `git subtree pull --prefix=arbiter <source> <branch>` (`--squash`
+  when the history was pulled that way), `pip install -e ./arbiter[mcp]`, the version record, `omni arbiter
+  baseline` (`--refresh` when one exists) and `omni doctor`; in pip mode `pip --upgrade` from the recorded
+  source, then the same tail. Each step is printed before it runs, the first non-zero exit stops the sequence
+  naming the step and what to do (a subtree conflict: resolve, commit, rerun), `--dry-run` prints the commands
+  only; a recorded local path inside the repository falls back to the upstream URL. Doctor warns, never errors,
+  when a commit since the gate base (the last 20 without one, merges skipped) carries an author or committer
+  email other than `git config user.email` or a `.local`/`localhost` domain, naming the commit, the email and
+  the fix (`git commit --amend --reset-author`, or a rebase); a repository with no configured email skips the
+  check, so the adopt loop stays quiet.
+
+- `REQ-046` | Developer tooling | The Posture line reads two Arbiter reports, not one. The gate's `--changed`
+  run is a partial scan whose grade is withheld by design, so the line read "grade withheld (coverage 15%)".
+  `arbiter_report_state` now returns `full` (the newest report with `scan_scope.mode: full`: grade, coverage,
+  existing high+, when it ran) and `gate` (the newest partial one: verdict, new high+, freshness judged against
+  the rule's scope) beside `wired`; `newest_arbiter_report` takes a mode filter and reads the `--out`
+  directory's parent and one level below it, so `arbiter-out/baseline/` and `arbiter-out/omni-gate/` are read
+  together. The line says which is which (`arbiter score 86.5 (coverage 99%, full scan 2026-10-09 08:51) ·
+  gate passed (new high+ 0, fresh)`) and names the command that makes a missing report (`run ./omni arbiter
+  baseline`, `run ./omni gate`). `omni doctor --json` is `schema_version` 2 with `posture.arbiter.full` and
+  `.gate`; the schema 1 keys stay at the top of `posture.arbiter` for one release, filled from the gate block.
+  `omni requirement complete` keeps judging the gate report and falls back to the full scan when there is none.
+
+- `REQ-050` | Developer tooling | Doctor's live MCP probe is memoised and `omni gate` uses the memo. `omni
+  gate` ran both MCP servers for real on every commit (2 s of the doctor's 2.5 s). A successful probe of a
+  stdio server is now stored in the git directory beside the gate's own state (`omni-mcp-probe.json`, never
+  tracked), keyed on the sha256 of `.mcp.json`, `PATH` and the server's resolved executable (path, mtime,
+  size), with the probe time, server name and tool names; a matching record younger than 24 hours stands in
+  for the launch and the doctor line reads `(probed <time>, run omni doctor --probe to re-check)`. `omni doctor
+  --probe` forces a live probe and refreshes the memo, `omni gate` never forces one, a failed probe is never
+  remembered, remote (`url`) servers are unchanged, and `OMNI_DOCTOR_NO_MEMO=1` turns the memo off. A warm
+  `omni doctor` takes 0.35 s instead of 2.2 s.
+
+- `REQ-048` | CI / repo hygiene | The viewer is exercised in a browser. `tests/test_viewer_browser.py` builds a
+  graph from a fixture repository plus a synthetic Arbiter report, renders the viewer with `omni graph view
+  --all --mode 2d`, opens it in headless Chromium through Playwright, switches to the Findings tab, lists both
+  findings through the search, selects one and asserts the `path:line` source row and the breadcrumb
+  (directory, file, symbol, finding), traces it to its requirement and the other to its failure-ledger entry,
+  switches the colour mode to severity against the exported `meta.finding_colors`, and fails on any console
+  error; the viewer's window API gains `colorMode` and `nodeColor(id)` so canvas colours can be read back. The
+  test skips without Playwright, a launchable Chromium or the `[graph]` extra; a new `viewer-browser` CI job
+  (ubuntu, Python 3.12, `playwright==1.63.0`, Chromium cached by Playwright version, install retried once)
+  runs it for real. The handbook says the trace is proven in a browser.
 
 - `REQ-045` | Documentation | The integration handbook `docs/arbiter-integration.md` (division of
   labour, the three topologies, the wiring written at install, the edit-to-adjudication loop, findings in

@@ -14,6 +14,8 @@ treated as passes.
 - [Contracts between artifacts](#contracts-between-artifacts)
 - [Assurance: is the checking switched on?](#assurance-is-the-checking-switched-on)
 - [The judgement pass](#the-judgement-pass)
+- [Two findings that read history](#two-findings-that-read-history)
+- [What doc_drift leaves alone](#what-doc_drift-leaves-alone)
 
 ---
 
@@ -266,4 +268,21 @@ ever committed. A path that was tracked and is gone is reported at `info` as
 never there keeps the `low` finding, because that is a typo or a rename the
 document missed. `assurance.blanket-suppression` does not read documentation
 at all: a README explaining what `# noqa` means is not a suppression.
+
+## What doc_drift leaves alone
+
+A path named in prose is not drift when it is something a checkout never
+carries. `drift.doc-references-missing-file` and `drift.broken-doc-link` skip a
+path the root `.gitignore` matches (comments, `dir/`, `*.ext`, `path/**`, a
+leading `/` and `!` re-inclusion are read; nested ignore files are not), a path
+under the output directory — the `out:` key of `arbiter.yaml`, this run's `--out`
+when it sits inside the scanned tree, or any `arbiter-out` segment — and a link
+whose target carries a scheme (`git://`, `ssh://`). A backticked path is also
+skipped when an `http(s)://` URL sits on its line or on the adjacent line of the
+same paragraph, because `docs/handbook.md` named beside a link to another
+repository describes that repository; a relative *link* is a claim about this
+tree whatever else the line says, so it is not excused that way. A plainly
+missing file still fires. The `.gitignore` shapes honoured are deliberately the
+exact-path and directory ones: a pattern read too broadly hides real drift
+(ARB-048).
 

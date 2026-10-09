@@ -169,3 +169,10 @@ stands.
 | `.arbiter/cache.json` | per-file results of the file-local probes | no — git-ignored |
 | `arbiter-out/` | reports from the last run | no — git-ignored |
 | `arbiter-ab/` | A/B harness output | no — git-ignored |
+
+Where a run writes is decided by `--out` on the command line. An optional
+`out:` key in `arbiter.yaml` tells the doc-drift probe which directory holds
+generated output, so a document that names `REPORT.md` under it is not
+reported as describing a missing file; it does not move the output itself. The
+probe treats any `arbiter-out` segment and the run's own `--out` the same way —
+see [What doc_drift leaves alone](probes.md#what-doc_drift-leaves-alone).

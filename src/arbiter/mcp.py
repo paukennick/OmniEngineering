@@ -49,6 +49,13 @@ There is no tool that records a verdict, here or in `service.py`. `review
 the calibration ledger with the model's opinion of the model's output, and
 `learn.record()` refuses to re-adjudicate a fingerprint, so those marks would be
 permanent. The server generates queues. A person marks them.
+
+`arbiter_review_draft` proposes marks, and that is as far as any tool goes: it
+writes the queue with an assistant's marks and reasons filled in, as a file
+under `output_dir` that a person reads, and records nothing. The draft reaches
+the ledger only through `arbiter review --apply` run by a person who names
+themselves. Over HTTPS the tool writes under the caller's confined directory
+like every other, so it is as safe there as `arbiter_review_queue`.
 """
 from __future__ import annotations
 
@@ -67,6 +74,7 @@ from .service import (
     ServiceError,
     gate,
     resolve_within,
+    review_draft,
     review_queue,
     scan,
 )
@@ -127,12 +135,49 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "arbiter_review_draft",
+        "description": "Propose a mark and a reason for findings in the review "
+                       "queue, written as review-draft.md for a person to read. "
+                       "Nothing is recorded: only a person running the CLI with "
+                       "their name records a mark, after reading the draft.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["report_path", "output_dir", "verdicts"],
+            "properties": {
+                "report_path": {"type": "string", "description": "path to a report.json"},
+                "output_dir": {"type": "string",
+                               "description": "directory for review-draft.md; nothing is "
+                                              "written outside it"},
+                "verdicts": {
+                    "type": "array",
+                    "description": "proposed marks; a finding not listed stays blank",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "mark"],
+                        "properties": {
+                            "id": {"type": "string", "description": "finding id, f:..."},
+                            "mark": {"type": "string", "enum": ["y", "n", "?"],
+                                     "description": "y a real problem, n not one, ? unsure"},
+                            "reason": {"type": "string",
+                                       "description": "why; required for y and n, read by "
+                                                      "the person before they decide"},
+                        },
+                    },
+                },
+                "limit": {"type": "integer", "default": 20},
+                "rule": {"type": "string",
+                         "description": "only findings whose rule id contains this"},
+            },
+        },
+    },
 ]
 
 HANDLERS = {
     "arbiter_scan": scan,
     "arbiter_gate": gate,
     "arbiter_review_queue": review_queue,
+    "arbiter_review_draft": review_draft,
 }
 
 # Every argument naming a place on disk. Listed rather than guessed at from the

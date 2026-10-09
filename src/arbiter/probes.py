@@ -12,6 +12,7 @@ silent pass.
 from __future__ import annotations
 
 import codecs
+import fnmatch
 import math
 import os
 import re
@@ -38,6 +39,10 @@ class ProbeContext:
     # "nothing changed" from "nobody asked about a change" (REQ-038).
     changed: dict[str, set[str]] = field(default_factory=dict)
     changed_since: str | None = None
+    # Where this run writes its report (`--out`). A document that names a
+    # file under it is describing output, not a file the repository is
+    # missing (ARB-048). Empty when the caller gave no output directory.
+    out_dir: str = ""
 
     def repo_ids(self) -> list[str]:
         return [r.id for r in self.repos]
@@ -1239,6 +1244,132 @@ def _normalize_relative(path: str) -> str:
     return "/".join(parts)
 _BACKTICK_PATH = re.compile(r"`([A-Za-z0-9_./-]+\.(?:py|tf|ts|js|json|ya?ml|md|sh|sql))`")
 _ENV_MENTION = re.compile(r"\b([A-Z][A-Z0-9_]{4,})\b")
+_URL_ON_LINE = re.compile(r"https?://")
+# The directory `arbiter scan` writes to unless told otherwise. A path with
+# this segment in it is a run's output wherever the run was pointed.
+_OUTPUT_SEGMENT = "arbiter-out"
+
+# One parsed .gitignore line: the glob, whether it re-includes (`!`), whether
+# it names only a directory (trailing `/`), and whether it is anchored to the
+# repository root (a `/` anywhere but the end).
+IgnorePattern = tuple[str, bool, bool, bool]
+
+
+def _ignore_patterns(root: Path) -> list[IgnorePattern]:
+    """Parse the root .gitignore, as far as the drift probe needs it.
+
+    Comments and blank lines are dropped; `dir/`, `*.ext`, `path/**`, a
+    leading `/` and `!` negation are honoured. Nested .gitignore files, escaped
+    characters and the finer points of `**` are not: a pattern this misreads
+    makes one documented path look missing, which is the finding the person
+    was already getting, and a pattern read too broadly hides real drift,
+    which is why only these shapes are read at all.
+    """
+    try:
+        lines = (root / ".gitignore").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    out: list[IgnorePattern] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        if negated:
+            line = line[1:]
+        dir_only = line.endswith("/")
+        line = line.rstrip("/")
+        # `**/x` means x at any depth, which is what an unanchored pattern
+        # already means here; the prefix is dropped and the anchor with it.
+        any_depth = line.startswith("**/")
+        if any_depth:
+            line = line[3:]
+        anchored = "/" in line and not any_depth
+        line = line.lstrip("/")
+        if line:
+            out.append((line, negated, dir_only, anchored))
+    return out
+
+
+def _ignore_match(path: str, pattern: str, anchored: bool) -> bool:
+    """One gitignore glob against one relative path.
+
+    Anchored patterns match the whole path from the root. Unanchored ones
+    match at any depth: every suffix of the path is tried, so `*.log` finds
+    `build/out/x.log` and `.arbiter/cache.json` finds it in any subtree.
+    """
+    if anchored:
+        return fnmatch.fnmatchcase(path, pattern)
+    parts = path.split("/")
+    return any(fnmatch.fnmatchcase("/".join(parts[i:]), pattern) for i in range(len(parts)))
+
+
+def _gitignored(root: Path, rel: str, patterns: list[IgnorePattern] | None = None) -> bool:
+    """Would git ignore this path? The path and each parent directory are
+    tried against every pattern in order, the last match winning, which is
+    how git reads the file. A directory-only pattern matches parents alone,
+    since a path a document names with an extension is a file."""
+    if patterns is None:
+        patterns = _ignore_patterns(root)
+    if not patterns:
+        return False
+    parts = rel.split("/")
+    targets = [("/".join(parts[:i]), True) for i in range(1, len(parts))] + [(rel, False)]
+    ignored = False
+    for pattern, negated, dir_only, anchored in patterns:
+        for target, is_dir in targets:
+            if dir_only and not is_dir:
+                continue
+            if _ignore_match(target, pattern, anchored):
+                ignored = not negated
+                break
+    return ignored
+
+
+def _output_dirs(root: Path | None, config: dict, out_dir: str) -> set[str]:
+    """Where output lands, relative to the repository: the `out:` key of
+    arbiter.yaml, if set, and this run's own output directory when it sits
+    inside the tree being scanned."""
+    dirs: set[str] = set()
+    configured = (config or {}).get("out")
+    if isinstance(configured, str) and configured.strip():
+        norm = _normalize_relative(configured.strip().replace("\\", "/"))
+        if norm:
+            dirs.add(norm)
+    if out_dir and root is not None:
+        try:
+            dirs.add(Path(out_dir).resolve().relative_to(root.resolve()).as_posix())
+        except (ValueError, OSError):
+            pass
+    return dirs
+
+
+def _under_output(rel: str, out_dirs: set[str]) -> bool:
+    parents = rel.split("/")[:-1]
+    if _OUTPUT_SEGMENT in parents:
+        return True
+    return any(rel == d or rel.startswith(d + "/") for d in out_dirs)
+
+
+def _line_has_url(text: str, pos: int) -> bool:
+    """Does the line holding `pos`, or the line either side of it in the same
+    paragraph, carry an http(s) URL? Prose that names a file beside a link to
+    another repository or site is describing that place, not this one. The
+    neighbours count because documentation is hard-wrapped: the sentence that
+    put `docs/arbiter-integration.md` next to its URL broke between them. A
+    blank line ends the paragraph and the search with it."""
+    start = text.rfind("\n", 0, pos) + 1
+    end = text.find("\n", pos)
+    end = len(text) if end == -1 else end
+    window = [text[start:end]]
+    prev_end = start - 1
+    if prev_end > 0:
+        prev_start = text.rfind("\n", 0, prev_end) + 1
+        window.append(text[prev_start:prev_end])
+    if end < len(text):
+        next_end = text.find("\n", end + 1)
+        window.append(text[end + 1:len(text) if next_end == -1 else next_end])
+    return any(line.strip() and _URL_ON_LINE.search(line) for line in window)
 
 
 def _once_tracked(root: Path, rel: str, cache: dict[str, bool]) -> bool:
@@ -1265,6 +1396,8 @@ def _once_tracked(root: Path, rel: str, cache: dict[str, bool]) -> bool:
 def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
     out: list[Finding] = []
     tracked_cache: dict[str, bool] = {}
+    # .gitignore is parsed once per repository, not once per document.
+    ignore_cache: dict[str, list[IgnorePattern]] = {}
     by_repo_paths: dict[str, set[str]] = {}
     for f in ctx.inventory.files:
         by_repo_paths.setdefault(f.repo_id, set()).add(f.path)
@@ -1291,6 +1424,19 @@ def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
         base_dir = f.path.rsplit("/", 1)[0] if "/" in f.path else ""
 
         has_html = any(k.endswith(".html") for k in known)
+        repo_root = roots.get(f.repo_id)
+        if f.repo_id not in ignore_cache:
+            ignore_cache[f.repo_id] = _ignore_patterns(repo_root) if repo_root else []
+        ignore_patterns = ignore_cache[f.repo_id]
+        out_dirs = _output_dirs(repo_root, ctx.config, ctx.out_dir)
+
+        def not_ours(rel: str) -> bool:
+            # Generated output and git-ignored paths are not files the
+            # repository is missing: a document is right to name what a run
+            # writes or what a checkout never commits (ARB-048).
+            if _under_output(rel, out_dirs):
+                return True
+            return repo_root is not None and _gitignored(repo_root, rel, ignore_patterns)
 
         def on_disk(rel: str) -> bool:
             root = roots.get(f.repo_id)
@@ -1321,13 +1467,16 @@ def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
             if not cand or cand in seen:
                 continue
             seen.add(cand)
+            # `git://`, `ssh://` and the like name somewhere else entirely.
+            if "://" in cand:
+                continue
             norm = _normalize_relative(cand)
             if not norm:
                 continue
             stripped = norm.rstrip("/")
             if stripped in known or any(k.startswith(stripped + "/") for k in known):
                 continue
-            if on_disk(stripped):
+            if on_disk(stripped) or not_ours(stripped):
                 continue
             out.append(Finding(
                 rule_id="arbiter/drift.broken-doc-link",
@@ -1355,7 +1504,14 @@ def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
                 continue
             if cand in known or any(k.endswith("/" + cand) for k in known):
                 continue
-            if on_disk(cand):
+            if on_disk(cand) or not_ours(cand):
+                continue
+            # A path named beside a URL -- `docs/handbook.md` in the other
+            # repository (https://...) -- describes that repository, not this
+            # one, and hard wrapping may put the URL on the next line. Links
+            # are not excused this way: a relative link is a claim about this
+            # tree whatever else the line says.
+            if _line_has_url(text, m.start()):
                 continue
             root = roots.get(f.repo_id)
             removed = root is not None and _once_tracked(root, cand, tracked_cache)

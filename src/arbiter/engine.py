@@ -144,6 +144,10 @@ def run_scan(
     changed_since: str | None = None,
     only_files: list[str] | None = None,
     out_dir: str | None = None,
+    use_cache: bool = True,
+    cache_path: str | None = None,
+    verify_cache: bool = False,
+    verify_sample: float = 0.05,
 ) -> Report:
     started = time.time()
     if use_adapters:
@@ -165,7 +169,16 @@ def run_scan(
     # the second run reports on the first run's HTML -- 27% of unsuppressed
     # findings, concentrated in the suppression rules, which the rendered
     # report is naturally full of.
-    inv = build_inventory(repos, {out_dir} if out_dir else None)
+    # The result cache is a file Arbiter writes inside the tree it scans, so
+    # it is excluded for the same reason the output directory is: a scan must
+    # never read its own previous output back as evidence. See cache.py.
+    from . import cache as _cache
+    cache = None
+    if use_cache and (config.get("cache") or {}).get("enabled", True) and repos:
+        cache = _cache.ResultCache.load(
+            Path(cache_path) if cache_path else _cache.default_path(repos[0].path))
+    excluded = {p for p in (out_dir, str(cache.path) if cache else None) if p}
+    inv = build_inventory(repos, excluded or None)
     plans = list(plan_paths or [])
     plans += [str(p) for p in ((config.get("terraform") or {}).get("plans") or [])]
 
@@ -288,7 +301,20 @@ def run_scan(
 
         t0 = time.time()
         try:
-            produced = probe.run(ctx) or []
+            if cache is not None and probe.cacheable:
+                # Hits are assembled from the cache, misses from the probe,
+                # and nothing downstream can tell them apart: calibration,
+                # overrides, the baseline and suppressions all run on both.
+                context = probe.cache_context(ctx) if probe.cache_context else ""
+                produced, note = _cache.run_with_cache(
+                    probe, ctx, cache, _cache.rules_hash(run_config, probe, context),
+                    verify_fraction=verify_sample if verify_cache else 0.0)
+                if note["hits"]:
+                    oc.reason = (f"{note['hits']} file(s) from cache, "
+                                 f"{note['misses']} re-read"
+                                 + (f", {note['verified']} verified" if note["verified"] else ""))
+            else:
+                produced = probe.run(ctx) or []
             oc.status = "ran"
             oc.finding_count = len(produced)
             findings.extend(produced)
@@ -304,6 +330,10 @@ def run_scan(
                 oc.reason = f"{type(exc).__name__}: {exc}"[:300]
         oc.duration_s = round(time.time() - t0, 3)
         outcomes.append(oc)
+
+    if cache is not None:
+        scan_scope["cache"] = {**cache.stats(), "path": str(cache.path)}
+        cache.save()
 
     findings = _dedupe(findings)
     if scan_scope["mode"] == "partial":

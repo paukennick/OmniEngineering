@@ -68,6 +68,25 @@ class Probe:
     # because it reasons across files -- so an adapter supplies its own.
     scope_reason: str = "this check reads relationships between files"
     version: str = "0.1.0"
+    # May this probe's per-file results be stored in the persistent result
+    # cache (cache.py) and served on the next scan without running it?
+    #
+    # Only when every finding it produces carries a path AND depends on that
+    # file alone: the same file, under the same configuration, must yield the
+    # same findings whether or not any other file is in the inventory. That
+    # is stricter than scope="file". `house_rules` is file-scoped and NOT
+    # cacheable: a file_exists or file_absent rule reports on the repository,
+    # with no path to attribute the result to. A probe whose answer for a
+    # file depends on something outside it -- the manifests, for a probe that
+    # checks whether an import is declared -- may still be cacheable if it
+    # declares that dependency as `cache_context`, a function of the probe
+    # context whose digest is folded into the cache key.
+    #
+    # The declaration is a claim, and tools/integrity.py (CI-13) tests it:
+    # every cacheable probe is run on a file alone and beside another file,
+    # and must give the same answer for it.
+    cacheable: bool = False
+    cache_context: Callable[["ProbeContext"], str] | None = None
 
     def prevented(self) -> tuple[bool, str]:
         """A dependency this machine lacks. Different fact from `applicable`:
@@ -541,7 +560,8 @@ def probe_secrets(ctx: ProbeContext) -> list[Finding]:
     return out
 
 
-register(Probe(name="secrets", scope="file", dimensions=["security"], checks=len(SECRET_PATTERNS) + 1, run=probe_secrets))
+register(Probe(name="secrets", scope="file", cacheable=True, dimensions=["security"],
+               checks=len(SECRET_PATTERNS) + 1, run=probe_secrets))
 
 
 # ===========================================================================
@@ -1021,7 +1041,7 @@ def probe_ast_metrics(ctx: ProbeContext) -> list[Finding]:
 
 
 register(Probe(
-    name="ast_metrics", scope="file", dimensions=["quality"], checks=3,
+    name="ast_metrics", scope="file", cacheable=True, dimensions=["quality"], checks=3,
     run=probe_ast_metrics, modules=["tree_sitter_language_pack"],
 ))
 
@@ -1163,7 +1183,8 @@ def probe_supply_chain(ctx: ProbeContext) -> list[Finding]:
     return out
 
 
-register(Probe(name="supply_chain", scope="file", dimensions=["supply_chain", "security"], checks=5, run=probe_supply_chain))
+register(Probe(name="supply_chain", scope="file", cacheable=True,
+               dimensions=["supply_chain", "security"], checks=5, run=probe_supply_chain))
 
 
 # ===========================================================================
@@ -1879,8 +1900,8 @@ def probe_house_rules_ast(ctx: ProbeContext) -> list[Finding]:
 
 
 register(Probe(
-    name="house_rules_ast", scope="file", dimensions=["quality", "security"], checks=1,
-    run=probe_house_rules_ast, modules=["tree_sitter_language_pack"],
+    name="house_rules_ast", scope="file", cacheable=True, dimensions=["quality", "security"],
+    checks=1, run=probe_house_rules_ast, modules=["tree_sitter_language_pack"],
 ))
 
 

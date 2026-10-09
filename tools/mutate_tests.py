@@ -107,6 +107,15 @@ MUTATIONS = [
         new="            severity = record.get(\"severity\")\n            if True:",
         test="tests/test_measurement.py::test_a_measured_severity_reaches_a_scan",
     ),
+    Mutation(
+        name="config-not-in-cache-key",
+        defect="The result cache stops keying on the configuration, so a changed "
+               "threshold or house rule is answered from the previous scan's findings.",
+        path="src/arbiter/cache.py",
+        old='    return _sha(cfg, getattr(probe, "version", ""), ARBITER_VERSION, code_digest(), context)',
+        new='    return _sha("", getattr(probe, "version", ""), ARBITER_VERSION, code_digest(), context)',
+        test="tests/test_cache.py::test_a_config_change_invalidates_the_cache",
+    ),
 ]
 
 

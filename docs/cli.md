@@ -33,6 +33,34 @@ arbiter explain f:8c41d2ae9b07                  # one finding in full
 the exit code is the product. See [configuration.md](configuration.md#gating)
 for the thresholds it reads.
 
+### The result cache
+
+```bash
+arbiter scan .                                  # reads and writes .arbiter/cache.json
+arbiter scan . --no-cache                       # every probe over every file; nothing written
+arbiter scan . --verify-cache                   # re-run a 5% sample of cache hits and compare
+arbiter gate . --no-cache                       # what CI runs
+arbiter scan . --cache-path /tmp/arbiter-cache.json
+```
+
+The file-local probes (`secrets`, `supply_chain`, `ast_metrics`,
+`house_rules_ast`, `authored`) keep their per-file findings in
+`.arbiter/cache.json` under the first target, keyed on the file's bytes, the
+configuration, the probe and Arbiter versions and a digest of Arbiter's own
+source. An unchanged file under unchanged rules is served from the cache; an
+edited file, a changed `arbiter.yaml` or an edited probe is re-read. Every
+other probe runs in full every time, and calibration, severity overrides, the
+baseline and suppressions are applied to cached and fresh findings alike. The
+report records `scan_scope.cache` (`hits`, `misses`, `verified`) and each
+cached probe's outcome says how many files came from the cache.
+
+`--verify-cache` re-runs each cacheable probe on a random sample of its hits
+(5%, at least one file). A cached entry that no longer matches becomes a
+finding, `arbiter/assurance.cache-divergence` (severity high), naming the file
+and the probe, and the entry is replaced. `--no-cache` neither reads nor
+writes the file, as does `cache: {enabled: false}` in `arbiter.yaml`. The cache
+file is excluded from the inventory and is git-ignored; CI never uses it.
+
 ## Baselines and comparison
 
 ```bash

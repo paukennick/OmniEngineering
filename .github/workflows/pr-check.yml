@@ -129,7 +129,7 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PYTHONIOENCODING: utf-8
-        run: arbiter gate . --out arbiter-out --format json,sarif,markdown,pr-comment --github
+        run: arbiter gate . --out arbiter-out --format json,sarif,markdown,pr-comment --github --no-cache
 
       # The same findings under the Security tab. always(): the upload is
       # most useful on the run that failed. continue-on-error: code scanning

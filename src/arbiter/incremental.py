@@ -189,7 +189,7 @@ def narrow(inv: Inventory, selected: dict[str, set[str]]) -> tuple[Inventory, di
         if want:
             kept.append(f)
 
-    out = Inventory(files=kept, stacks=set(inv.stacks))
+    out = Inventory(files=kept, stacks=set(inv.stacks), whole=inv.whole or inv)
     for f in kept:
         out.by_repo.setdefault(f.repo_id, []).append(f)
     for rid in inv.by_repo:

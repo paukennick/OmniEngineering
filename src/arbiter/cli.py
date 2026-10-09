@@ -82,6 +82,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="GitHub Actions mode: print findings as workflow-command "
                              "annotations and append the pull-request comment to "
                              "$GITHUB_STEP_SUMMARY. Default: on when GITHUB_ACTIONS=true.")
+        sp.add_argument("--no-cache", action="store_true",
+                        help="neither read nor write the per-file result cache "
+                             "(.arbiter/cache.json); every probe runs over every file")
+        sp.add_argument("--cache-path", default=None, metavar="FILE",
+                        help="where the result cache lives (default: "
+                             ".arbiter/cache.json under the first target)")
         return sp
 
     sc = common(sub.add_parser("scan", help="analyze and report"))
@@ -96,6 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "run at a terminal")
     sc.add_argument("--no-open", dest="open", action="store_const", const=False,
                      help="never open the HTML report automatically")
+    sc.add_argument("--verify-cache", action="store_true",
+                     help="re-run each cacheable probe on a random 5%% sample of its "
+                          "cache hits and report any entry that no longer matches")
 
     gt = common(sub.add_parser("gate", help="analyze and exit non-zero on policy failure"))
     gt.add_argument("--out", default="arbiter-out")
@@ -405,6 +414,9 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
         changed_since=getattr(args, "changed", None),
         only_files=[s for s in (getattr(args, "only_files", "") or "").split(",") if s],
         out_dir=args.out,
+        use_cache=not getattr(args, "no_cache", False),
+        cache_path=getattr(args, "cache_path", None),
+        verify_cache=bool(getattr(args, "verify_cache", False)),
     )
 
     formats = _formats(args.format)

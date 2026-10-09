@@ -55,6 +55,9 @@ DEFAULTS: dict[str, Any] = {
     "suppress": [],
     "rules": [],
     "ignore": [],
+    # The persistent per-file result cache (cache.py). `--no-cache` on the
+    # command line bypasses it whatever this says; CI runs without it.
+    "cache": {"enabled": True},
 }
 
 

@@ -6,6 +6,59 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ## [Unreleased]
 
+### 2026-10-09
+
+- Re-synced the OmniEngineering workspace to its real upstream and adopted
+  the tooling that arrived there since June. Arbiter's `omni` was a fork
+  assembled from STEP-Migration copies (REQ-001) and closest to an upstream
+  commit from 2026-06-23; `python omni update` now 3-way-merges against the
+  ref recorded in `.ai/omni-version.json`, so later template changes are a
+  command rather than a re-copy. What changed in the repository: the
+  requirements registry and its archive moved to the upstream flat shape
+  (`requirements-archive.json`; the categories-keyed form was arbiter-only
+  and every new upstream command reads the flat one) and are now queried and
+  changed only through `python omni requirement` -- never read or edited
+  whole; the five non-Claude assistant shims, `.cursorignore` and the
+  OmniEngineering `NOTICE`, `TRADEMARKS.md` and `LICENSES/` are installed,
+  which closes the eight `omni doctor` errors this repo had carried as an
+  accepted gap since REQ-001 (arbiter's own `NOTICE.md` and `LICENSE` are
+  unchanged); `python omni gate` is enforced by `.githooks/pre-commit`, by the
+  Claude Code Stop hook in `.claude/settings.json` (now tracked; the
+  machine-specific Headroom wiring stays in `settings.local.json`) and by
+  `pr-check.yml`, with `training/**` and `.arbiter/**` exempt so the nightly
+  job's measurement commits are not blocked; `.ai/test-suites.json` registers
+  the pytest suite and `tools/check_writeback.sh`; `.ai/graph-config.json`
+  builds the code graph with `fixtures/`, `examples/`, `training/`,
+  `.arbiter/` and the scan output directories kept out of the code layer, so
+  a planted defect's symbols are never attributed to arbiter; `.mcp.json`
+  registers `python omni mcp serve` beside `arbiter mcp`, and doctor now
+  starts both servers for real. Three stale playbooks (`planning`, `testing`,
+  `release`, `implementation`, `pre-implementation`) still carried
+  STEP-Migration text -- `python3 app.py`, `validate_stacks.py`, "`omni map`
+  is never run here" -- that contradicted this repo's own configuration;
+  they are upstream's versions now. The adapters, `public-release.md`,
+  `fallback-llm-rules.json` and `hci-ui-rules.json` authored for arbiter in
+  REQ-028 were kept and merged. (REQ-031)
+- Backfilled the failure ledger. `.ai/failures/failure-ledger.json` now
+  records the 34 shipped defects that `CHANGELOG.md`, `.ai/project-context.md`
+  and the requirement records already describe, FAIL-001 (the read cache
+  serving stale bytes, REQ-007) through FAIL-034 (CRLF dropped when file
+  reading moved to bytes, REQ-030), each with its root cause, the regression
+  test that now catches it, and the rule that prevents a repeat. Six have no
+  regression test and say so (`no_test_reason`); twelve have no fix commit
+  because the clone is shallow and the 2026-09-12 history is not in it.
+  `python omni graph why <path>` and `python omni failure search` read this
+  ledger, and `python omni failure add` is how the next defect is recorded.
+  (REQ-031)
+- Ported three arbiter-only improvements upstream instead of keeping them as
+  a fork, as OmniEngineering REQ-031: the `withdrawn` terminal status with
+  `requirement archive --id` refusing live work; doctor's live check of every
+  MCP server `.mcp.json` registers (it replaces the arbiter-specific
+  `validate_mcp_server` from REQ-025 and checks both servers here);
+  `exclude_code_globs` for the graph; and dated `###` sections under an
+  `[Unreleased]` heading -- this file's format -- parsed as separate
+  changelog entries. (REQ-031)
+
 ### 2026-09-16
 
 - Stopped vendored and generated content from being scanned as first-party

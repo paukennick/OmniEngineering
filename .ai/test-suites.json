@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "suites": [
+    {
+      "id": "root-pytest",
+      "name": "root pytest unit tests",
+      "kind": "unit",
+      "framework": "pytest",
+      "paths": [
+        "tests"
+      ],
+      "command": "python -m pytest -q -rs",
+      "covers": [],
+      "notes": ""
+    },
+    {
+      "id": "check-writeback-script",
+      "name": "check writeback (script)",
+      "kind": "validation",
+      "framework": "script",
+      "paths": [
+        "tools/check_writeback.sh"
+      ],
+      "command": "bash tools/check_writeback.sh",
+      "covers": [
+        ".github/workflows/train.yml"
+      ],
+      "notes": ""
+    }
+  ]
+}

@@ -941,4 +941,62 @@ table records them and leaves the decision alone. `MIN_OBSERVATIONS = 20` is
 the one worth attacking first, since it is currently the reason no rule in the
 tool is proven.
 
+## 2026-10-09 — The workspace re-synced to its upstream (REQ-031)
+
+**What changed.** The OmniEngineering scaffold this repo carried was a fork:
+`make_ai.py` was closest to an upstream commit from 2026-06-23, with three
+local additions (a categories-keyed registry, an `archive.json` lifecycle
+with a `withdrawn` status, and a live MCP server check in doctor), and no
+`.ai/omni-version.json`, so `omni update` had nothing to merge against.
+Upstream had meanwhile added an executable completion gate, a requirement
+CLI, a failure ledger, test-suite registration, a five-layer code graph, an
+MCP server of its own, git hooks and a 3-way `omni update`. The re-sync
+recorded that 2026-06-23 commit as the merge base, ran `omni update`, and
+resolved ten conflicts by hand; see the CHANGELOG entry for the file-level
+outcome. The user chose, when asked, to do all of this holistically: both
+directions, flat registry, all shims and legal files, full enforcement with
+the training job exempt, the ledger backfilled, the graph built locally, and
+both MCP servers registered.
+
+**Why the registry format moved rather than the tooling.** Every new
+upstream command (`gate`'s registry check, `graph`, `mcp serve`, `draft`,
+`complete`) reads a flat `requirements` array with a `category` field. Teaching
+all of them a second shape would have been more code than the conversion and
+two formats to keep working forever. The conversion was mechanical and
+lossless: each entry gained `category` from its former key, ids and
+statuses are unchanged, and `python omni requirement list --all` shows all 30.
+The archive is now `requirements-archive.json`; upstream's `omni requirement
+archive` already allocates ids across both files, which was the point of
+REQ-004's version, and it gained the `withdrawn` status and the refusal to
+archive live work from arbiter's.
+
+**Why fixtures are excluded from the graph's code layer, not from `.ai/.ignore`.**
+`.ai/.ignore` is the list of files an assistant must not read, and the brief
+tells a session to open the specific fixture a test names. The graph only
+had `.gitignore` and `.ai/.ignore` as exclusions, so the first build parsed
+`fixtures/legacy-platform` and attributed its planted defects' symbols to
+arbiter. `exclude_code_globs` was added upstream for exactly this: a tracked,
+readable directory that is nevertheless not the project's source.
+
+**What was found stale.** Five playbooks and checklists still carried
+STEP-Migration text (`python3 app.py`, `tests/validate_stacks.py`, pyright,
+"`./omni map` is intentionally never run against this repo") that
+contradicted `.ai/project-configuration.md`, which says `omni map` is safe
+here. They had survived REQ-001's check for STEP-specific content because
+the check looked for CUI and project names, not for commands. They are
+upstream's versions now, and `core-context.md`'s matching paragraph is
+corrected.
+
+**Known limits.** The gate's `co_changed` rules require `CHANGELOG.md` and
+the registry to change with any other file; `training/**` and `.arbiter/**`
+are exempt because the nightly job commits there without a requirement by
+design (REQ-023), and `python omni waive` is the escape for anything else.
+`omni requirement complete` only demands a ledger entry when the category
+matches defect/bug/fix/regression, which arbiter's categories do not; record
+defects deliberately. The graph needs `tree-sitter-python` and
+`tree-sitter-bash` installed; without them every other command still works.
+Doctor's remaining WARNs are listed in `.ai/project-configuration.md`. The
+OmniEngineering suite has one pre-existing failure in this container
+(`test_gate_hook`'s background rebuild, which needs the tree-sitter grammar
+on the system interpreter) that is unrelated to the ported changes.
 

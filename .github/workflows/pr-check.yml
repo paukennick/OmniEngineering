@@ -1,11 +1,17 @@
 # Pull request check.
 #
 # Runs the fast, deterministic half of verification from HANDOFF.md on every
-# pull request: the test suite and the claim-integrity check. Both are
-# exhaustive/unit-level and finish in well under a minute; the slow,
-# corpus-driven half (injection trials, discrimination, external-tool
-# calibration) already runs nightly in train.yml and has no business gating
-# a PR.
+# pull request: the test suite, the claim-integrity check, the mutation check
+# and the workspace gate. The slow, corpus-driven half (injection trials,
+# discrimination, external-tool calibration) already runs nightly in
+# train.yml and has no business gating a PR.
+#
+# The suite itself is in two tiers (ARB-046). `-m "not slow"` is everything
+# that measures Arbiter's own rules against the fixtures, and it runs on
+# every cell of the matrix. `-m slow` is the tests that run a real analyzer
+# through the adapters or scan more than the fixtures; they are the bulk of
+# the suite's wall clock and prove nothing about the platform, so they run
+# once, on Linux, in the slow-tier job alongside the matrix.
 #
 # Two platforms, because one was not enough. REQ-006 was a crash on every
 # adapter timeout on Windows -- `os.killpg` does not exist there, so the
@@ -49,11 +55,13 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.10"
     runs-on: ${{ matrix.os }}
-    # Linux installs the five analyzers and runs the self-gate; semgrep alone
-    # takes about six minutes over this tree and the adapter tests then run
-    # the real tools, so the Linux job is twenty-odd minutes. Windows stays
-    # near two. The limit is for the slower one.
-    timeout-minutes: 45
+    # Linux installs the five analyzers and runs the self-gate, and semgrep
+    # alone takes about six minutes over this tree; the adapter tests that
+    # used to run the real tools here are in the slow tier now, so the Linux
+    # cell should settle well inside fifteen minutes (measure it on the first
+    # run rather than trusting this comment). Windows stays near two. The
+    # limit is for the slower one.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,10 +96,11 @@ jobs:
       # -rs prints the reason for every skip. Windows runners legitimately skip
       # things Linux does not, and a skip that is silently absent from the log
       # is indistinguishable from a test that was never collected.
+      # The fast tier only; the slow tier runs once in the slow-tier job.
       - name: Tests
         env:
           PYTHONIOENCODING: utf-8
-        run: python -m pytest -q -rs
+        run: python -m pytest -q -rs -m "not slow"
 
       - name: Claim invariants
         env:
@@ -148,3 +157,41 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: arbiter-out/report.sarif
+
+  # The slow tier: the tests that run a real analyzer through the adapters or
+  # scan more than the fixtures. One Linux job rather than a matrix cell,
+  # because the matrix exists for the platform-sensitive paths and all of
+  # those are in the fast tier; and a job of its own rather than a step in
+  # the Linux cell, so the pull request waits for the slower of the two
+  # rather than for their sum. The gate steps stay in the matrix: this job
+  # answers one question, whether the adapters still agree with the tools.
+  slow-tier:
+    runs-on: ubuntu-latest
+    # About five minutes locally with the analyzers installed, most of it the
+    # one full scan through every adapter; installing the analyzers comes
+    # first, and semgrep's own startup varies with its network.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # mcp and api: the slow tier includes the scans that go through the
+          # hosted surfaces, and those skip without their extras.
+          pip install -e .[dev,mcp,api]
+
+      # The same installer the Linux cell uses, so the tier runs the same
+      # tools a laptop installs. A tool it could not fetch is a skip, printed
+      # by -rs below, not a pass.
+      - name: Install analyzers
+        run: ./tools/install_tools.sh
+
+      - name: Slow-tier tests
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m pytest -q -rs -m slow

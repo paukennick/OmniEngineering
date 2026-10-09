@@ -228,6 +228,10 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--no-audit", action="store_true",
                     help="keep no record of who called; you will not be able to "
                          "answer what ran for whom")
+    sv.add_argument("--limiter", choices=("memory", "file"), default="memory",
+                    help="where the per-key caps are counted: in this process "
+                         "(default, one process only) or in limiter.db beside the "
+                         "key file, shared by every process serving the same keys")
     ky = api_sub.add_parser("key", help="issue, list and revoke access by hand")
     key_sub = ky.add_subparsers(dest="key_cmd", required=True)
     ka = key_sub.add_parser("add", help="mint a key for one user")
@@ -269,6 +273,28 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--no-audit", action="store_true",
                     help="keep no record of who called; you will not be able to "
                          "answer what ran for whom")
+    mp.add_argument("--limiter", choices=("memory", "file"), default="memory",
+                    help="where the per-key caps are counted: in this process "
+                         "(default, one process only) or in limiter.db beside the "
+                         "key file, shared by every process serving the same keys")
+
+    bd = sub.add_parser("bundle",
+                        help="build and verify an air-gapped install bundle: "
+                             "Arbiter and its dependencies as wheels, no analyzers")
+    bundle_sub = bd.add_subparsers(dest="bundle_cmd", required=True)
+    bb = bundle_sub.add_parser("build", help="write a bundle into a new directory")
+    bb.add_argument("--out", required=True, help="directory to create; must be empty")
+    bb.add_argument("--source",
+                    help="the Arbiter checkout to build from (default: the one "
+                         "this command was imported from)")
+    bb.add_argument("--no-deps-download", action="store_true",
+                    help="skip downloading the dependency wheels, the one step "
+                         "that needs an index; the target must then already "
+                         "hold PyYAML")
+    bv = bundle_sub.add_parser("verify",
+                               help="recompute every hash; fail on a missing, "
+                                    "altered or extra file")
+    bv.add_argument("bundle_dir")
 
     # The client half. Everything above runs the scanner here; this runs it
     # somewhere else and renders the answer with the same code, so a person who
@@ -928,7 +954,8 @@ def cmd_api(args) -> int:
     if args.api_cmd == "serve":
         return api.serve(host=args.host, port=args.port, key_path=path,
                          certfile=args.cert, keyfile=args.tls_key,
-                         audit_path=args.audit, audit=not args.no_audit)
+                         audit_path=args.audit, audit=not args.no_audit,
+                         limiter=args.limiter)
 
     if args.key_cmd == "add":
         raw, record = api.mint_key(args.user, path,
@@ -966,6 +993,36 @@ def cmd_api(args) -> int:
         print(f"arbiter: no active key {args.id}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_ERROR
+
+
+def cmd_bundle(args) -> int:
+    """Build or verify an air-gapped bundle.
+
+    The bundle carries Arbiter and its runtime dependencies and nothing else:
+    the analyzers stay out until the redistribution review (ARB-005) is done,
+    and the manifest says so in words. See `bundle.py`.
+    """
+    from . import bundle
+
+    try:
+        if args.bundle_cmd == "build":
+            manifest = bundle.build(args.out, include_deps=not args.no_deps_download,
+                                    source=args.source)
+            print(f"bundle written to {Path(args.out).expanduser().resolve()}: "
+                  f"arbiter {manifest['arbiter_version']}, "
+                  f"{len(manifest['files'])} file(s)")
+            if not manifest["dependencies_included"]:
+                print("dependency wheels were not downloaded (--no-deps-download); "
+                      "the target needs PyYAML already")
+            print(f"analyzers: {manifest['analyzers']}")
+            return EXIT_OK
+        result = bundle.verify(args.bundle_dir)
+        for line in result.lines():
+            print(line)
+        return EXIT_OK if result.ok else EXIT_GATE_FAIL
+    except bundle.BundleError as exc:
+        print(f"arbiter: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 def cmd_remote(args) -> int:
@@ -1094,7 +1151,10 @@ def main(argv: list[str] | None = None) -> int:
                 key_path=_Path(args.keys).expanduser() if args.keys else None,
                 root=args.root, certfile=args.cert, keyfile=args.tls_key,
                 audit_path=args.audit, audit=not args.no_audit,
-                path=args.path, allowed_hosts=args.allowed_hosts)
+                path=args.path, allowed_hosts=args.allowed_hosts,
+                limiter=args.limiter)
+        if args.cmd == "bundle":
+            return cmd_bundle(args)
         if args.cmd == "remote":
             return cmd_remote(args)
     except KeyboardInterrupt:

@@ -1,7 +1,6 @@
 # Command Reference
 
-Twelve subcommands. Every command reads and writes files; none executes the
-target repository.
+Every command reads and writes files; none executes the target repository.
 
 ## Contents
 
@@ -9,6 +8,7 @@ target repository.
 - [Baselines and comparison](#baselines-and-comparison)
 - [Adjudication and calibration](#adjudication-and-calibration)
 - [Integrity and compliance](#integrity-and-compliance)
+- [The air-gapped bundle](#the-air-gapped-bundle)
 - [Output formats](#output-formats)
 - [Run history](#run-history)
 - [Exit codes](#exit-codes)
@@ -103,6 +103,26 @@ arbiter controls arbiter-out/report.json --framework FedRAMP-Moderate-r5
 
 See [evidence.md](evidence.md#claim-integrity) and
 [compliance.md](compliance.md).
+
+## The air-gapped bundle
+
+```bash
+arbiter bundle build --out ./arbiter-bundle                  # wheels, scripts, manifest
+arbiter bundle build --out ./arbiter-bundle --no-deps-download   # skip the one step that needs an index
+arbiter bundle build --out ./arbiter-bundle --source /path/to/checkout
+arbiter bundle verify ./arbiter-bundle                       # exit 1 on a missing, altered or extra file
+```
+
+`build` writes Arbiter and its runtime dependencies as wheels, the checkout's
+knowledge file when it has one, `install.sh` / `install.ps1` and a
+`MANIFEST.json` with a SHA-256 per file. The five analyzers are not included,
+and the manifest says so: their redistribution review (ARB-005) is pending.
+`verify` recomputes every hash and refuses anything the manifest does not name.
+See [bundle.md](bundle.md).
+
+The hosted surfaces (`arbiter api serve`, `arbiter api key`, `arbiter mcp`,
+`arbiter remote`) are documented in [hosted-api.md](hosted-api.md) and
+[mcp.md](mcp.md).
 
 ---
 

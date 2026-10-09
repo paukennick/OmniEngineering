@@ -543,11 +543,15 @@ def serve_http(host: str = "127.0.0.1", port: int = 8444,
                certfile: str | None = None, keyfile: str | None = None,
                audit_path: str | None = None,
                audit: bool = True, path: str = "/mcp",
-               allowed_hosts: list[str] | None = None) -> int:
+               allowed_hosts: list[str] | None = None,
+               limiter: str = "memory") -> int:
     """Serve the MCP tools over TLS to more than one caller.
 
     Like the hosted API, there is no plaintext mode and no plaintext port: this
     process holds the certificate, including when a proxy sits in front of it.
+
+    `limiter` is `memory` for one process or `file` for several processes that
+    serve the same key file and should share one budget (`api.FileRateLimiter`).
     """
     from . import api
 
@@ -555,6 +559,7 @@ def serve_http(host: str = "127.0.0.1", port: int = 8444,
     # arrangement would have served plaintext should be told that, not told it
     # only after they have fixed an unrelated install.
     api.check_tls_config(certfile, keyfile)
+    api.configure_limiter(limiter, key_path)
 
     try:
         import uvicorn
@@ -580,6 +585,8 @@ def serve_http(host: str = "127.0.0.1", port: int = 8444,
               "(who called and how it ended; never their code)")
     else:
         print("arbiter: auditing is off; no record of who called will be kept")
+    if limiter == "file":
+        print(f"arbiter: rate limits are shared through {api.LIMITER.path}")
 
     # The cipher list matches `api.serve`, and for the same reason: uvicorn
     # builds its own SSL context and exposes no minimum-version hook, so

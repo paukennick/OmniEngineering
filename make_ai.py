@@ -578,6 +578,26 @@ gate:
     new: high
   gate_on_inferred: false
 """
+# The completion rule `omni arbiter install` writes. `--baseline` makes the
+# gate label findings new/existing against .arbiter/baseline.json (REQ-038);
+# json is what omni reads back, sarif feeds code-scanning upload, pr-comment
+# is the markdown a CI job posts.
+ARBITER_GATE_RULE: dict[str, Any] = {
+    "id": ARBITER_GATE_RULE_ID,
+    "severity": "required",
+    "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
+    "scope": ["completion", "validation"],
+    "validation": {
+        "type": "command",
+        "run": "arbiter gate . --changed {base} --profile offline --baseline .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment",
+        "when_changed": ["**"],
+        "ignore": [".ai/**", "CHANGELOG.md", "*.md", "docs/**"],
+        "timeout": 600,
+    },
+}
+ARBITER_BASELINE_PATH = ".arbiter/baseline.json"
+ARBITER_GATE_OUT_DIR = "arbiter-out/omni-gate"
+ARBITER_CONFIG_FILE = "arbiter.yaml"
 
 # Files an adopter owns outright once copied -- omni update never touches
 # these, no matter what changes upstream.
@@ -3309,6 +3329,7 @@ def build_doctor_report() -> DoctorReport:
     validate_cli_entrypoints(report)
     validate_mcp_registrations(report)
     validate_vendored_workspaces(report)
+    validate_arbiter_baseline(report)
     validate_omni_version_present(report)
     report.posture = compute_posture()
     return report
@@ -3494,7 +3515,8 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
     rerun: the package (pip), the `arbiter` entry in `.mcp.json`, the
     `completion.arbiter_gate` command rule in the completion rulepack, and a
     starter `arbiter.yaml`. Nothing is overwritten; a project that tuned any
-    of them keeps its version.
+    of them keeps its version. With `arbiter` on PATH a baseline is then cut
+    (`arbiter_write_baseline`), itself a no-op when one exists.
     """
     verb = "would " if dry_run else ""
     status = 0
@@ -3542,19 +3564,7 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
         if any(isinstance(r, dict) and r.get("id") == ARBITER_GATE_RULE_ID for r in rules):
             print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` already present")
         else:
-            rules.append({
-                "id": ARBITER_GATE_RULE_ID,
-                "severity": "required",
-                "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
-                "scope": ["completion", "validation"],
-                "validation": {
-                    "type": "command",
-                    "run": "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
-                    "when_changed": ["**"],
-                    "ignore": [".ai/**", "CHANGELOG.md", "*.md", "docs/**"],
-                    "timeout": 600,
-                },
-            })
+            rules.append(json.loads(json.dumps(ARBITER_GATE_RULE)))  # a deep copy; the constant stays pristine
             print(f"- completion rulepack: {verb}add `{ARBITER_GATE_RULE_ID}` (type command)")
             if not dry_run:
                 write_json(rulepack_path, rulepack)
@@ -3567,14 +3577,28 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
         if not dry_run:
             config_path.write_text(ARBITER_STARTER_CONFIG, encoding="utf-8")
 
+    # Only scan output and Arbiter's scan cache are ignored; .arbiter/baseline.json
+    # (and knowledge.json) are meant to be committed, so `.arbiter/` as a whole
+    # is never added here.
     gitignore = target_root / ".gitignore"
-    if gitignore.is_file() and "arbiter-out" in gitignore.read_text(encoding="utf-8", errors="replace"):
-        print("- .gitignore: arbiter-out/ already ignored")
+    ignored = gitignore.read_text(encoding="utf-8", errors="replace") if gitignore.is_file() else ""
+    if "arbiter-out" in ignored and ".arbiter/cache.json" in ignored:
+        print("- .gitignore: arbiter-out/ and .arbiter/cache.json already ignored")
     else:
-        print(f"- .gitignore: {verb}ignore arbiter-out/ (scan output)")
+        print(f"- .gitignore: {verb}ignore arbiter-out/ (scan output) and .arbiter/cache.json (scan cache)")
         if not dry_run:
             with gitignore.open("a", encoding="utf-8") as handle:
-                handle.write("\n# Arbiter scan output\narbiter-out/\n")
+                if "arbiter-out" not in ignored:
+                    handle.write("\n# Arbiter scan output\narbiter-out/\n")
+                if ".arbiter/cache.json" not in ignored:
+                    handle.write("# Arbiter scan cache (the baseline beside it is committed)\n.arbiter/cache.json\n")
+
+    if dry_run:
+        print(f"- {ARBITER_BASELINE_PATH}: would cut a baseline from a full offline scan (`omni arbiter baseline`)")
+    elif shutil.which("arbiter") is None:
+        print(f"- {ARBITER_BASELINE_PATH}: skipped, `arbiter` is not on PATH; run `omni arbiter baseline` once it is")
+    elif arbiter_write_baseline(target_root) != 0:
+        status = 1
 
     print("")
     print("Next: `omni doctor` starts the registered MCP server for real, and `omni gate` now runs")
@@ -3837,6 +3861,274 @@ def arbiter_completion_block() -> str | None:
         reasons = "; ".join(state["gate_reasons"]) or "no reason recorded"
         return f"the Arbiter gate failed in {state['path']}: {reasons}. Fix the findings, then run {ARBITER_GATE_COMMAND}"
     return None
+
+
+
+
+# ---------------------------------------------------------------------------
+# REQ-038: the Arbiter baseline. `arbiter gate --baseline` labels every finding
+# new or existing against .arbiter/baseline.json; without the file the gate
+# treats everything as new. Adoption cuts one from a full offline scan, and
+# `omni arbiter baseline --refresh` re-cuts it once the gate is green.
+# ---------------------------------------------------------------------------
+
+
+def _arbiter_run(command: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
+    """Run `command` (an argv list, never a shell) in `cwd`; the exit code and the last
+    lines of its combined output. A missing binary or a timeout reads as a failure."""
+    try:
+        completed = subprocess.run(
+            command, cwd=str(cwd), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except OSError as exc:
+        return 1, str(exc)
+    except subprocess.TimeoutExpired:
+        return 1, f"timed out after {timeout}s"
+    output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+    return completed.returncode, "\n".join(output.strip().splitlines()[-8:])
+
+
+def _git_short_head(repo_root: Path) -> str | None:
+    """`git rev-parse --short HEAD`, or None outside a git checkout."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return (completed.stdout or "").strip() or None
+
+
+def _git_ignored(repo_root: Path, relative_path: str) -> bool:
+    """True when git would ignore the path (exit 0 from `git check-ignore`)."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), "check-ignore", "-q", relative_path],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def _arbiter_config_hash(target_root: Path) -> str | None:
+    """sha256 of arbiter.yaml's bytes, or None when the project has none."""
+    config = target_root / ARBITER_CONFIG_FILE
+    return hashlib.sha256(config.read_bytes()).hexdigest() if config.is_file() else None
+
+
+def _arbiter_gate_rule(root: Path) -> dict[str, Any] | None:
+    """The `completion.arbiter_gate` rule in root's completion rulepack, or None."""
+    path = root / ".ai" / "rules" / "completion-workflow.json"
+    if not path.is_file():
+        return None
+    try:
+        rulepack = load_json(path)
+    except (OSError, json.JSONDecodeError):
+        return None
+    rules = rulepack.get("rules", []) if isinstance(rulepack, dict) else []
+    for rule in rules if isinstance(rules, list) else []:
+        if isinstance(rule, dict) and rule.get("id") == ARBITER_GATE_RULE_ID:
+            return rule
+    return None
+
+
+def _newest_arbiter_gate_report(target_root: Path) -> Path | None:
+    """The newest report.json the gate rule wrote under arbiter-out/omni-gate."""
+    out_dir = target_root / ARBITER_GATE_OUT_DIR
+    if not out_dir.is_dir():
+        return None
+    reports = sorted(out_dir.rglob("report.json"), key=lambda p: p.stat().st_mtime)
+    return reports[-1] if reports else None
+
+
+def arbiter_write_baseline(
+    target_root: Path,
+    refresh: bool = False,
+    scan_out: str = "arbiter-out/baseline",
+    force: bool = False,
+    scan_args: tuple[str, ...] = (),
+) -> int:
+    """Cut `.arbiter/baseline.json` from a full offline scan of `target_root`.
+
+    The baseline is the set of finding ids the project has accepted as known; with
+    it, `arbiter gate --baseline` reports only what is new since. It must come from
+    a *full* scan (a `--changed` partial report would baseline a slice, so one is
+    refused) and is augmented with the commit it was cut at and a sha256 of
+    arbiter.yaml, so `omni doctor` can tell when either moved on. The file is meant
+    to be committed.
+
+    `refresh` re-cuts an existing baseline and prunes it: `arbiter baseline` writes
+    exactly the ids in the report it is given, so a baseline cut from a fresh full
+    scan holds only findings that still exist -- anything fixed since the last cut
+    drops out. Because a refresh also absorbs every finding currently open, it is
+    only allowed once the newest gate report under arbiter-out/omni-gate passed
+    (`force` overrides). `scan_args` are appended to the scan command (tests use
+    them to skip slow adapters).
+    """
+    baseline_path = target_root / ARBITER_BASELINE_PATH
+    if baseline_path.is_file() and not refresh:
+        print(f"- {ARBITER_BASELINE_PATH}: already present (pass --refresh to re-cut it after a green gate)")
+        return 0
+
+    if refresh:
+        report_path = _newest_arbiter_gate_report(target_root)
+        passed = None
+        if report_path is not None:
+            try:
+                gate = load_json(report_path).get("gate")
+                passed = gate.get("passed") if isinstance(gate, dict) else None
+            except (OSError, json.JSONDecodeError, AttributeError):
+                passed = None
+        if passed is not True:
+            where = report_path.relative_to(target_root).as_posix() if report_path else f"{ARBITER_GATE_OUT_DIR}/report.json"
+            state = "is missing" if report_path is None else ("did not pass" if passed is False else "has no gate verdict")
+            if not force:
+                print(
+                    f"- {ARBITER_BASELINE_PATH}: refusing to refresh, the last gate report ({where}) {state}. "
+                    "A refresh absorbs every open finding as known, so get the gate green first "
+                    "(`omni gate`), or pass --force to accept them anyway."
+                )
+                return 1
+            print(f"- {ARBITER_BASELINE_PATH}: the last gate report ({where}) {state}; refreshing anyway (--force)")
+
+    if shutil.which("arbiter") is None:
+        print(f"- {ARBITER_BASELINE_PATH}: `arbiter` is not on PATH; `omni arbiter install`, then rerun")
+        return 1
+
+    scan = ["arbiter", "scan", ".", "--profile", "offline", "--out", scan_out, "--format", "json", *scan_args]
+    print(f"- scan: {' '.join(scan)} (a full offline scan; this can take a while)")
+    code, tail = _arbiter_run(scan, target_root, 1800)
+    if code != 0:
+        print(f"  scan failed (exit {code}):\n{tail}", file=sys.stderr)
+        return 1
+    report_path = target_root / scan_out / "report.json"
+    if not report_path.is_file():
+        print(f"  scan wrote no {scan_out}/report.json", file=sys.stderr)
+        return 1
+    try:
+        report = load_json(report_path)
+    except json.JSONDecodeError as exc:
+        print(f"  {scan_out}/report.json is not valid JSON: {exc}", file=sys.stderr)
+        return 1
+    scope = report.get("scan_scope") if isinstance(report, dict) else None
+    mode = scope.get("mode") if isinstance(scope, dict) else None
+    if mode != "full":
+        print(
+            f"- {ARBITER_BASELINE_PATH}: refusing to baseline a report whose scan_scope.mode is "
+            f"{mode!r}; a baseline must come from a full scan, not a --changed slice",
+            file=sys.stderr,
+        )
+        return 1
+
+    write = ["arbiter", "baseline", f"{scan_out}/report.json", "--out", ARBITER_BASELINE_PATH]
+    print(f"- baseline: {' '.join(write)}")
+    code, tail = _arbiter_run(write, target_root, 120)
+    if code != 0 or not baseline_path.is_file():
+        print(f"  arbiter baseline failed (exit {code}):\n{tail}", file=sys.stderr)
+        return 1
+    try:
+        baseline = load_json(baseline_path)
+    except json.JSONDecodeError as exc:
+        print(f"  {ARBITER_BASELINE_PATH} is not valid JSON: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(baseline, dict):
+        print(f"  {ARBITER_BASELINE_PATH} is not a JSON object", file=sys.stderr)
+        return 1
+    commit = _git_short_head(target_root)
+    if commit:
+        baseline["commit"] = commit
+    config_hash = _arbiter_config_hash(target_root)
+    if config_hash:
+        baseline["config_hash"] = config_hash
+    write_json(baseline_path, baseline)
+
+    ids = baseline.get("ids") if isinstance(baseline.get("ids"), list) else []
+    pruned = " (refreshed: only ids the fresh full scan still reports)" if refresh else ""
+    print(f"- {ARBITER_BASELINE_PATH}: {len(ids)} known finding id(s) at {commit or 'no commit'}{pruned}")
+    if _git_ignored(target_root, ARBITER_BASELINE_PATH):
+        print(f"  warning: git ignores {ARBITER_BASELINE_PATH}; remove the `.arbiter/` ignore so it can be committed")
+    print(f"  commit {ARBITER_BASELINE_PATH} so the gate means new since this baseline")
+    return 0
+
+
+def run_arbiter_baseline(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    print(f"Arbiter baseline for {target_root}")
+    print(f"Mode: {'refresh' if args.refresh else 'initial'}{' (force)' if args.force else ''}")
+    print("")
+    return arbiter_write_baseline(target_root, refresh=args.refresh, force=args.force)
+
+
+def _newest_fixed_failure() -> tuple[str, str] | None:
+    """(id, date) of the most recently dated `fixed` entry in the failure ledger."""
+    if not failure_ledger_path().is_file():
+        return None
+    try:
+        ledger = load_failure_ledger()
+    except (OSError, json.JSONDecodeError):
+        return None
+    newest: tuple[str, str] | None = None
+    for entry in ledger.get("failures", []) if isinstance(ledger, dict) else []:
+        if not isinstance(entry, dict) or entry.get("status") != "fixed":
+            continue
+        date = entry.get("date")
+        if isinstance(date, str) and date and (newest is None or date > newest[1]):
+            newest = (str(entry.get("id") or "?"), date)
+    return newest
+
+
+def validate_arbiter_baseline(report: DoctorReport) -> None:
+    """Once the gate rule is wired, the baseline must exist and still describe this
+    project: cut before the newest fixed failure it may carry ids that no longer exist,
+    and cut under a different arbiter.yaml it assumed a different policy. Both are
+    warnings, since the gate still runs; a refresh on a green gate clears them."""
+    if _arbiter_gate_rule(Path(".")) is None:
+        return
+    baseline_path = Path(ARBITER_BASELINE_PATH)
+    if not baseline_path.is_file():
+        report.warning(
+            f"{ARBITER_BASELINE_PATH} is missing, so the gate treats every finding as new; "
+            "run `omni arbiter baseline` and commit the file"
+        )
+        return
+    try:
+        baseline = load_json(baseline_path)
+    except json.JSONDecodeError as exc:
+        report.warning(f"{ARBITER_BASELINE_PATH} is not valid JSON ({exc}); re-cut it with `omni arbiter baseline --refresh`")
+        return
+    if not isinstance(baseline, dict):
+        report.warning(f"{ARBITER_BASELINE_PATH} is not a JSON object; re-cut it with `omni arbiter baseline --refresh`")
+        return
+    problems = 0
+    created = str(baseline.get("created") or "")
+    newest = _newest_fixed_failure()
+    if created and newest and created[:10] < newest[1][:10]:
+        report.warning(
+            f"{ARBITER_BASELINE_PATH} was cut on {created[:10]}, before {newest[0]} was fixed on {newest[1]}; "
+            "it may still list findings that no longer exist. Refresh it on a green gate: "
+            "`omni arbiter baseline --refresh`"
+        )
+        problems += 1
+    recorded = baseline.get("config_hash")
+    current = _arbiter_config_hash(Path("."))
+    if isinstance(recorded, str) and current and recorded != current:
+        report.warning(
+            f"{ARBITER_CONFIG_FILE} changed since {ARBITER_BASELINE_PATH} was cut "
+            f"(config_hash {recorded[:12]} recorded, {current[:12]} now), so the baseline assumed a "
+            "different policy than the gate runs. Refresh it on a green gate: `omni arbiter baseline --refresh`"
+        )
+        problems += 1
+    if not problems:
+        ids = baseline.get("ids") if isinstance(baseline.get("ids"), list) else []
+        report.pass_check(f"{ARBITER_BASELINE_PATH} is present and current ({len(ids)} known finding ids)")
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -5629,6 +5921,14 @@ def build_parser() -> argparse.ArgumentParser:
     arbiter_install_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
     arbiter_install_parser.add_argument("--skip-pip", action="store_true", help="Write the wiring only; arbiter is already installed.")
     arbiter_install_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing or installing.")
+    arbiter_baseline_parser = arbiter_subparsers.add_parser(
+        "baseline",
+        help="Cut .arbiter/baseline.json from a full offline scan so the gate reports only what is new since it; commit the file.",
+    )
+    arbiter_baseline_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_baseline_parser.add_argument("--refresh", action="store_true",
+                                         help="Re-cut an existing baseline (prunes ids the fresh scan no longer finds); needs the last gate report green.")
+    arbiter_baseline_parser.add_argument("--force", action="store_true", help="With --refresh: proceed even when the last gate report failed or is missing.")
 
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
@@ -5754,7 +6054,9 @@ def main(argv: list[str] | None = None) -> int:
     if command == "arbiter":
         if args.arbiter_command == "install":
             return run_arbiter_install(args)
-        parser.error("arbiter requires a subcommand (install)")
+        if args.arbiter_command == "baseline":
+            return run_arbiter_baseline(args)
+        parser.error("arbiter requires a subcommand (install, baseline)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

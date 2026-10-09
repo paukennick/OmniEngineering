@@ -452,6 +452,34 @@ writes the wiring only; `--dry-run` shows it. `omni doctor` then starts the regi
 server for real. Arbiter is a separate, proprietary product; this command
 installs and wires it, it does not vendor it.
 
+Installation also cuts the **baseline**: a full offline scan of the project
+(`arbiter scan . --profile offline`), written by `arbiter baseline` to
+`.arbiter/baseline.json` as the list of finding ids the project accepts as
+known, stamped with the commit it was cut at and a sha256 of `arbiter.yaml`.
+The gate rule runs `arbiter gate . --changed <base> --baseline
+.arbiter/baseline.json --format json,sarif,pr-comment` (json is what omni
+reads back, sarif feeds code-scanning upload, pr-comment is the markdown a CI
+job posts), so a finding in the baseline is `existing` and only what is new
+since it can fail the gate. Without the file the gate treats every finding as
+new. Commit `.arbiter/baseline.json`; only `arbiter-out/` and
+`.arbiter/cache.json` are ignored. When `arbiter` was not on PATH at install
+time, or to re-cut the baseline later:
+
+```bash
+./omni arbiter baseline              # first cut; a no-op when the file exists
+./omni arbiter baseline --refresh    # re-cut on a green gate; --force overrides
+```
+
+A refresh is only allowed once the newest gate report under
+`arbiter-out/omni-gate/` passed, because it absorbs every open finding as
+known. It prunes: the new file holds only ids the fresh full scan still
+reports, so a baseline never carries fixed findings forward. A `--changed`
+(partial) report is refused as a baseline. `omni doctor` warns when the gate
+rule is wired but the baseline is missing, when the baseline predates the
+newest `fixed` failure-ledger entry (it may list findings that no longer
+exist), and when `arbiter.yaml` changed since it was cut (`config_hash`); all
+three clear with `omni arbiter baseline --refresh`.
+
 ### Updating an adopted workspace
 
 Once a project has adopted OmniEngineering and customized its rules,
@@ -656,7 +684,12 @@ omni sync
 omni validate
 omni map
 omni context review
+omni arbiter baseline
 ```
+
+`arbiter baseline` cuts (or, with `--refresh`, re-cuts on a green gate) the
+`.arbiter/baseline.json` the gate rule compares against. See
+[Arbiter alongside the workspace](#arbiter-alongside-the-workspace).
 
 `sync` verifies that the required `.ai/` source-of-truth files exist, then
 refreshes `.ai/entrypoints/`, the root shim files, and synced ignore files.
@@ -703,6 +736,10 @@ The doctor checks:
 - Registered MCP servers: every stdio server in `.mcp.json` is launched for real,
   taken through `initialize` and `tools/list`, and must answer with at least one
   tool (a registration that no longer starts would otherwise fail silently).
+- Arbiter baseline: once `completion.arbiter_gate` is wired, `.arbiter/baseline.json`
+  must exist, be no older than the newest fixed failure-ledger entry, and match
+  the current `arbiter.yaml` (`config_hash`); each gap names
+  `omni arbiter baseline`.
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.

@@ -7,7 +7,7 @@ Nothing here needs my sandbox. It runs on your machine, against repositories
 that never leave it.
 
 **A note on licensing:** `LICENSE` reserves all rights and grants none — that's
-deliberate, the operative terms are still being drafted (tracked as REQ-005 in
+deliberate, the operative terms are still being drafted (tracked as ARB-005 in
 [docs/licensing.md](docs/licensing.md)). If you got a link to this repository
 from me, you have my go-ahead to run it against your own code; that's the
 actual, current position while the formal grant is unsettled, not just a gap

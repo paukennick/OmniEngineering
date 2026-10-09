@@ -1,9 +1,9 @@
 {
   "version": "3.0.0",
-  "requirement_id_prefix": "REQ",
+  "requirement_id_prefix": "ARB",
   "requirements": [
     {
-      "id": "REQ-001",
+      "id": "ARB-001",
       "category": "developer-tooling",
       "title": "Adopt OmniEngineering workspace and Headroom context optimization",
       "description": "Install the OmniEngineering .ai/ scaffold and ./omni CLI so assistant sessions share one loading order, ruleset and requirements registry; install Headroom's Claude Code integration at local scope so tool output is compressed through the local proxy.",
@@ -43,7 +43,7 @@
       ]
     },
     {
-      "id": "REQ-002",
+      "id": "ARB-002",
       "category": "documentation",
       "title": "Restructure product documentation into an overview plus category documents",
       "description": "README.md had grown to 900 lines and served as the only product document. Split it into a professional overview covering capabilities and administration plus ten category documents under docs/ so granular material is found by type rather than by scrolling.",
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "id": "REQ-003",
+      "id": "ARB-003",
       "category": "training-evidence",
       "title": "Settle corpus composition figures and make them recomputable",
       "description": "Documentation quoted 42 repositories in one place and 39 in another while the population table mixed a tuned-only count for the vulnerable population with full counts for the other two. tools/corpus.py is authoritative: 41 repositories of which 5 are held out leaving a tuning set of 36.",
@@ -103,7 +103,7 @@
       ]
     },
     {
-      "id": "REQ-004",
+      "id": "ARB-004",
       "category": "developer-tooling",
       "title": "Bound requirement registry growth with an archive lifecycle",
       "description": "The active registry is loaded into every session by every context profile so unbounded growth is a permanent context tax rather than mere file bloat. Completed and withdrawn requirements are swept into an archive that no context profile loads while ids stay unique across both files.",
@@ -133,7 +133,7 @@
       ]
     },
     {
-      "id": "REQ-006",
+      "id": "ARB-006",
       "category": "developer-tooling",
       "title": "Fix Windows-only crash in adapter timeout kill path",
       "description": "Adapter._kill_group references signal.SIGKILL unconditionally, which does not exist on Windows, so any adapter timeout raises AttributeError from the cleanup path instead of stopping the analyzer. Windows also lacks os.setsid and os.killpg, so the process-group guarantee the timeout depends on has no implementation there.",
@@ -157,7 +157,7 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-007",
+      "id": "ARB-007",
       "category": "documentation",
       "title": "Record the six landed bundle commits in CHANGELOG and project-context",
       "description": "Commits 8775017 through 54f9a13 landed from an offline bundle and are on origin/main, but CHANGELOG.md has no entry for any of them and .ai/project-context.md has no section. They change probes, packs, gates, scoring and the CLI surface, which the changelog policy requires to be recorded. Entries must be written from the diffs rather than the commit messages, which were authored by a session with context not available here.",
@@ -188,7 +188,7 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-008",
+      "id": "ARB-008",
       "category": "developer-tooling",
       "title": "Correct path normalization in the doc-reference drift rule",
       "description": "probes.py:1150 normalizes a backtick-quoted path with lstrip('./'), which strips a character set rather than a prefix, so '.ai/context-brief.md' becomes 'ai/context-brief.md' and neither membership test can match. Every dotted path in the repository is reported as missing. Measured over tracked markdown: 211 findings now, 28 with the sibling rule's _normalize_relative(). The rule is unusable for calibration until this is fixed, because adjudicating it would spend irreplaceable observations on artifacts of the defect.",
@@ -217,7 +217,7 @@
       ]
     },
     {
-      "id": "REQ-009",
+      "id": "ARB-009",
       "category": "developer-tooling",
       "title": "Write and read arbiter's own artifacts as UTF-8",
       "description": "Thirteen write_text() calls across cli.py, report.py, engine.py and learn.py omit encoding=, so on Windows every report, PR comment, review queue and the knowledge ledger are written in the console codepage. Observed: arbiter-out/self-scan/review-queue.md is undecodable as UTF-8 (byte 0x97, an em dash written as cp1252). Reports are meant for accreditation packages and PR comments, so they cross machines. Scope is arbiter's own artifacts, not the readers in graph.py that parse scanned target files, which is a separate question about input decoding.",
@@ -249,10 +249,10 @@
       ]
     },
     {
-      "id": "REQ-010",
+      "id": "ARB-010",
       "category": "developer-tooling",
       "title": "Expose Arbiter as an MCP server, for more than one user",
-      "description": "Wrap the service layer in a Model Context Protocol server so an agent can call scan, gate and review-queue generation as tools, instead of a human typing CLI commands. Amended 2026-09-13. The original rationale said MCP was chosen over a hosted API because hosting requires customer source to leave the customer's machine. REQ-018 reversed that decision and the hosted API is built, so that sentence is withdrawn rather than merely stale: both surfaces now exist and both call src/arbiter/service.py, which is where containment is written once. What the amendment adds is that the MCP surface must serve more than one user. It is stdio only today: serve() runs one process per client and dispatch() carries no caller identity at all, so it cannot tell two callers apart even in principle, and neither the rate limiter nor the audit line can apply to it. The fix is a streamable-HTTP transport authenticated by the same key store the API already uses -- api.verify_key, one user one key -- with the resolved caller threaded through dispatch so per-key limits and audit records apply exactly as they do over HTTP. Two surfaces, one identity model, one service layer. The stdio transport stays, because a single user on a machine holding source that must not leave it is still the case MCP serves best.",
+      "description": "Wrap the service layer in a Model Context Protocol server so an agent can call scan, gate and review-queue generation as tools, instead of a human typing CLI commands. Amended 2026-09-13. The original rationale said MCP was chosen over a hosted API because hosting requires customer source to leave the customer's machine. ARB-018 reversed that decision and the hosted API is built, so that sentence is withdrawn rather than merely stale: both surfaces now exist and both call src/arbiter/service.py, which is where containment is written once. What the amendment adds is that the MCP surface must serve more than one user. It is stdio only today: serve() runs one process per client and dispatch() carries no caller identity at all, so it cannot tell two callers apart even in principle, and neither the rate limiter nor the audit line can apply to it. The fix is a streamable-HTTP transport authenticated by the same key store the API already uses -- api.verify_key, one user one key -- with the resolved caller threaded through dispatch so per-key limits and audit records apply exactly as they do over HTTP. Two surfaces, one identity model, one service layer. The stdio transport stays, because a single user on a machine holding source that must not leave it is still the case MCP serves best.",
       "priority": "high",
       "status": "completed",
       "minimum_access_scope": [
@@ -295,7 +295,7 @@
       ]
     },
     {
-      "id": "REQ-011",
+      "id": "ARB-011",
       "category": "developer-tooling",
       "title": "Exclude the scan's own output directory from the walk",
       "description": "A scan reads the working tree, and the output directory defaults to the relative path arbiter-out inside that tree, so a second run reads the first run's report. Measured on this repository: 28 of 101 unsuppressed findings were located inside arbiter-out, 27.7 percent, of which 24 were assurance.blanket-suppression -- the rule then being adjudicated. Thread the resolved output directory through run_scan and build_inventory into walk_repo and skip it. Excluding rather than refusing, because the documented default is inside the tree.",
@@ -317,10 +317,10 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-012",
+      "id": "ARB-012",
       "category": "developer-tooling",
       "title": "Decode scanned files as UTF-8 rather than the platform default",
-      "description": "Ten call sites read files belonging to the scanned repository with read_text(errors='replace') and no encoding argument, so the codec is the platform default -- cp1252 on Windows. errors='replace' governs failure handling, not codec choice, and cp1252 decodes almost every byte without erroring, so it does not mis-decode loudly, it mis-decodes silently. A UTF-8 em dash in a scanned file reached a generated review queue as the mojibake sequence a-circumflex-euro-quotation. REQ-009 fixed arbiter's own artifacts and deliberately excluded these sites on the incorrect reasoning that errors='replace' was the design intent; the design intent is never crashing on a target file, which encoding='utf-8' preserves.",
+      "description": "Ten call sites read files belonging to the scanned repository with read_text(errors='replace') and no encoding argument, so the codec is the platform default -- cp1252 on Windows. errors='replace' governs failure handling, not codec choice, and cp1252 decodes almost every byte without erroring, so it does not mis-decode loudly, it mis-decodes silently. A UTF-8 em dash in a scanned file reached a generated review queue as the mojibake sequence a-circumflex-euro-quotation. ARB-009 fixed arbiter's own artifacts and deliberately excluded these sites on the incorrect reasoning that errors='replace' was the design intent; the design intent is never crashing on a target file, which encoding='utf-8' preserves.",
       "priority": "high",
       "status": "completed",
       "minimum_access_scope": [],
@@ -339,7 +339,7 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-013",
+      "id": "ARB-013",
       "category": "developer-tooling",
       "title": "Check documented paths against disk, not only the walked inventory",
       "description": "The doc-reference drift rule tests a path named in prose against ctx.inventory.files. Directories in SKIP_DIRS are absent from that inventory, so tracked files there read as missing: .arbiter/knowledge.json, .arbiter/baseline.json and .arbiter/external-severity.json account for 9 of 31 doc-drift findings on this repository, all false. The question the rule asks is whether a documented file exists, which is a question about disk rather than about what the probes were shown. Confirm existence on disk before reporting. The remaining 22 findings are genuine and independently confirmed by omni doctor, so the rule keeps its yield.",
@@ -361,7 +361,7 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-014",
+      "id": "ARB-014",
       "category": "developer-tooling",
       "title": "Attribute doc-drift findings to their repository in the Location",
       "description": "The doc_drift probe sets repo_id on the Finding but not on the Location attached to it. Location.short() builds its repo:path prefix from the Location rather than the Finding, so every doc-drift finding renders as a bare path. Across a 36-repository corpus scan all 330 drift findings were unqualified - and cdk-examples and k8s-examples each contain a python/ tree, so a queue line naming python/stepfunctions/README.md identified no repository. An earlier version of this description claimed the three sibling probes already did this and doc_drift was the outlier. That was wrong and was written without checking. Measured on the same scan: assurance.py passes repo_id at every construction site and is the working model, while secrets attributed 0 of 377 findings, supply_chain 0 of 1817 and resource_policy 7 of 1040. doc_drift was not the outlier; assurance was. The same defect remains in the other probes, is not closed by this requirement, and is recorded separately. A review queue is read by a person, so an unattributable line is an unadjudicable one.",
@@ -383,7 +383,7 @@
       "risk_notes": []
     },
     {
-      "id": "REQ-015",
+      "id": "ARB-015",
       "category": "developer-tooling",
       "title": "Name the repository on every review queue line",
       "description": "The missing-repo_id defect was not confined to doc_drift. In a 36-repository corpus scan 3227 of 3564 findings carried a blank Location.repo_id: supply_chain 0 of 1817; secrets 0 of 377; resource_policy 7 of 1040. Only assurance sets it at every construction site. Because the Finding carries the id in all 3564 cases, the queue qualifies the path from the Finding through a shared review.where() used by both the markdown and HTML front ends, rather than blocking adjudication on roughly twenty construction sites across eight probes - several of which are repo-level or cross-repo and need judgement rather than a mechanical pass. Those sites remain wrong for SARIF, HTML report and console output, which is recorded as residual risk rather than closed here.",
@@ -408,10 +408,10 @@
       ]
     },
     {
-      "id": "REQ-016",
+      "id": "ARB-016",
       "category": "developer-tooling",
       "title": "Name the repository at every probe construction site",
-      "description": "REQ-015 made the review queue qualify a path from the Finding because roughly twenty Location construction sites across eight probes never set repo_id. That left SARIF the HTML report and console output unqualified and was recorded as residual risk. This closes it at the source. Eighteen sites took the id already in scope on the enclosing Finding: secrets resource_policy quality ast_metrics supply_chain house_rules content rules and house_rules_ast. Two needed judgement rather than substitution. The interface permission-unused rule collected IAM service names into a set and discarded the grant site so it could point only at the string iam:svc and guessed the alphabetically first infrastructure repository; granted_services now records a Location the way the sibling collections do and the finding cites the file the grant is written in. The house_rules file_exists and file_absent rules matched against every path in the scan flattened into one set which made them the only probe sites in the tree that set no repo_id on the Finding at all; they now ask the question per repository.",
+      "description": "ARB-015 made the review queue qualify a path from the Finding because roughly twenty Location construction sites across eight probes never set repo_id. That left SARIF the HTML report and console output unqualified and was recorded as residual risk. This closes it at the source. Eighteen sites took the id already in scope on the enclosing Finding: secrets resource_policy quality ast_metrics supply_chain house_rules content rules and house_rules_ast. Two needed judgement rather than substitution. The interface permission-unused rule collected IAM service names into a set and discarded the grant site so it could point only at the string iam:svc and guessed the alphabetically first infrastructure repository; granted_services now records a Location the way the sibling collections do and the finding cites the file the grant is written in. The house_rules file_exists and file_absent rules matched against every path in the scan flattened into one set which made them the only probe sites in the tree that set no repo_id on the Finding at all; they now ask the question per repository.",
       "priority": "medium",
       "status": "completed",
       "minimum_access_scope": [],
@@ -434,7 +434,7 @@
       ]
     },
     {
-      "id": "REQ-017",
+      "id": "ARB-017",
       "category": "developer-tooling",
       "title": "Spread the review sampler across repositories not only files",
       "description": "Within a rule the sampler ordered findings so that distinct files came first which a single repository satisfies on its own. Measured on six queues drawn from the 36-repository corpus: resource.k8s-no-security-context took 19 of 20 from one repository and all 20 from teaching material which tools/corpus.py states is useless as a false-positive measure; resource.unencrypted-database 18 of 20 from one; secrets.private-key 16 of 20. Twenty findings from one repository are largely one author one generator and one set of conventions so they answer whether the rule is right about that repository while the ledger records the answer as though it were about the rule. Selection now round-robins across repositories and keeps file spread as the secondary axis inside each. Population is deliberately not an input because that label lives in the corpus tooling and a library that ranks findings must not import the test harness; repository spread is the proxy the library can compute honestly on its own. Re-measured on the same corpus the average distinct repositories per queue went from 6.0 to 12.2 and the largest single-repository share from 64.2 percent to 30.0 percent.",
@@ -461,7 +461,7 @@
       ]
     },
     {
-      "id": "REQ-018",
+      "id": "ARB-018",
       "category": "developer-tooling",
       "title": "Serve Arbiter as a hosted API",
       "description": "Run Arbiter as a service the customer calls instead of installs. This reverses the 2026-09-12 decision recorded in .ai/project-context.md that chose MCP over hosting; MCP relocates the installation rather than removing it and the owner judges that restriction the binding one. Both surfaces call one transport-neutral service layer in src/arbiter/service.py so the containment rules are written once: output beneath a caller-named directory only; the scanned repository never executed; the network capability off during a scan whatever the caller asks for; and no operation that records an adjudication verdict. The licensing objection recorded against hosting was partly misstated -- LGPL-2.1 obligations attach to conveying a copy and running semgrep server-side conveys nothing -- so L-6 does not gate this. What gates it is custody of customer source.",
@@ -494,10 +494,10 @@
       ]
     },
     {
-      "id": "REQ-019",
+      "id": "ARB-019",
       "category": "developer-tooling",
       "title": "Give a user a CLI that reaches a hosted Arbiter",
-      "description": "REQ-018 built the hosted API and nothing can conveniently call it. Every CLI command is either local (scan, gate, review) or server-side (api serve, api key add|list|revoke); docs/hosted-api.md tells a user to assemble multipart uploads with curl. That makes the hosted service real for a script and not for a person, which defeats the reason it was built -- a caller should be able to get an opinion about their repository without installing five analyzers, a grammar pack and a rule engine. This adds an arbiter remote command group that packages a target, sends it over TLS with a hand-issued key, and renders the answer through the same report.py functions a local scan uses, so the output is identical and --out, --format and --limit keep their meaning. The transport is urllib from the standard library rather than requests or httpx: pip install arbiter-eval must stay PyYAML-only, because a thin client that drags in a dependency tree is not a thin client.",
+      "description": "ARB-018 built the hosted API and nothing can conveniently call it. Every CLI command is either local (scan, gate, review) or server-side (api serve, api key add|list|revoke); docs/hosted-api.md tells a user to assemble multipart uploads with curl. That makes the hosted service real for a script and not for a person, which defeats the reason it was built -- a caller should be able to get an opinion about their repository without installing five analyzers, a grammar pack and a rule engine. This adds an arbiter remote command group that packages a target, sends it over TLS with a hand-issued key, and renders the answer through the same report.py functions a local scan uses, so the output is identical and --out, --format and --limit keep their meaning. The transport is urllib from the standard library rather than requests or httpx: pip install arbiter-eval must stay PyYAML-only, because a thin client that drags in a dependency tree is not a thin client.",
       "priority": "high",
       "status": "completed",
       "minimum_access_scope": [

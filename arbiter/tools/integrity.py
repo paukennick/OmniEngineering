@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -173,6 +175,113 @@ def check_enforcement() -> tuple[int, list[str]]:
     return tested, unenforced
 
 
+# ---------------------------------------------------------------------------
+# Direction 3 — CI-13: cacheable probes are file-local
+# ---------------------------------------------------------------------------
+#
+# The result cache (src/arbiter/cache.py) serves a file's findings from a
+# previous scan on the strength of one claim: that the probe's answer for a
+# file depends on that file alone. `Probe.cacheable` is where the claim is
+# made; this is where it is tested. Each cacheable probe is run over a file
+# beside another file and over the file alone, and must report the same
+# findings for it either way. A probe that reads across files cannot be
+# cached, and the check names it.
+#
+# Where a planted hit is feasible the file carries one, so the comparison is
+# between two non-empty answers rather than two silences; the context files
+# a probe is entitled to (a manifest) are present in both runs, exactly as
+# the cache keeps them in a narrowed inventory.
+
+_DEEP = "def f(x):\n" + "".join(f"{'    ' * (i + 1)}if x > {i}:\n" for i in range(9)) + "    " * 10 + "return x\n"
+# The AWS documentation example key, assembled at run time so that this file
+# is not itself a secrets hit when Arbiter gates its own tree.
+_EXAMPLE_KEY = "AKIA" + "IOSFODNN7EXAMPLE"
+
+# probe -> (file A and its content, context files present in both runs, config overrides)
+CI13_PLANTS: dict[str, tuple[tuple[str, str], dict[str, str], dict]] = {
+    "secrets": (("a.py", f'aws_key = "{_EXAMPLE_KEY}"\n'), {}, {}),
+    "supply_chain": (("requirements.txt", "requests\n"), {}, {}),
+    "ast_metrics": (("a.py", _DEEP), {}, {}),
+    "house_rules_ast": (("a.py", "try:\n    pass\nexcept Exception:\n    pass\n"), {}, {
+        "rules": [{"id": "no-broad-except", "type": "ast_query", "languages": ["python"],
+                   "query": '(except_clause (identifier) @t (#match? @t "^Exception$")) @hit',
+                   "capture": "hit", "severity": "low"}]}),
+    "authored": (("a.py", "import requests\n"), {"requirements.txt": "flask==1.0\n"}, {}),
+}
+CI13_OTHER_FILE = ("b.py", "x = 1\n")
+
+
+def _findings_for(probe, root: Path, path_a: str, config: dict) -> tuple[list[str], int]:
+    """Run `probe` over the tree at `root`; return A's findings as canonical
+    strings and the number of findings that carry no path at all."""
+    from arbiter.core import RepoInfo
+    from arbiter.inventory import build_inventory
+    from arbiter.probes import ProbeContext, clear_read_cache
+    clear_read_cache()
+    repo = RepoInfo(id="root", path=str(root), source=str(root))
+    ctx = ProbeContext(repos=[repo], inventory=build_inventory([repo]), config=config)
+    produced = probe.run(ctx) or []
+    pathless = sum(1 for f in produced if not f.location.path)
+    mine = sorted(json.dumps(f.to_dict(), sort_keys=True, default=str)
+                  for f in produced if f.location.path == path_a)
+    return mine, pathless
+
+
+def check_file_locality(probes) -> tuple[int, list[str], list[str]]:
+    """CI-13 over the given probes. Returns (tested, failures, skipped)."""
+    failures: list[str] = []
+    skipped: list[str] = []
+    tested = 0
+    for probe in probes:
+        if not getattr(probe, "cacheable", False):
+            continue
+        blocked, why = probe.prevented()
+        if blocked:
+            skipped.append(f"{probe.name}: {why}")
+            continue
+        (name_a, text_a), context, overrides = CI13_PLANTS.get(
+            probe.name, (("a.py", "x = 1\nimport os\n"), {}, {}))
+        config = dict(DEFAULTS)
+        config.update(overrides)
+        tested += 1
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, text in {**context, name_a: text_a}.items():
+                (root / rel).write_text(text, encoding="utf-8")
+            alone, pathless_alone = _findings_for(probe, root, name_a, config)
+            (root / CI13_OTHER_FILE[0]).write_text(CI13_OTHER_FILE[1], encoding="utf-8")
+            beside, pathless_beside = _findings_for(probe, root, name_a, config)
+        if alone != beside:
+            failures.append(f"{probe.name}: {len(alone)} finding(s) for {name_a} alone, "
+                            f"{len(beside)} beside {CI13_OTHER_FILE[0]}")
+        elif pathless_alone or pathless_beside:
+            failures.append(f"{probe.name}: {max(pathless_alone, pathless_beside)} finding(s) "
+                            "carry no path and cannot be attributed to a file")
+        elif probe.name in CI13_PLANTS and not alone:
+            failures.append(f"{probe.name}: the planted hit in {name_a} did not fire, "
+                            "so the comparison proved nothing")
+    return tested, failures, skipped
+
+
+def check_ci13_enforced() -> bool:
+    """CI-13 must catch a probe that reads across files. A synthetic probe
+    declares itself cacheable and reports on A only when B is present."""
+    from arbiter.core import Location
+    from arbiter.probes import Probe
+
+    def cross_file(ctx):
+        files = ctx.inventory.text_files()
+        if len(files) < 2:
+            return []
+        a = next(f for f in files if f.path == "a.py")
+        return [Finding(rule_id="synthetic/cross-file", title="depends on the neighbour",
+                        probe="cross_file", repo_id="root", location=Location(path=a.path))]
+
+    _, failures, _ = check_file_locality([Probe(name="cross_file", dimensions=["quality"],
+                                                checks=1, run=cross_file, cacheable=True)])
+    return any(f.startswith("cross_file:") for f in failures)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probes", type=int, default=5)
@@ -210,8 +319,24 @@ def main() -> int:
     print(f"    unenforced          : {len(unenforced)}"
           + (f" ({', '.join(unenforced)})" if unenforced else ""))
 
-    print(f"\n  Verdict: {'PASS' if not failures and not unenforced else 'FAIL'}\n")
-    return 0 if (not failures and not unenforced) else 1
+    from arbiter.probes import REGISTRY  # noqa: E402  (registers the native probes)
+    cacheable = [p.name for p in REGISTRY if p.cacheable]
+    tested13, failures13, skipped13 = check_file_locality(REGISTRY)
+    enforced13 = check_ci13_enforced()
+    print(f"\n  Direction 3 — CI-13: cacheable probes are file-local")
+    print(f"    cacheable probes    : {len(cacheable)} ({', '.join(cacheable)})")
+    print(f"    probes tested       : {tested13}")
+    print(f"    skipped             : {len(skipped13)}"
+          + (f" ({'; '.join(skipped13)})" if skipped13 else ""))
+    print(f"    not file-local      : {len(failures13)}")
+    for line in failures13:
+        print(f"      {line}")
+    print(f"    enforced            : {'yes' if enforced13 else 'NO'} "
+          "(a synthetic cross-file probe is caught)")
+
+    ok = not failures and not unenforced and not failures13 and enforced13
+    print(f"\n  Verdict: {'PASS' if ok else 'FAIL'}\n")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

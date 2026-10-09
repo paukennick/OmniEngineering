@@ -8,6 +8,78 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- ARB-044 | Requirements use the `ARB` prefix. Two registries on `REQ` collided the
+  moment Arbiter was vendored into OmniEngineering (each had reached number 035
+  with a different requirement), so `omni requirement renumber --prefix ARB`
+  renumbered every requirement keeping its number, wrote `id_aliases` so the
+  commits and ledger entries that cite the old ids stay valid, and rewrote the
+  governance text. Code, tests and git history are untouched; the gate resolves
+  an old id through the aliases.
+- ARB-043 | Synced the OmniEngineering workspace tooling as of 2026-10-09:
+  `omni doctor` ends with a `Posture:` line and offers `--json`;
+  `omni requirement complete` refuses while this branch's Arbiter report is
+  missing, stale or red; `omni graph impact`, `omni graph findings` and
+  `omni test run` exist here; the `completion.arbiter_gate` rule now runs
+  `arbiter gate . --changed {base} --profile offline --baseline
+  .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment`,
+  with `.arbiter/baseline.json` cut from a full scan and committed, so "new"
+  means new since this baseline; the installed Arbiter version is recorded in
+  `.ai/omni-version.json`; the recommended `completion.tests` example rule is
+  present. The handbook for the whole loop is
+  `docs/arbiter-integration.md` in the OmniEngineering repository.
+- ARB-042 | Run history and the trend dashboard. Every `scan` and `gate`
+  appends one line to `<out>/history.jsonl` (time, commit, system, profile,
+  mode, grade, score, coverage, counts by severity, new high-or-above, gate
+  result, duration, total findings; no evidence, no paths, no titles) unless
+  `--no-history`; `arbiter dashboard [--history] [--out]` renders the trend as a
+  self-contained HTML page (tiles, a score and coverage line chart, stacked
+  severity bars per run, the runs table, an honest empty state). The README's
+  "not yet built" list loses the dashboard.
+- ARB-041 | A persistent per-file result cache for the file-local probes.
+  `.arbiter/cache.json` (git-ignored, never scanned) stores per-file findings
+  for `secrets`, `supply_chain`, `ast_metrics`, `house_rules_ast` and
+  `authored`, keyed on the file bytes, the path, the configuration, Arbiter's
+  own source and a per-probe context digest (the manifests, for `authored`).
+  `--no-cache` bypasses it, `--cache-path` relocates it, `--verify-cache`
+  re-runs a sample of hits and reports a divergence as
+  `arbiter/assurance.cache-divergence` (high). Integrity invariant CI-13 proves
+  every cacheable probe is file-local, the mutation tool proves a config change
+  invalidates, and CI runs the self-gate with `--no-cache`. On the
+  OmniEngineering tree with the adapters skipped (a machine under load from
+  three parallel suites): cold 29.3 s wall (scan 4.4 s), warm 25.8 s wall
+  (scan 1.1 s), identical findings.
+- ARB-040 | Arbiter runs on Python 3.10. `tomllib` was the only 3.11 construct;
+  one helper reads TOML with `tomllib` or the `tomli` fallback,
+  `requires-python` is `>=3.10` with `tomli` as a conditional dependency, and
+  pr-check gains an ubuntu 3.10 cell. OmniEngineering's CI now reads the floor
+  from `pyproject.toml`, so its 3.10 cells run doctor and gate with a vendored
+  Arbiter.
+- ARB-039 | PR-native output. The gate names the findings that failed it
+  (`failing_ids`); `--format annotations` prints GitHub workflow commands
+  (`::error` for the gating findings, `::warning` for the rest, `::notice`
+  for findings outside the change; titles and rule ids only, never evidence);
+  `--github` (automatic under `GITHUB_ACTIONS=true`) adds the annotations and
+  appends the pull-request comment to `$GITHUB_STEP_SUMMARY`; pr-check runs the
+  self-gate in that mode and uploads `report.sarif` to code scanning
+  (`continue-on-error`, so the gate's exit code stays the verdict); the
+  composite action passes `--github`.
+- ARB-038 | The `governance` probe and requirement attribution. A change-scoped
+  probe (the new scope runs in partial and full mode) reads the OmniEngineering
+  failure ledger: a changed file named as affected by an open or mitigated
+  entry, with none of that entry's regression tests in the change, is
+  `arbiter/governance.open-failure-untested`; a fixed entry whose regression
+  test no longer exists is `arbiter/governance.regression-test-missing`; both
+  medium, both n/a without a ledger. Findings inside the change carry
+  `req:<ID>` tags from the commits since the base (the registry's own prefix),
+  and `REPORT.md` and the pull-request comment gain a "By requirement" block.
+- Closed ARB-024 with the pull-request check deliberately advisory. The
+  Windows matrix has now run for real and found two defects (FAIL-035,
+  FAIL-039), which was its purpose; the remaining criterion, a required
+  status check on `main`, was weighed and declined: it only blocks a merge
+  button a sole committer already reads, and the strict form would make
+  every pull request stale after each nightly training commit. The
+  decision is recorded on the requirement, to revisit when a second
+  committer or automated merging arrives. (ARB-024)
 - Arbiter now gates its own pull requests. `pr-check` installs the five
   external analyzers and the `api` extra on Linux, then runs `arbiter gate .`
   under this repository's `arbiter.yaml` after the suite, the integrity and
@@ -25,16 +97,16 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   sixteen hosted-API tests that had skipped on every pull request, and
   `omni gate` now runs `arbiter gate --changed` through OmniEngineering's new
   `command` validation type whenever `src/`, `tests/`, `tools/` or
-  `arbiter.yaml` change. FAIL-036, FAIL-038. (REQ-032, REQ-034)
+  `arbiter.yaml` change. FAIL-036, FAIL-038. (ARB-032, ARB-034)
 - Arbiter now installs alongside the OmniEngineering workspace. Upstream's
   `omni adopt --with-arbiter` and `omni arbiter install` (OmniEngineering
-  REQ-033) pip-install `arbiter-eval[mcp]` from a checkout or the GitHub URL
+  ARB-033) pip-install `arbiter-eval[mcp]` from a checkout or the GitHub URL
   and write the wiring this repository had assembled by hand: the `arbiter`
   MCP server in `.mcp.json`, the `completion.arbiter_gate` command rule, a
   starter `arbiter.yaml`, and `arbiter-out/` in `.gitignore`. Rerunning it
   here reports every piece as already present, which is the check that the
   hand-made wiring and the generated one agree. `SETUP.md` and
-  `RUNNING-ON-YOUR-OWN-CODE.md` document the path. (REQ-032)
+  `RUNNING-ON-YOUR-OWN-CODE.md` document the path. (ARB-032)
 - Cut the self-scan's noise at its five sources. `drift.doc-references-
   missing-file` asks git whether a path named in prose was ever tracked and
   reports a removed one at `info` as removed, which a changelog is right to
@@ -60,17 +132,17 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   missing dependency separately and the engine records it as a prevented
   skip, like a missing binary; `applicable()` keeps only the cases where
   there is nothing to assess, and CI-12 names the new wording (FAIL-039).
-  (REQ-033)
+  (ARB-033)
 - `arbiter review --apply --ledger FILE` drafts an open OmniEngineering
   failure-ledger entry for every verdict recorded as a true positive: title,
   severity, rule, location and the finding id, nothing the scanner cannot
   know. Applying the same marks twice adds nothing, and the file passes
   `omni failure check`. The adjudication ledger and the failure ledger were
-  parallel records of the same defects; now one feeds the other. (REQ-035)
+  parallel records of the same defects; now one feeds the other. (ARB-035)
 - Added the Claude Code skill (`.claude/skills/arbiter/SKILL.md`): which
   surface to use for what, how to read a withheld grade and a not-assessed
   probe, how to adjudicate, and what the self-gate requires of a change.
-  (REQ-036)
+  (ARB-036)
 - Added the four commercial control packs README had listed as unbuilt: PCI
   DSS v4.0 (32 of 63 requirement sections), the HIPAA Security Rule (32 of
   59 standards and implementation specifications), SOC 2 TSC 2017 (29 of 61
@@ -79,7 +151,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   enumerating the scanner-relevant subset, names the human work that remains
   on every control, cites only rule ids that exist, and says that PCI DSS and
   the TSC are licensed documents whose identifiers must be verified against
-  the licensed text before an audit package cites them. (REQ-037)
+  the licensed text before an audit package cites them. (ARB-037)
 - Made the three setup-script tests run the bash that `PATH` resolves rather
   than the bare name `bash`. The first run of the Windows half of `pr-check`
   (it had never run: this was the workflow's first pull request) failed all
@@ -88,16 +160,16 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   UTF-16 and exits 1 whether or not Git Bash is installed. The one test that
   already went through `shutil.which("bash")` passed on the same runner,
   which is the whole diagnosis; the other three now do the same and skip, as
-  it does, only when no bash exists at all. (REQ-024)
+  it does, only when no bash exists at all. (ARB-024)
 - Exempted Arbiter's own test material from the gate's secret check. The
   first change set to touch `tests/` tripped `data.privacy` on a planted PEM
   header: the check is right in general and wrong for a secret scanner's
   corpus, so `tests/**`, `fixtures/**` and `examples/**` are listed in the
   rulepack's ignore set; `src/` and `tools/` hold no literal key shape and
-  stay scanned. (REQ-031)
+  stay scanned. (ARB-031)
 - Re-synced the OmniEngineering workspace to its real upstream and adopted
   the tooling that arrived there since June. Arbiter's `omni` was a fork
-  assembled from STEP-Migration copies (REQ-001) and closest to an upstream
+  assembled from STEP-Migration copies (ARB-001) and closest to an upstream
   commit from 2026-06-23; `python omni update` now 3-way-merges against the
   ref recorded in `.ai/omni-version.json`, so later template changes are a
   command rather than a re-copy. What changed in the repository: the
@@ -108,7 +180,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   whole; the five non-Claude assistant shims, `.cursorignore` and the
   OmniEngineering `NOTICE`, `TRADEMARKS.md` and `LICENSES/` are installed,
   which closes the eight `omni doctor` errors this repo had carried as an
-  accepted gap since REQ-001 (arbiter's own `NOTICE.md` and `LICENSE` are
+  accepted gap since ARB-001 (arbiter's own `NOTICE.md` and `LICENSE` are
   unchanged); `python omni gate` is enforced by `.githooks/pre-commit`, by the
   Claude Code Stop hook in `.claude/settings.json` (now tracked; the
   machine-specific Headroom wiring stays in `settings.local.json`) and by
@@ -125,26 +197,26 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   is never run here" -- that contradicted this repo's own configuration;
   they are upstream's versions now. The adapters, `public-release.md`,
   `fallback-llm-rules.json` and `hci-ui-rules.json` authored for arbiter in
-  REQ-028 were kept and merged. (REQ-031)
+  ARB-028 were kept and merged. (ARB-031)
 - Backfilled the failure ledger. `.ai/failures/failure-ledger.json` now
   records the 34 shipped defects that `CHANGELOG.md`, `.ai/project-context.md`
   and the requirement records already describe, FAIL-001 (the read cache
-  serving stale bytes, REQ-007) through FAIL-034 (CRLF dropped when file
-  reading moved to bytes, REQ-030), each with its root cause, the regression
+  serving stale bytes, ARB-007) through FAIL-034 (CRLF dropped when file
+  reading moved to bytes, ARB-030), each with its root cause, the regression
   test that now catches it, and the rule that prevents a repeat. Six have no
   regression test and say so (`no_test_reason`); twelve have no fix commit
   because the clone is shallow and the 2026-09-12 history is not in it.
   `python omni graph why <path>` and `python omni failure search` read this
   ledger, and `python omni failure add` is how the next defect is recorded.
-  (REQ-031)
+  (ARB-031)
 - Ported three arbiter-only improvements upstream instead of keeping them as
-  a fork, as OmniEngineering REQ-031: the `withdrawn` terminal status with
+  a fork, as OmniEngineering ARB-031: the `withdrawn` terminal status with
   `requirement archive --id` refusing live work; doctor's live check of every
   MCP server `.mcp.json` registers (it replaces the arbiter-specific
-  `validate_mcp_server` from REQ-025 and checks both servers here);
+  `validate_mcp_server` from ARB-025 and checks both servers here);
   `exclude_code_globs` for the graph; and dated `###` sections under an
   `[Unreleased]` heading -- this file's format -- parsed as separate
-  changelog entries. (REQ-031)
+  changelog entries. (ARB-031)
 
 ### 2026-09-16
 
@@ -176,15 +248,15 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   template — it only reads Python) and a narrower one for checkov (which
   still needs the templates). A real system scan went from 3 critical / 6,011
   total findings to 0 critical / 1,121, with bandit's runtime dropping from
-  669s to 4s. (REQ-026)
+  669s to 4s. (ARB-026)
 - Fixed two MCP tests reading pydantic alias names instead of the field
   names the installed SDK actually exposes (`.serverInfo`, `.isError`,
   `.inputSchema`) — those models take the camelCase alias on construction
   but expose the field back out as the snake_case Python attribute via an
   alias generator, confirmed directly from the installed SDK's own
-  `model_fields`. Pre-existing on `main`, unrelated to REQ-026; found while
+  `model_fields`. Pre-existing on `main`, unrelated to ARB-026; found while
   running the full suite during that work and confirmed by reproducing it
-  against plain `main` with REQ-026's changes stashed. (REQ-027)
+  against plain `main` with ARB-026's changes stashed. (ARB-027)
 - Registered Arbiter's own MCP server for this repo and made OmniEngineering
   verify it rather than take it on faith. `.mcp.json` now names an "arbiter"
   server that runs `arbiter mcp` (stdio), so an assistant working here can
@@ -195,7 +267,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   builds the server for real rather than grepping `.mcp.json`'s text for the
   right command, because the `mcp` SDK's own shape has moved under this
   project before (`23bc43e`, same day) and a static check would not have
-  caught that. (REQ-025)
+  caught that. (ARB-025)
 
 ### 2026-09-17
 
@@ -215,7 +287,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   when synthetic volume does. `tests/test_properties.py` generates inputs for
   the hand-rolled HCL reader rather than listing them, since every bug those
   functions have had was an edge of the grammar nobody thought to write down.
-  (REQ-030)
+  (ARB-030)
 - Fixed a fingerprint that was not stable across platforms. `Finding.fingerprint()`
   hashed `location.path` as written, so the same path with backslashes
   and with forward slashes were two identities for one finding.
@@ -225,7 +297,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   built on one reported every finding as new on the other. Normalization now
   happens at the `Location` boundary that all ~54 construction sites pass
   through, rather than at each of them -- which is the form that was tried and
-  missed in REQ-014, REQ-015, REQ-016 and again in REQ-029. (REQ-030)
+  missed in ARB-014, ARB-015, ARB-016 and again in ARB-029. (ARB-030)
 - Connected the nightly external-severity measurement to the scanner.
   `tools/calibrate_external.py` wrote its measured severities to
   `.arbiter/external-severity.json` while `learn.apply()` read a flat map
@@ -234,20 +306,20 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   external checks and changed nothing, and the 178 severities in the live
   ledger came from a one-off step that no longer exists. Merging the current
   report yields 288 entries, 110 of them checks that had no measured severity
-  at all. (REQ-030)
+  at all. (ARB-030)
 - Stopped reading every UTF-16 file as a binary blob. `inventory._is_binary`
   treated any NUL byte as binary, and UTF-16 puts one between every ASCII
   character, so a file an editor saved as "Unicode" was classified as data and
   never read -- a credential in one was invisible. A declared byte-order mark
   now means text. Headerless UTF-16 is still left as data on purpose: telling
   it from a real binary means guessing, and guessing wrong turns a binary into
-  mojibake to scan. (REQ-030)
+  mojibake to scan. (ARB-030)
 - Gave seven configuration reads an explicit encoding. `policy.py`, `ab.py`,
   `controls.py`, `probes.py` and `adapters.py` read YAML and TOML under the
   platform default codec, which on Windows is cp1252 and mis-decodes silently
-  rather than raising. This is the same defect as REQ-009 and REQ-012, in
+  rather than raising. This is the same defect as ARB-009 and ARB-012, in
   seven call sites those fixes did not touch; the new test checks the property
-  across `src/` rather than the two sites that were known. (REQ-030)
+  across `src/` rather than the two sites that were known. (ARB-030)
 - Kept line endings translated when file reading moved to bytes. Reading a
   file as bytes rather than as text is what made the byte-order-mark check
   possible, and it silently dropped Python's newline translation with it: six
@@ -257,12 +329,12 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   written to cover it did not -- it used an AWS key, which is recognised by
   its own shape wherever it appears and so was found with or without the
   carriage return; `tools/mutate_tests.py` reported that test as passing with
-  the defect present, which is the whole reason that tool exists. (REQ-030)
+  the defect present, which is the whole reason that tool exists. (ARB-030)
 - Added `tools/mutate_tests.py`, which puts each of those defects back and
   requires the test named after it to fail. A test that has never failed is
   not evidence, and this is the same discipline `tools/integrity.py` already
   applies to the claim invariants. It runs in the pull-request check, so a
-  regression test that stops testing anything fails the build. (REQ-030)
+  regression test that stops testing anything fails the build. (ARB-030)
 - Wrote `docs/testing-parameters.md`: every constant that governs a verdict,
   what it decides, and how firmly it is held -- derived, reasoned or
   arbitrary. Most are arbitrary, which is the honest grade for a number
@@ -270,11 +342,11 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   sharing the name `MIN_OBSERVATIONS` while meaning unrelated things, and
   three unreconciled ratio thresholds deciding closely related questions.
   Nothing was retuned: changing any of them changes published evidence.
-  (REQ-030)
+  (ARB-030)
 
 
 - Fixed four related gaps in how adapters read tool output and what they
-  scan, found while continuing REQ-026's cross-repo scanning work. gitleaks
+  scan, found while continuing ARB-026's cross-repo scanning work. gitleaks
   has no write-JSON-to-stdout mode; `--report-path` took the conventional
   `-` literally, creating a file named `-` inside the repo being scanned (the
   adapter never set `cwd`, so `{workdir}` was the default) full of gitleaks'
@@ -286,7 +358,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   starts with a bare leading backslash --- but every suppress-rule glob and
   `Location.path` in this codebase assumes `/`, so path-based rules silently
   matched zero Windows findings from either tool; adapter output is now
-  normalized to forward slashes before that matching. REQ-026's own risk
+  normalized to forward slashes before that matching. ARB-026's own risk
   notes flagged that its bandit/checkov exclusions, mirroring
   `inventory.SKIP_DIRS`, left semgrep uncovered even though it walks
   `{workdir}` with the same independent traversal; semgrep now carries the
@@ -297,13 +369,13 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   run under whatever `--out` name was given that time; `walk_repo` now also
   excludes whatever `git ls-files --others --ignored --exclude-standard
   --directory` reports, the same plumbing `incremental.py` already uses for
-  changed-file detection. (REQ-029)
+  changed-file detection. (ARB-029)
 
 ### 2026-09-14
 
 - Ran the test suite on Windows in CI, and made the Windows-only code paths
   testable everywhere. No automation had ever run on Windows: `pr-check.yml`
-  was ubuntu-only and `train.yml` is a single ubuntu job. That is how REQ-006
+  was ubuntu-only and `train.yml` is a single ubuntu job. That is how ARB-006
   survived to be found by hand — a crash on *every* adapter timeout on Windows,
   because `os.killpg` does not exist there and the process-group path raised
   `AttributeError` while the analyzer ran on past the timeout meant to stop it.
@@ -320,7 +392,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   leaving the fanned-out workers alive, and still kills the process when
   `taskkill` is absent or refuses. `tools/integrity.py` was verified on Windows
   before CI was made to depend on it — 354,294 reports enumerated, 0 integrity
-  failures. 410 tests to 417. (REQ-024)
+  failures. 410 tests to 417. (ARB-024)
 
 - Gave the nightly training job an owned contract and a preflight. The job
   produces the project's only accumulating evidence and had never been covered
@@ -337,7 +409,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   rebases first, because losing a race to another commit is the same lost night
   by a different route. Four tests cover it, including one that reproduces the
   original gitignore arrangement in a temporary repository and asserts the check
-  refuses it. (REQ-023)
+  refuses it. (ARB-023)
 
 - Made adjudication require a terminal. `arbiter feedback` and
   `arbiter review --interactive` now check `stdin.isatty()` and refuse when
@@ -351,7 +423,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   by something that is not a keyboard is a batch import under another name and
   `--apply` already is one. This is a guard against accident and not proof of
   personhood — anything determined allocates a pseudo-terminal — and
-  `docs/calibration.md` says so in those words. (REQ-021)
+  `docs/calibration.md` says so in those words. (ARB-021)
 
 - Made adapter scope a declaration instead of an inheritance, and said out loud
   what a partial scan does not run. All five external analyzers (ruff, bandit,
@@ -366,7 +438,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   is unmeasured. `Probe.scope_reason` now carries the real one. `docs/ci.md` and
   `RUNNING-ON-YOUR-OWN-CODE.md` state plainly that a pull-request gate runs
   Arbiter's own probes and no third-party analyzer at all. Nothing about what
-  runs changed. (REQ-022)
+  runs changed. (ARB-022)
 
 - Gave every adjudication verdict a name. `learn.record()` stored a bare string
   — `"true_positive"` or `"false_positive:note"` — with no reviewer, no
@@ -388,17 +460,17 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   `.arbiter/knowledge.json` moved from `k:0f258c4ce717` to `k:a37f38560140`
   with no evidence change, so any scan pinning the old hash must be re-pinned.
   Merging alongside training run 2 moved it again, to `k:2e88d7a07351`; that
-  second move carries the run's evidence and this one does not. (REQ-020)
+  second move carries the run's evidence and this one does not. (ARB-020)
 
 ### 2026-09-13
 
 - Retired the stale one-session instructions in `HANDOFF.md`. It now routes a
   fresh session to the maintained context and requirements registry, records
-  REQ-018 as the dependency root for REQ-019 and REQ-010, and leaves REQ-005
+  ARB-018 as the dependency root for ARB-019 and ARB-010, and leaves ARB-005
   explicitly with counsel instead of claiming adjudication is the project's
   only blocker. After the rebased implementation passed all 399 Linux tests
   with the `api` and `mcp` extras installed (396 passed, 3 skipped), the three
-  requirements were archived in dependency order. (REQ-010, REQ-018, REQ-019)
+  requirements were archived in dependency order. (ARB-010, ARB-018, ARB-019)
 - Removed the plaintext listener entirely. `--behind-proxy` bound a bare socket
   on loopback and treated `X-Forwarded-Proto: https` as proof the request had
   been secure earlier in its life; that is a header any client can invent and,
@@ -411,7 +483,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   the backend a self-signed certificate for `arbiter.internal`, Caddy dials
   `https://127.0.0.1:8443` and verifies against exactly that certificate rather
   than skipping the check, and the container health check does the same instead
-  of faking a forwarded header. (REQ-010, REQ-018)
+  of faking a forwarded header. (ARB-010, ARB-018)
 - Fixed the nightly training job, which had never once written its results back.
   `git add -A .arbiter training` matched `.gitignore`'s `training/`, git exited 1,
   and the step's `bash -e` failed the job two seconds after a 55-minute cycle
@@ -449,7 +521,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   profile, the hourly cap and its `Retry-After`, an end-to-end scan, and the
   audit line for a served request and a refused one. The client dependency
   (`httpx2`, which starlette's `TestClient` now requires) is recorded in the
-  `dev` extra so these run rather than skip. (REQ-018)
+  `dev` extra so these run rather than skip. (ARB-018)
 - Fixed two defects those tests found, both of which would have met the first
   tester. `from __future__ import annotations` makes every annotation in
   `api.py` a string, and FastAPI resolves them against the module's globals —
@@ -457,12 +529,12 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   because both are local to `create_app` by design. Every upload request failed
   inside body validation, and `/v1/review-queue` read its body as a query
   parameter and rejected all JSON. Both names are now published to the module
-  when the app is built. (REQ-018)
+  when the app is built. (ARB-018)
 - A report with nothing left to review now comes back as an empty queue instead
   of an error. `arbiter review` exits 0 and writes no file when a report holds
   no findings or every finding has already been adjudicated; `service.review_queue`
   treated the missing file as a failure, so a caller with a clean report — the
-  good outcome — got a 400 naming a server temporary directory. (REQ-018)
+  good outcome — got a 400 naming a server temporary directory. (ARB-018)
 - Gave the hosted API a client, in `src/arbiter/client.py` and the new `arbiter
   remote` command group. Until now the service had no caller half: every CLI
   command either ran the scanner locally or ran it on the server, and the
@@ -478,7 +550,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   then `ARBITER_SERVER` and `ARBITER_API_KEY`, then `~/.arbiter/client.json`, so
   a one-off `--server` cannot lose to a stale file. The transport is `urllib`
   from the standard library rather than `requests` or `httpx`: a plain install
-  still depends on PyYAML alone. (REQ-019)
+  still depends on PyYAML alone. (ARB-019)
 - Three of the client's refusals happen before anything leaves the machine. An
   `http://` address is rejected outright — the server refuses plaintext too, but
   its refusal arrives after the key has already crossed the network in the
@@ -493,15 +565,15 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   does. 11 tests cover this, and the end-to-end ones route the client's own
   `urllib` through the real application, so the multipart field name, the query
   string and the `X-API-Key` header are proven against the endpoints rather than
-  assumed to match. Suite: 381 passed, 3 skipped. (REQ-019)
-- Amended REQ-010 and added REQ-019. REQ-010 had justified the MCP server as
+  assumed to match. Suite: 381 passed, 3 skipped. (ARB-019)
+- Amended ARB-010 and added ARB-019. ARB-010 had justified the MCP server as
   having been "chosen over a hosted API"; that rationale is withdrawn, since
   both now exist, and the requirement gains a multi-user obligation — an HTTP
   transport that authenticates every call against the same key store as the
   hosted API, with the resolved caller reaching `dispatch` so the rate limiter
   and the audit line apply per key, while stdio keeps working unauthenticated
-  for the single-user local case. REQ-019 is the client: a CLI that reaches a
-  hosted Arbiter, adding no runtime dependency beyond PyYAML. (REQ-010, REQ-019)
+  for the single-user local case. ARB-019 is the client: a CLI that reaches a
+  hosted Arbiter, adding no runtime dependency beyond PyYAML. (ARB-010, ARB-019)
 - Built the MCP server's second transport, so more than one person can use it:
   `arbiter mcp --http` serves the same three tools over HTTPS, where `arbiter
   mcp` still serves one local agent over stdio. Every HTTP call carries a key
@@ -515,7 +587,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   than one per surface. Plaintext is refused with `426` and every response
   carries HSTS, exactly as on the API. Stdio stays unauthenticated, because
   whoever started that subprocess already holds the privileges it runs with.
-  (REQ-010)
+  (ARB-010)
 - Confined every path argument on that transport, which is the thing that made
   it safe to expose at all. These tools take `target` and `output_dir` as paths
   **on the server**: right for a local agent, and for a remote caller an
@@ -528,7 +600,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   resolves symlinks before comparing. The arguments treated this way are listed
   in `mcp.PATH_ARGUMENTS`, and a test fails if a tool grows a path argument that
   is not in the list, because that one would be unconfined and silently so.
-  (REQ-010)
+  (ARB-010)
 - Raised the SDK pin from `mcp>=1.0` to `mcp>=2.2`, and found while doing it
   that `arbiter mcp` had been broken against anything 2.x: the server API moved
   handlers from decorators (`@server.list_tools()`) to constructor arguments, so
@@ -539,8 +611,8 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   without the SDK, which is also why nothing noticed when the SDK renamed the
   field they map to. A tool that refuses is now returned with `is_error` set
   rather than as ordinary text an agent would read as a result. 14 tests cover
-  the transport. Suite: 395 passed, 3 skipped. (REQ-010)
-- Wrote `docs/mcp.md`, which REQ-010 has required all along and which did not
+  the transport. Suite: 395 passed, 3 skipped. (ARB-010)
+- Wrote `docs/mcp.md`, which ARB-010 has required all along and which did not
   exist: the tool surface, which transport needs a key, the path confinement and
   why, and the one flag the proxy arrangement needs. The transport's
   DNS-rebinding guard allows loopback names only until it is told otherwise,
@@ -549,7 +621,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   detected from inside, so it is documented as the first thing to check when
   every call fails and none of them reaches the audit log. The README's documentation
   table was also missing `hosted-api.md`, `mcp.md`, `pilot-runbook.md`,
-  `pilot-terms.md` and `licensing.md`; all five are listed now. (REQ-010)
+  `pilot-terms.md` and `licensing.md`; all five are listed now. (ARB-010)
 
 ### 2026-09-12
 
@@ -566,7 +638,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   paths are withheld from responses. Uploads are capped at 100 MB and refused
   before extraction. FastAPI and uvicorn are an optional extra imported only
   inside `create_app`, so a plain install still depends on PyYAML alone.
-  `arbiter mcp` now runs the MCP server. (REQ-018)
+  `arbiter mcp` now runs the MCP server. (ARB-018)
 - Raised the per-key request limit from 30 an hour to 120, and published every
   limit on `GET /v1/health` alongside `"free": true`. Nobody is charged and the
   service is for people testing it, so a limit anybody can feel during normal
@@ -575,7 +647,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   Reworded the access and terms documents to say plainly that it is free, that
   there is nothing to apply for, and that nobody is asked what they intend to
   scan; issuing keys by hand is how access works in the absence of an identity
-  system, not a vetting step. (REQ-018)
+  system, not a vetting step. (ARB-018)
 - Added the pilot deployment in `deploy/`: a Dockerfile that installs Arbiter
   with the `api` and `tools` extras into a virtualenv and copies it into a clean
   image running as uid 10001, a `compose.yaml` pairing it with Caddy, and a
@@ -587,22 +659,22 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   capped at 3 GB, 2 CPUs and 512 processes, because the analyzers parse
   attacker-chosen files even though nothing from an upload is executed. The
   image must stay private: running semgrep conveys no copy, but publishing the
-  image would. (REQ-018, REQ-005)
+  image would. (ARB-018, ARB-005)
 - Capped concurrent scans for the whole server at 4, not just 2 per key, since
   the per-key limit multiplies by the number of testers and five of them at once
   would be ten analyzer runs on one machine. A caller over their own share is
-  told that rather than told the service is busy. (REQ-018)
+  told that rather than told the service is busy. (ARB-018)
 - Added a request log: one JSON line per request to `~/.arbiter/audit.log`
   (`--audit`, `ARBITER_AUDIT`, or `--no-audit` to keep nothing), holding the key
   id, the user, the operation, the status, the bytes uploaded and the elapsed
   time — and nothing about the code, because a log that quoted findings would
   rebuild on disk what the request path deletes. Failures and refused keys are
   logged too, the latter without writing the rejected key down. A log write that
-  fails complains on stderr rather than failing the scan. (REQ-018)
+  fails complains on stderr rather than failing the scan. (ARB-018)
 - Documented how to run the pilot in `docs/pilot-runbook.md` — container with a
   memory limit, TLS-terminating proxy with a body limit, one key per tester,
   what to read in the log — and what to tell a tester about their code in
-  `docs/pilot-terms.md`, which is a draft pending counsel. (REQ-018, REQ-005)
+  `docs/pilot-terms.md`, which is a draft pending counsel. (ARB-018, ARB-005)
 - Made TLS mandatory on the hosted API, with no plaintext mode. Requests carry
   an API key and a copy of somebody's source, so `serve` refuses to start
   without `--cert`/`--key`, and refuses individual plaintext requests with
@@ -612,7 +684,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   because uvicorn builds its own SSL context, so it comes from the platform
   policy or from a terminating proxy. Every response carries a two-year
   `Strict-Transport-Security` header, and the default port is now 8443.
-  (REQ-018)
+  (ARB-018)
 - Made an API key a limited grant rather than a permanent one, before any key is
   handed out. Keys now expire after 90 days by default (`--expires-days`, or
   `--no-expiry` for a deliberate permanent one), a single key is capped at 30
@@ -621,7 +693,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   another's. Expired, revoked and unknown keys share one `401` message, because
   distinguishing them would confirm that a guessed key had once existed. The
   counts live in one process's memory, which bounds this to a single-machine
-  deployment — recorded in `docs/hosted-api.md` rather than implied. (REQ-018)
+  deployment — recorded in `docs/hosted-api.md` rather than implied. (ARB-018)
 - Began the move to a hosted API, reversing the decision to expose Arbiter only
   over MCP. MCP relocates the installation rather than removing it, and "no
   local install" was the requirement. Both surfaces now call one
@@ -636,37 +708,37 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   framework is deliberately unchosen. The licensing objection recorded against
   hosting was wrong and is corrected in `docs/licensing.md` — LGPL-2.1
   obligations attach to conveying a copy, so L-6 does not gate a hosted service.
-  (REQ-018, REQ-010)
+  (ARB-018, ARB-010)
 - Restructured the documentation. `README.md` is now an overview — what Arbiter
   is, its capabilities, administration, versioning and licensing — and the
   granular material moved into `docs/` split by category: `architecture.md`,
   `cli.md`, `configuration.md`, `probes.md`, `systems.md`, `compliance.md`,
   `evidence.md`, `calibration.md`, `ab-testing.md` and `ci.md`. `SETUP.md` is
   now an installation guide; its training-operations content moved to
-  `docs/ci.md`. (REQ-002)
+  `docs/ci.md`. (ARB-002)
 - Settled the corpus composition figures. The docs quoted 42 repositories in one
   place and 39 in another, and the population table mixed a tuned-only count for
   the vulnerable population with full counts for the other two. `tools/corpus.py`
   is authoritative — 41 repositories, 5 held out, 36 tuned — and a new
   `--counts` flag recomputes that without the corpus cloned, so the numbers stop
-  drifting. Stack gaps are now reported in both directions. (REQ-003)
+  drifting. Stack gaps are now reported in both directions. (ARB-003)
 - Bounded requirement registry growth. Completed and withdrawn requirements are
   swept into `.ai/requirements/archive.json`, which no context profile loads, by
   `python omni requirement archive`. IDs are allocated across both files and are
   never reused; `omni doctor` errors if they ever collide. The active registry is
-  read into every session, so it is a working set, not a history. (REQ-004)
+  read into every session, so it is a working set, not a history. (ARB-004)
 - Wrote up the licensing requirements in `docs/licensing.md`: eight requirements
   covering the operative grant, copyright ownership, ownership of scan output and
   the redistribution review that blocks the air-gapped bundle. `NOTICE.md` now
   records every third-party component and whether it is redistributed. The
-  `LICENSE` file itself remains outstanding and needs counsel. (REQ-005)
+  `LICENSE` file itself remains outstanding and needs counsel. (ARB-005)
 - Made adapter timeouts stop the analyzer on Windows. `Adapter._kill_group`
   named `signal.SIGKILL`, which does not exist there, so every timeout raised
   `AttributeError` out of the cleanup path. Windows also has no `os.killpg`, so
   signalling the direct child alone left the fanned-out workers running — the
   exact failure the process-group path exists to prevent. Timeouts now fall back
   to `taskkill /T /F`, which walks the child tree from the parent PID. POSIX
-  behaviour is unchanged. (REQ-006)
+  behaviour is unchanged. (ARB-006)
 - Fixed the drift rule that reports a file named in prose as missing. It
   normalized the path with `lstrip("./")`, which strips a character set rather
   than a prefix, so `` `.ai/context-brief.md` `` collapsed to
@@ -674,7 +746,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   repository read as missing. It now uses `_normalize_relative()`, the helper
   the sibling link rule already used, and skips paths that escape the
   repository root. Measured by scanning Arbiter with itself before and after,
-  the rule goes from 187 findings to 28. (REQ-008)
+  the rule goes from 187 findings to 28. (ARB-008)
 - Made Arbiter write and read its own artifacts as UTF-8 rather than the
   platform default. Thirteen `write_text()` calls omitted `encoding=`, so on
   Windows the HTML, markdown, PR-comment and review-queue renderings were
@@ -682,7 +754,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   undecodable as UTF-8. Reports are meant to travel into accreditation packages
   and pull requests, so they cross machines. Files belonging to the scanned
   repository are untouched — those are decoded with `errors="replace"` by
-  design. (REQ-009)
+  design. (ARB-009)
 - Put the licensing position in writing as far as it can go without counsel.
   `LICENSE` now exists, asserting copyright to Nicholas J Pauken, reserving all
   rights, assigning ownership of scan output to the user, and disclaiming any
@@ -691,9 +763,9 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   file rather than declaring the bare string `Proprietary`, and names the
   author. `CONTRIBUTING.md` states that external contributions are not
   accepted, which L-8 requires be settled before a patch is taken rather than
-  after. This closes L-2 and L-8, and L-1 provisionally; REQ-005 stays open
+  after. This closes L-2 and L-8, and L-1 provisionally; ARB-005 stays open
   because L-3 follows from decisions only the owner can make and the L-6
-  redistribution review is untouched. (REQ-005)
+  redistribution review is untouched. (ARB-005)
 - Stopped a scan from reading its own output. `--out` defaults to
   `arbiter-out`, a relative path inside the tree being scanned, and the walk
   knew nothing about it, so every run after the first reported on the previous
@@ -703,16 +775,16 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   inflated by a report that is naturally full of the term it searches for.
   `run_scan` now takes `out_dir` and `walk_repo` skips it. Two consecutive
   scans into the default path produce identical findings, none of them inside
-  the output directory. (REQ-011)
+  the output directory. (ARB-011)
 - Read files belonging to the scanned repository as UTF-8. Nine call sites used
   `read_text(errors="replace")` with no encoding, so the codec was the platform
   default — cp1252 on Windows. `errors=` governs what happens on failure, and
   cp1252 decodes almost every byte without failing, so it never errored, it
   silently produced wrong characters: an em dash in a scanned file reached a
-  generated review queue as `â€”`. REQ-009 fixed Arbiter's own artifacts and
+  generated review queue as `â€”`. ARB-009 fixed Arbiter's own artifacts and
   deliberately excluded these sites, reasoning that `errors="replace"` was the
   design intent. That reasoning was wrong — the intent is never crashing on a
-  target file, which `encoding="utf-8"` preserves. (REQ-012)
+  target file, which `encoding="utf-8"` preserves. (ARB-012)
 - Checked documented paths against disk rather than only against the walked
   inventory. Directories in `SKIP_DIRS` never enter the inventory, so tracked
   files under `.arbiter` read as missing: 8 of 31 doc-drift findings here.
@@ -721,7 +793,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   fifteen lines away and got the same fix. `.arbiter/baseline.json` still
   reports, correctly — it is documented but genuinely absent. The other 22
   findings are untouched, and `omni doctor` independently confirms them.
-  (REQ-013)
+  (ARB-013)
 - Gave doc-drift findings a repository in their `Location`. `Location.short()`
   builds its `repo:path` prefix from the Location rather than the Finding, and
   `doc_drift` set the id on the Finding only, so all 330 drift findings in a
@@ -730,7 +802,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   repository a reader could open. (Those paths are deliberately not backticked:
   they belong to another repository, and backticking them here manufactures the
   very drift finding this entry is about.)
-  (REQ-014)
+  (ARB-014)
 - Made the review queue name the repository for every probe, not just for
   doc-drift. The same defect ran wider than one probe: 3,227 of 3,564 findings
   in that scan carried a blank `Location.repo_id` — `supply_chain` 0 of 1,817,
@@ -741,9 +813,9 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   construction sites across eight probes, several of them repo-level or
   cross-repo and needing judgement rather than a mechanical pass. Those sites
   are still wrong, so SARIF, HTML and console output remain unqualified.
-  (REQ-015)
+  (ARB-015)
 - Named the repository at every probe construction site, closing the residual
-  risk REQ-015 recorded rather than fixed. Eighteen of the twenty sites took the
+  risk ARB-015 recorded rather than fixed. Eighteen of the twenty sites took the
   id already in scope on the enclosing finding. Two did not, and they are why
   the renderer went first. The `interface` rule for unused IAM grants collected
   service names into a set and discarded where each grant was written, so it
@@ -756,7 +828,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   one repository's LICENSE answer the rule for every repository; both now ask
   per repository. Re-measured on the same 36-repository corpus: 3,564 findings
   before and after, of which 3,227 were unattributed before and none after, and
-  no finding changed repository. (REQ-016)
+  no finding changed repository. (ARB-016)
 - Made the review sampler spread across repositories, not only across files.
   Within a rule it ordered findings so that distinct files came first, which one
   repository satisfies on its own: of six queues drawn from the 36-repository
@@ -774,11 +846,11 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   library that ranks findings must not import the test harness — so repository
   spread is the proxy. Spread also cannot exceed the pool:
   `resource.unencrypted-database` still draws 18 of 20 from terragoat, because
-  only three repositories in the corpus produce that finding at all. (REQ-017)
+  only three repositories in the corpus produce that finding at all. (ARB-017)
 
 Six commits (`8775017`…`54f9a13`) landed from an offline bundle without
 changelog entries. Recorded here after the fact, written from their diffs.
-(REQ-007)
+(ARB-007)
 
 - Added incremental scanning. `arbiter scan|gate --changed REF` reads only the
   files that differ from a ref plus uncommitted work, and `--only-files` takes
@@ -790,7 +862,7 @@ changelog entries. Recorded here after the fact, written from their diffs.
   as the reason, rather than being run against a subset it cannot answer from.
   Selection always retains dependency manifests, lockfiles, CI workflows and
   Terraform, because those are the files a probe reasons about but does not
-  report on. (REQ-007)
+  report on. (ARB-007)
 - Made a partial scan unable to describe the repository. Reports carry
   `scan_scope`; a partial one contributes an abstention naming the unread
   files, which flows into the gate claim, the grade and every dimension. The
@@ -800,7 +872,7 @@ changelog entries. Recorded here after the fact, written from their diffs.
   partial scan may make no complete-scope claim about the repository — is
   machine-checked alongside the other ten, with the coverage measurement and a
   failing gate as the two reasoned exceptions. A ref that does not resolve
-  refuses the scan instead of quietly reading nothing. (REQ-007)
+  refuses the scan instead of quietly reading nothing. (ARB-007)
 - Added nine provider-issued token rules: Stripe, OpenAI, Anthropic, Google,
   GitLab, npm, SendGrid and PyPI at critical, Slack incoming webhooks at high.
   The issuer assigns these prefixes, so the value is its own evidence and the
@@ -810,18 +882,18 @@ changelog entries. Recorded here after the fact, written from their diffs.
   ending in `-` has no word boundary after it. The injection harness gained
   matching positive and control generators, the controls covering test-mode
   keys, wrong lengths, placeholders, interpolations and `sk-` used as a slug.
-  (REQ-007)
+  (ARB-007)
 - Shipped the pull-request gate as a worked example: `examples/pull-request-gate/`
   holds a two-job workflow and its config, `RUNNING-ON-YOUR-OWN-CODE.md` walks
   through a first scan, a baseline, adjudication and then the gate, and
   `docs/ci.md` gained "Scanning only what changed" and "A ready-made workflow".
   Only the nightly full-scan job may refresh the baseline; refreshing it from a
   partial scan would forgive every finding in the files that scan did not read.
-  (REQ-007)
+  (ARB-007)
 - Tagged findings a change did not cause. In a partial scan, findings landing
   in a context file the diff never touched are tagged `outside-this-change` and
   counted on the console. They stay in the report — the baseline, not deletion,
-  is what keeps them out of the gate. (REQ-007)
+  is what keeps them out of the gate. (ARB-007)
 - Added three provider-neutral TLS rules: `database-allows-plaintext-connections`,
   `weak-tls-version` and `no-https-redirect`. Resource rules also gained
   `exclude_native` beside `exclude_providers`, because a control can be
@@ -829,27 +901,27 @@ changelog entries. Recorded here after the fact, written from their diffs.
   enforces TLS with no property saying so, and a provider-wide exclusion is too
   coarse to express that. `aws_elb`/`aws_alb`, Azure app services and GCP HTTP
   proxies and App Engine versions are normalized into the resource graph so the
-  new rules have something to match. (REQ-007)
+  new rules have something to match. (ARB-007)
 - Fixed a read cache that could serve one file's bytes for another. `_READ_CACHE`
   keyed on path alone and depended on every caller clearing it between scans;
   the injection harness invokes probes directly and writes every generated case
   to the same path, so it was served stale text. The key is now
   `(path, st_mtime_ns, st_size)` with a bounded size, so the cache cannot be
-  wrong regardless of who calls it. (REQ-007)
+  wrong regardless of who calls it. (ARB-007)
 - Taught `tools/corpus.py` to weight what it counts. Per-repository output now
   carries severity-and-confidence weighted totals, weight by language and lines
   by language, and the held-out comparison is made per KLOC of the language the
-  rules actually fire on rather than per repository line counted flat. (REQ-007)
+  rules actually fire on rather than per repository line counted flat. (ARB-007)
 - Restored the shebang and executable bits on the four `tools/*.sh` scripts; an
   earlier commit had indented `#!/usr/bin/env bash` by two spaces, which stops
   the kernel recognising the file as a script whatever the mode bit says.
   Added `HANDOFF.md`, a cold-read briefing for a session arriving without the
-  history. (REQ-007)
+  history. (ARB-007)
 
 - Adopted the OmniEngineering workspace: `.ai/` source-of-truth scaffold
   (rules, schemas, playbooks, checklists, SWEBOK knowledge pack), the
   repo-local `./omni` CLI (`make_ai.py`), a `CLAUDE.md` routing shim, and a
-  requirements registry. (REQ-001)
+  requirements registry. (ARB-001)
 - Installed Headroom for Claude Code at local scope: `.claude/settings.local.json`
   routes traffic through the Headroom proxy (`127.0.0.1:8787`) and registers
-  its session hooks. The file is machine-specific and git-ignored. (REQ-001)
+  its session hooks. The file is machine-specific and git-ignored. (ARB-001)

@@ -41,10 +41,10 @@ suppress:
     reason: "the tests assert on token shapes (Stripe, Slack) that are documentation examples, not live"
     expires: 2099-01-01
   # Semgrep's python36-compatibility rules flag the `encoding` and `errors`
-  # arguments to Popen. pyproject.toml requires Python 3.11 or later, so
+  # arguments to Popen. pyproject.toml requires Python 3.10 or later, so
   # the incompatibility they warn about cannot occur here.
   - rule: "semgrep/semgrep-rules.python.lang.compatibility.*"
-    reason: "requires-python >= 3.11 (pyproject.toml); the 3.6 compatibility warnings cannot apply"
+    reason: "requires-python >= 3.10 (pyproject.toml); the 3.6 compatibility warnings cannot apply"
     expires: 2099-01-01
   - rule: "arbiter/secrets.*"
     path: "tests/**"

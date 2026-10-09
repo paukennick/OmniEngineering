@@ -3570,6 +3570,12 @@ def test_the_windows_run_is_required_rather_than_advisory():
     assert not job.get("continue-on-error"), "the whole job is advisory"
     assert job["strategy"].get("fail-fast") is False,         "a Linux failure cancels Windows, which is the result being sought"
     for step in job["steps"]:
+        if "upload-sarif" in str(step.get("uses", "")):
+            # Publishes the self-gate's SARIF to code scanning (REQ-039); the
+            # verdict it carries was already delivered by the gate step above
+            # it, and code scanning is not enabled on every fork or mirror.
+            # test_annotations.py holds the upload step to its own shape.
+            continue
         assert not step.get("continue-on-error"),             f"step {step.get('name', '?')!r} cannot fail the run"
 
 
@@ -3817,7 +3823,7 @@ def test_every_probe_declares_a_scope_we_understand():
     from arbiter.probes import REGISTRY
     from arbiter.adapters import register_adapters
     register_adapters()
-    bad = [p.name for p in REGISTRY if p.scope not in ("file", "repo")]
+    bad = [p.name for p in REGISTRY if p.scope not in ("file", "repo", "change")]
     assert bad == [], f"probes with an unrecognised scope: {bad}"
 
 
@@ -3825,12 +3831,11 @@ def test_every_shipped_adapter_declares_its_scope_rather_than_inheriting_one():
     """An inherited default is not a decision. The value must be right *and*
     written down, because the next person to add an adapter copies a manifest
     and needs to see that the question was asked (REQ-022)."""
-    import tomllib
-    from arbiter.adapters import PACKS
+    from arbiter.adapters import PACKS, _toml_loads
     manifests = sorted(PACKS.glob("*.adapter.toml"))
     assert len(manifests) == 5, f"expected five shipped adapters, found {len(manifests)}"
     for p in manifests:
-        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        data = _toml_loads(p.read_text(encoding="utf-8"))
         assert "scope" in data, f"{p.name} does not declare a scope"
         # Nothing has measured subset-exactness for any external analyzer, so
         # nothing may claim it. This assertion is the evidence gate: it fails
@@ -4075,8 +4080,8 @@ def test_no_output_format_reprints_a_secret(tmp_path):
     rep = run_scan([str(tmp_path)], load_config(None), only=["secrets"], use_adapters=False)
     assert rep.findings, "fixture produced nothing, so this proves nothing"
     out = tmp_path / "out"
-    written = write_all(rep, str(out), ["json", "sarif", "html", "markdown"])
-    assert len(written) == 4
+    written = write_all(rep, str(out), ["json", "sarif", "html", "markdown", "annotations"])
+    assert len(written) == 5
     for kind, path in written.items():
         assert value not in Path(path).read_text(), f"{kind} reprinted the secret"
     from arbiter.report import render_console

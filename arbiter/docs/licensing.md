@@ -5,7 +5,7 @@
 > operative licence text must be drafted or reviewed by qualified counsel
 > before any distribution. Nothing here is a substitute for that review.
 
-Tracked as **REQ-005**. Status: **pending** — the requirements below are
+Tracked as **ARB-005**. Status: **pending** — the requirements below are
 settled; the operative licence instrument that satisfies them does not yet
 exist.
 
@@ -218,7 +218,7 @@ change every row, which is what L-6 guards.
 | Internal use only, source stays in-house | L-1, L-2 sufficient | no |
 | Source delivered to a named customer | L-1 … L-5, L-8 | no, once L-1–L-3 drafted |
 | Air-gapped bundle including analyzers | all, plus L-6 | **yes** until L-6 done |
-| Hosted/SaaS offering (REQ-018) | L-3 term structure differs; L-6 does not apply — see below | term structure and custody need counsel |
+| Hosted/SaaS offering (ARB-018) | L-3 term structure differs; L-6 does not apply — see below | term structure and custody need counsel |
 
 **A correction about the hosted scenario.** An earlier note here and in
 `.ai/project-context.md` said that "LGPL obligations differ again for network

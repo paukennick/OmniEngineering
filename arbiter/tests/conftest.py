@@ -23,6 +23,18 @@ SYSTEM = ROOT / "fixtures" / "system" / "arbiter-system.yaml"
 EXTERNAL = ["checkov", "semgrep", "bandit", "ruff", "gitleaks"]
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _result_cache_off():
+    """The suite measures Arbiter's rules the way CI does, without the
+    result cache (REQ-041): a fixture scan must never be answered from a
+    previous session's findings, and the fixtures must not accumulate
+    cache files. tests/test_cache.py switches it on per scan, explicitly."""
+    from arbiter.policy import DEFAULTS
+    DEFAULTS["cache"]["enabled"] = False
+    yield
+    DEFAULTS["cache"]["enabled"] = True
+
+
 @pytest.fixture(scope="session")
 def legacy_report():
     cfg = load_config(None, str(LEGACY))

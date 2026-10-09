@@ -166,5 +166,6 @@ stands.
 | `.arbiter/baseline.json` | accepted current state | yes |
 | `.arbiter/knowledge.json` | calibration ledgers and learned confidence | yes |
 | `.arbiter/external-severity.json` | measured severities for external checks | yes |
+| `.arbiter/cache.json` | per-file results of the file-local probes | no — git-ignored |
 | `arbiter-out/` | reports from the last run | no — git-ignored |
 | `arbiter-ab/` | A/B harness output | no — git-ignored |

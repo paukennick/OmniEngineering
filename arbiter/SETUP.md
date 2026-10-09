@@ -6,7 +6,7 @@ Installation, optional components, and enabling the training loop.
 
 | | |
 |---|---|
-| Python | 3.11 or later |
+| Python | 3.10 or later (`tomli` is pulled in automatically below 3.11) |
 | Runtime dependencies | PyYAML |
 | Platform | Linux, macOS, Windows |
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import webbrowser
 from pathlib import Path
@@ -20,7 +21,8 @@ from .core import Report
 from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
-from .report import render_console, render_markdown, write_all
+from .report import render_annotations, render_console, render_markdown, write_all
+from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
 
@@ -74,11 +76,25 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--tfplan", action="append", default=[], metavar="[REPO=]PATH",
                         help="Terraform plan or state JSON; supersedes reading .tf source. "
                              "Repeatable, and prefix with `repo=` in a multi-repo system.")
+        sp.add_argument("--no-history", action="store_true",
+                        help="do not append this run to <out>/history.jsonl")
+        sp.add_argument("--github", action=argparse.BooleanOptionalAction, default=None,
+                        help="GitHub Actions mode: print findings as workflow-command "
+                             "annotations and append the pull-request comment to "
+                             "$GITHUB_STEP_SUMMARY. Default: on when GITHUB_ACTIONS=true.")
+        sp.add_argument("--no-cache", action="store_true",
+                        help="neither read nor write the per-file result cache "
+                             "(.arbiter/cache.json); every probe runs over every file")
+        sp.add_argument("--cache-path", default=None, metavar="FILE",
+                        help="where the result cache lives (default: "
+                             ".arbiter/cache.json under the first target)")
         return sp
 
     sc = common(sub.add_parser("scan", help="analyze and report"))
     sc.add_argument("--out", default="arbiter-out", help="output directory")
-    sc.add_argument("--format", default="json,console", help="json,sarif,html,markdown,console")
+    sc.add_argument("--format", default="json,console",
+                    help="json,sarif,html,markdown,console,pr-comment,annotations "
+                         "(annotations: GitHub workflow commands, printed after the console)")
     sc.add_argument("--limit", type=int, default=40, help="findings shown on the console")
     sc.add_argument("--open", dest="open", action="store_const", const=True, default=None,
                      help="open the HTML report in the default browser when the scan finishes "
@@ -86,10 +102,20 @@ def build_parser() -> argparse.ArgumentParser:
                           "run at a terminal")
     sc.add_argument("--no-open", dest="open", action="store_const", const=False,
                      help="never open the HTML report automatically")
+    sc.add_argument("--verify-cache", action="store_true",
+                     help="re-run each cacheable probe on a random 5%% sample of its "
+                          "cache hits and report any entry that no longer matches")
 
     gt = common(sub.add_parser("gate", help="analyze and exit non-zero on policy failure"))
     gt.add_argument("--out", default="arbiter-out")
-    gt.add_argument("--format", default="json,console")
+    gt.add_argument("--format", default="json,console",
+                    help="json,sarif,html,markdown,console,pr-comment,annotations")
+
+    db = sub.add_parser("dashboard",
+                        help="render the run history as a self-contained trend page")
+    db.add_argument("--history", default="arbiter-out/history.jsonl",
+                    help="history file every scan and gate appends to")
+    db.add_argument("--out", default="arbiter-out/dashboard.html", help="page to write")
 
     ab = sub.add_parser("ab", help="run two arms over the same target and compare")
     ab.add_argument("--spec", help="A/B spec YAML")
@@ -355,6 +381,16 @@ def _load_adapters(disabled: bool) -> None:
         register_adapters()
 
 
+def _append_step_summary(report: Report) -> None:
+    """Append the pull-request comment to the job summary, when there is one."""
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary:
+        return
+    from .diff import render_pr_comment
+    with open(summary, "a", encoding="utf-8") as fh:
+        fh.write(render_pr_comment(report) + "\n")
+
+
 def cmd_scan(args, gate_mode: bool = False) -> int:
     if not args.targets and not args.system:
         print("arbiter: give a target path or --system", file=sys.stderr)
@@ -378,6 +414,9 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
         changed_since=getattr(args, "changed", None),
         only_files=[s for s in (getattr(args, "only_files", "") or "").split(",") if s],
         out_dir=args.out,
+        use_cache=not getattr(args, "no_cache", False),
+        cache_path=getattr(args, "cache_path", None),
+        verify_cache=bool(getattr(args, "verify_cache", False)),
     )
 
     formats = _formats(args.format)
@@ -388,13 +427,28 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
         open_report = sys.stdout.isatty()
     if open_report and "html" not in formats:
         formats = [*formats, "html"]
+    github = getattr(args, "github", None)
+    if github is None:
+        github = os.environ.get("GITHUB_ACTIONS") == "true"
+    if github and "annotations" not in formats:
+        formats = [*formats, "annotations"]
     written = write_all(report, args.out, [f for f in formats if f != "console"])
     if "console" in formats or not formats:
         print(render_console(report, limit=getattr(args, "limit", 40)))
     for kind, path in written.items():
         print(f"  wrote {kind}: {path}")
+    if not getattr(args, "no_history", False):
+        print(f"  appended history: {history.append(report, args.out)}")
     if written:
         print()
+    if "annotations" in formats:
+        # After the console output so the log reads top-down; the runner
+        # turns each line into an inline annotation wherever it appears.
+        annotations = render_annotations(report)
+        if annotations:
+            print(annotations)
+    if github:
+        _append_step_summary(report)
 
     if open_report and "html" in written:
         try:
@@ -404,6 +458,21 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
 
     if gate_mode and not (report.gate or {}).get("passed"):
         return EXIT_GATE_FAIL
+    return EXIT_OK
+
+
+def cmd_dashboard(args) -> int:
+    rows = history.load(Path(args.history))
+    latest = rows[-1] if rows else {}
+    title = f"Arbiter \u2014 {latest.get('system') or 'run history'}"
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(history.render_dashboard(rows, title), encoding="utf-8")
+    if rows:
+        print(f"  {len(rows)} run(s) in {args.history}")
+    else:
+        print(f"  no runs recorded in {args.history} yet; the page says so")
+    print(f"  wrote dashboard: {out}\n")
     return EXIT_OK
 
 
@@ -982,6 +1051,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "gate":
             args.limit = 40
             return cmd_scan(args, gate_mode=True)
+        if args.cmd == "dashboard":
+            return cmd_dashboard(args)
         if args.cmd == "ab":
             return cmd_ab(args)
         if args.cmd == "probes":

@@ -23,6 +23,12 @@ name: pr-check
 on:
   pull_request:
 
+# The self-gate uploads its SARIF to code scanning (REQ-039); everything else
+# only reads the checkout.
+permissions:
+  contents: read
+  security-events: write
+
 concurrency:
   group: pr-check-${{ github.ref }}
   cancel-in-progress: true
@@ -35,6 +41,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+        # The floor is 3.10 (REQ-040): tomllib arrived in 3.11 and the one
+        # import site falls back to tomli below it. One Linux cell runs on the
+        # floor so a 3.11-only construct cannot creep back in unnoticed.
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
     runs-on: ${{ matrix.os }}
     # Linux installs the five analyzers and runs the self-gate; semgrep alone
     # takes about six minutes over this tree and the adapter tests then run
@@ -50,7 +63,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install
         run: |
@@ -116,8 +129,22 @@ jobs:
       # its own code to. Linux only, because that is where the analyzers are
       # installed and a self-gate that could not run half its probes would
       # pass for the wrong reason.
+      # --github (REQ-039) prints every finding as a workflow-command
+      # annotation, so it lands inline on the diff, and appends the
+      # pull-request comment to the job summary.
       - name: Arbiter self-gate
         if: runner.os == 'Linux'
         env:
           PYTHONIOENCODING: utf-8
-        run: arbiter gate . --out arbiter-out --format json,markdown
+        run: arbiter gate . --out arbiter-out --format json,sarif,markdown,pr-comment --github --no-cache
+
+      # The same findings under the Security tab. always(): the upload is
+      # most useful on the run that failed. continue-on-error: code scanning
+      # is not enabled on every fork or mirror, and an upload refused there
+      # must not turn the gate's own verdict into a failure.
+      - name: Upload SARIF
+        if: always() && runner.os == 'Linux'
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: arbiter-out/report.sarif

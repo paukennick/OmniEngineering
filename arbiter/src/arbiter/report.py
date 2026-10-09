@@ -78,6 +78,56 @@ def counts_by_severity(findings: list[Finding]) -> dict[str, int]:
     return out
 
 
+REQ_TAG = "req:"
+UNATTRIBUTED = "unattributed"
+
+
+def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int], list[str]]]:
+    """Findings grouped by the requirement their commits cited (REQ-038).
+
+    One row per `req:<ID>` tag, counts by severity and the first three titles.
+    Findings in the change that carry no requirement tag land in an
+    `unattributed` row; findings tagged outside-this-change are not in the
+    change and are left out. Empty unless some finding carries a tag, so a
+    report with no attribution to make prints nothing. Titles only -- a
+    summary table is read by people who may not be cleared for the evidence.
+    """
+    if not any(t.startswith(REQ_TAG) for f in findings for t in f.tags):
+        return []
+    groups: dict[str, list[Finding]] = defaultdict(list)
+    for f in findings:
+        ids = [t[len(REQ_TAG):] for t in f.tags if t.startswith(REQ_TAG)]
+        if ids:
+            for rid in ids:
+                groups[rid].append(f)
+        elif "outside-this-change" not in f.tags:
+            groups[UNATTRIBUTED].append(f)
+    rows = []
+    ordered = sorted(k for k in groups if k != UNATTRIBUTED)
+    if UNATTRIBUTED in groups:
+        ordered.append(UNATTRIBUTED)
+    for key in ordered:
+        members = groups[key]
+        counts = counts_by_severity(members)
+        titles = list(dict.fromkeys(m.title for m in members))[:3]
+        rows.append((key, counts, titles))
+    return rows
+
+
+def requirement_block(findings: list[Finding], heading: str = "## By requirement") -> list[str]:
+    """The Markdown rendering of `requirement_rows`, or nothing."""
+    rows = requirement_rows(findings)
+    if not rows:
+        return []
+    L = [heading, "", "| Requirement | " + " | ".join(s.capitalize() for s in SEV_ORDER) + " | First titles |",
+         "|---|" + "---|" * len(SEV_ORDER) + "---|"]
+    for key, counts, titles in rows:
+        shown = "; ".join(t.replace("|", "\\|") for t in titles)
+        L.append(f"| `{key}` | " + " | ".join(str(counts[s]) for s in SEV_ORDER) + f" | {shown} |")
+    L.append("")
+    return L
+
+
 def _bluf_lines(report: Report) -> list[str]:
     """What this report can and cannot claim, worst news first.
 
@@ -189,6 +239,48 @@ def write_sarif(report: Report, path: str) -> None:
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# GitHub workflow commands
+# ---------------------------------------------------------------------------
+
+def _wc_message(text: str) -> str:
+    """Escape a workflow-command message the way the runner expects."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _wc_property(text: str) -> str:
+    """Property values additionally escape the separators of the syntax."""
+    return _wc_message(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def render_annotations(report: Report) -> str:
+    """One GitHub workflow command per active finding.
+
+    `::error` for the findings that failed the gate (`gate.failing_ids`),
+    `::notice` for findings in files the change did not touch (tagged
+    `outside-this-change`), `::warning` for everything else. Only the rule id,
+    the title and the location are printed: never evidence or a snippet, so
+    the build log is not where a credential gets reprinted.
+    """
+    failing = set((report.gate or {}).get("failing_ids") or [])
+    lines: list[str] = []
+    for f in report.active():
+        if f.id in failing:
+            level = "error"
+        elif "outside-this-change" in f.tags:
+            level = "notice"
+        else:
+            level = "warning"
+        props = []
+        if f.location.path:
+            props.append(f"file={_wc_property(f.location.path)}")
+            if f.location.start_line:
+                props.append(f"line={f.location.start_line}")
+        props.append(f"title={_wc_property(f.rule_id)}")
+        lines.append(f"::{level} {','.join(props)}::{_wc_message(f.title)}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +413,7 @@ def render_markdown(report: Report) -> str:
     L.append("|" + "---|" * len(SEV_ORDER))
     L.append("| " + " | ".join(str(counts[s]) for s in SEV_ORDER) + " |")
     L.append("")
+    L.extend(requirement_block(active))
 
     if sc.dimensions:
         gaps: dict[str, list[str]] = defaultdict(list)
@@ -617,4 +710,10 @@ def write_all(report: Report, outdir: str, formats: list[str]) -> dict[str, str]
         from .diff import render_pr_comment
         p = str(Path(outdir) / "pr-comment.md")
         Path(p).write_text(render_pr_comment(report), encoding="utf-8"); written["pr-comment"] = p
+    if "annotations" in formats:
+        # The CLI also prints these to stdout, which is where the runner reads
+        # them; the file is the same text kept with the other outputs.
+        p = str(Path(outdir) / "annotations.txt")
+        Path(p).write_text(render_annotations(report) + "\n", encoding="utf-8")
+        written["annotations"] = p
     return written

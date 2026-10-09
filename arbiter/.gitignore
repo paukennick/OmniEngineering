@@ -4,6 +4,9 @@ __pycache__/
 .ruff_cache/
 arbiter-out/
 arbiter-ab/
+# The result cache is a machine-local memo of a previous scan (REQ-041).
+# knowledge.json beside it stays tracked: that is evidence, this is not.
+**/.arbiter/cache.json
 build/
 dist/
 # Per-run training output is regenerated every cycle and would grow the

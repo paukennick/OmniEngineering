@@ -31,7 +31,7 @@ Design rules that constrain every change (from `README.md`):
 5. No claim outruns its basis; report invariants are machine-checked.
 6. Adaptation is deliberate — a scan reads one pinned knowledge version.
 
-## 2026-09-12 — OmniEngineering and Headroom adopted (REQ-001)
+## 2026-09-12 — OmniEngineering and Headroom adopted (ARB-001)
 
 **What changed.** Added the OmniEngineering workspace (`.ai/`, `./omni`,
 `make_ai.py`, `CLAUDE.md`, `CHANGELOG.md`) and installed Headroom's Claude
@@ -47,13 +47,13 @@ registry, code-notes, archives and CUI-marked project history. Instead:
   STEP values removed from the ruleset `configuration` block, the
   requirements schema description and `core-context.md` section 5.
 - `.ai/playbooks/`, `.ai/checklists/` and `.ai/knowledge/swebok/` came from
-  the `Documents/GitHub/STEP-Migration` copy, which predates STEP's REQ-080
+  the `Documents/GitHub/STEP-Migration` copy, which predates STEP's ARB-080
   deletion of those generic files. They were checked for STEP-specific text
   and contain none.
 - Context brief, manifest, configuration, this file and the requirements
   registry were written fresh for arbiter.
 
-**Known gap, resolved 2026-09-17 (REQ-028).** `.ai/adapters/*`,
+**Known gap, resolved 2026-09-17 (ARB-028).** `.ai/adapters/*`,
 `.ai/checklists/public-release.md`, `.ai/rules/fallback-llm-rules.json` and
 `.ai/rules/hci-ui-rules.json` were required by `make_ai.py` but existed in no
 local copy, so `omni doctor` reported them and `omni sync` stopped before
@@ -74,9 +74,9 @@ that keep the proxy running. That file holds machine-specific paths, so it is
 git-ignored. It takes effect after Claude Code restarts. Because Headroom
 lives in another project's venv, recreating that venv would break these hooks.
 
-## 2026-09-12 — Documentation, corpus figures, REQ lifecycle, licensing (REQ-002…005)
+## 2026-09-12 — Documentation, corpus figures, REQ lifecycle, licensing (ARB-002…005)
 
-**Documentation (REQ-002).** `README.md` was 900 lines and was the only product
+**Documentation (ARB-002).** `README.md` was 900 lines and was the only product
 document. It is now an overview; granular material lives in `docs/`, one file
 per category. Claims were re-verified against source rather than copied forward:
 the dimension weights, severity and confidence factors, probe skip precedence,
@@ -85,7 +85,7 @@ fingerprint construction and CLI surface in the new docs all came from reading
 installation guide — its previous first-person narrative, including a paragraph
 retracting an earlier mistaken claim, was not repository documentation.
 
-**Corpus figures (REQ-003).** The docs quoted three different corpus sizes. The
+**Corpus figures (ARB-003).** The docs quoted three different corpus sizes. The
 tooling is authoritative and self-consistent: `tools/corpus.py` and
 `tools/fetch_corpus.sh` both describe 41 repositories — 16 vulnerable, 20 clean,
 5 examples — with 5 held out (2/2/1), leaving 36 tuned. The old "39" was
@@ -95,7 +95,7 @@ instead of a memory. The measured lines/findings table predates the two Go
 repositories and is labelled rather than silently updated, because it cannot be
 recomputed without cloning the corpus.
 
-**Requirement lifecycle (REQ-004).** The registry appears in every context
+**Requirement lifecycle (ARB-004).** The registry appears in every context
 profile in `.ai/context-manifest.json`, so every entry is a permanent
 per-session cost — the STEP-Migration workspace this scaffold came from carries
 80. Terminal requirements now sweep into `.ai/requirements/archive.json`, which
@@ -111,7 +111,7 @@ its outcome is recorded in `CHANGELOG.md` and this file. Rationale lives here
 permanently; the registry holds only live work. Not every change earns a REQ —
 routine maintenance rides an existing one or is a CHANGELOG line.
 
-**Licensing (REQ-005).** Three of its four acceptance criteria are closed and
+**Licensing (ARB-005).** Three of its four acceptance criteria are closed and
 the fourth cannot be closed here. `LICENSE` exists at the repository root and
 `pyproject.toml` references it, copyright is asserted to Nicholas J Pauken, and
 `LICENSE` §3 assigns scan output to the user. `LICENSE` is deliberately an
@@ -126,7 +126,7 @@ That review is a legal determination, so engineering cannot close this one —
 it needs counsel, and a signature from someone who did not perform the review
 would be worse than the gap it filled.
 
-## 2026-09-12 — Adapter timeouts on Windows (REQ-006)
+## 2026-09-12 — Adapter timeouts on Windows (ARB-006)
 
 **What changed.** `Adapter._kill_group` delegates to a new `Adapter._kill_tree`
 when `os.killpg` is absent; there it runs `taskkill /T /F /PID`, falling back to
@@ -153,17 +153,17 @@ the gap. CI is `ubuntu-latest` only (`.github/workflows/train.yml`, single job,
 no matrix), so this branch is exercised only by developers on Windows — which is
 why a crash on every adapter timeout survived to be found by hand.
 
-## 2026-09-12 — The bundle commits, recorded after the fact (REQ-007)
+## 2026-09-12 — The bundle commits, recorded after the fact (ARB-007)
 
 **What this is.** Six commits (`8775017`…`54f9a13`) were authored in a session
 that could not push, travelled here as a git bundle, and were fast-forwarded
 onto `main` and pushed. They changed probes, packs, gates, scoring and the CLI
-surface, and none of them had a CHANGELOG entry or a section here. REQ-007 is
+surface, and none of them had a CHANGELOG entry or a section here. ARB-007 is
 the recording, not the work; the work itself was unticketed.
 
 **Written from the diffs, not the commit messages.** Those messages are long and
 persuasive and were written by a session holding context this one does not, which
-is the same reason REQ-002 re-verified its claims against source. Verified here
+is the same reason ARB-002 re-verified its claims against source. Verified here
 before being restated: the seven file-scoped probes and the conservative `repo`
 default (`probes.py`, `authored.py`); CI-11's presence in `claims.INVARIANTS`
 and its two reasoned exemptions; that `withheld`/`withheld_reason` are declared
@@ -191,9 +191,9 @@ implicit in a default.
 
 **Also outstanding.** `HANDOFF.md` tells a fresh session to expect `310 passed`.
 That has never matched this machine, where the suite is 307 passed and 3 skipped
-after REQ-006.
+after ARB-006.
 
-## 2026-09-12 — Two defects the first calibration queue exposed (REQ-008, REQ-009)
+## 2026-09-12 — Two defects the first calibration queue exposed (ARB-008, ARB-009)
 
 **How they were found.** Preparing the first adjudication queue meant scanning
 Arbiter with itself. One rule, `drift.doc-references-missing-file`, produced 187
@@ -201,7 +201,7 @@ of the 230 unsuppressed findings — 81%. A rule that dominates a self-scan that
 heavily is either the most important rule in the system or broken, and reading
 the evidence settled it before any verdict was marked.
 
-**Why it was worth stopping for (REQ-008).** `docs/calibration.md` states that
+**Why it was worth stopping for (ARB-008).** `docs/calibration.md` states that
 one finding moves the statistics once and re-adjudicating a fingerprint is
 refused. Observations are therefore the one input in this system that cannot be
 bought twice. Measured by scanning Arbiter with itself before and after the
@@ -220,7 +220,7 @@ match. The sibling rule twenty lines above already used `_normalize_relative()`,
 which resolves `.` and `..` segments properly and returns empty for a path that
 escapes the repository root; the two rules now agree. Of the 28 survivors, 20
 are real drift — including the `.ai/rules/fallback-llm-rules.json` and
-`.ai/rules/hci-ui-rules.json` gap recorded under REQ-001, which the noise had
+`.ai/rules/hci-ui-rules.json` gap recorded under ARB-001, which the noise had
 been burying. The remaining 8 name files under `.arbiter/` that exist on disk,
 and are a different defect; see below.
 
@@ -267,7 +267,7 @@ the scan resolves against the walked inventory, which `SKIP_DIRS` and
 untracked working tree makes wider in others. Measure a rule by running the
 scanner.
 
-**Encoding (REQ-009).** Reading the generated queue back failed on byte `0x97`,
+**Encoding (ARB-009).** Reading the generated queue back failed on byte `0x97`,
 an em dash written as cp1252. Thirteen `write_text()` calls omitted `encoding=`,
 so every text artifact took the console codepage. Precisely: the JSON writers
 were never corrupt, because `json.dumps` escapes non-ASCII by default — the
@@ -286,11 +286,11 @@ reading a pack manifest through the platform default is a latent defect of the
 same family, worth a separate look.
 
 **Why this class of bug survives.** Both are Windows-only, and CI is
-`ubuntu-latest` with no matrix — the same reason the REQ-006 timeout crash lived
+`ubuntu-latest` with no matrix — the same reason the ARB-006 timeout crash lived
 as long as it did. Three platform defects have now been found by hand on this
 machine. A Windows job in CI would have caught all three.
 
-## 2026-09-12 — Licensing taken as far as engineering can take it (REQ-005)
+## 2026-09-12 — Licensing taken as far as engineering can take it (ARB-005)
 
 **What changed.** `LICENSE`, `CONTRIBUTING.md`, a `license = { file = "LICENSE" }`
 reference and an `authors` entry in `pyproject.toml`, and a README section that
@@ -321,7 +321,7 @@ points the wrong way and should be raised with counsel alongside questions 1 and
 2. Future commits should carry the owner as author with the model as
 co-author, which is the accurate description of both.
 
-## 2026-09-12 — MCP before a Python API (REQ-010)
+## 2026-09-12 — MCP before a Python API (ARB-010)
 
 **The decision.** Expose Arbiter as an MCP server that shells out to the
 `arbiter` console script, ahead of stabilising a Python API.
@@ -349,14 +349,14 @@ is that it is the one signal the system did not generate; an automated caller
 marking verdicts would convert measured precision into the tool's opinion of
 itself, at machine speed.
 
-## 2026-09-12 — Three defects found while preparing to adjudicate (REQ-011, REQ-012, REQ-013)
+## 2026-09-12 — Three defects found while preparing to adjudicate (ARB-011, ARB-012, ARB-013)
 
 **How they surfaced.** Building the first real adjudication queue, not running
 the rules against anything. Preparing to measure the tool has now produced more
 tool defects than any scan of a target, because it is the first occasion on
 which someone reads the output closely enough to disbelieve it.
 
-**REQ-011, the expensive one.** A scan reads the working tree, and `--out`
+**ARB-011, the expensive one.** A scan reads the working tree, and `--out`
 defaults to the relative path `arbiter-out`, which for a self-scan sits inside
 that tree. Two identical commands, the second reading the first's output: 28 of
 101 unsuppressed findings located inside the output directory, 27.7%. Twenty-four
@@ -368,8 +368,8 @@ it would have been the previous run's HTML, and twenty adjudications would have
 calibrated the rule against Arbiter's own output — a precision figure derived
 from a person marking the tool's echo.
 
-**REQ-012, and a reasoning error worth recording.** Nine sites read target files
-with `read_text(errors="replace")` and no encoding. REQ-009 excluded them
+**ARB-012, and a reasoning error worth recording.** Nine sites read target files
+with `read_text(errors="replace")` and no encoding. ARB-009 excluded them
 deliberately, reasoning that `errors="replace"` was the design intent. The
 design intent is never crashing on a target file; `errors=` governs failure
 handling and says nothing about which codec is used. cp1252 decodes nearly every
@@ -378,7 +378,7 @@ silent corruption — an em dash surfaced in a review queue as mojibake. The
 mistake was not an oversight but a stated justification that had not been
 checked, which is the harder kind to catch.
 
-**REQ-013, and the rule's yield.** `.arbiter` is in `SKIP_DIRS`, so its tracked
+**ARB-013, and the rule's yield.** `.arbiter` is in `SKIP_DIRS`, so its tracked
 files never entered the inventory and prose naming them read as drift: 8 of 31
 findings. Fixed by asking disk instead. Two findings for `.arbiter/baseline.json`
 survive and are correct — it is documented but genuinely absent — which is the
@@ -400,7 +400,7 @@ unrepresentative target for the suppression rules specifically.
 **Still not adjudicated.** The ledger holds 15 rules and zero observations. No
 verdict has been recorded by anyone, and none was recorded here.
 
-## 2026-09-12 — The queue could not name what it was asking about (REQ-014, REQ-015)
+## 2026-09-12 — The queue could not name what it was asking about (ARB-014, ARB-015)
 
 **How they surfaced.** By fetching the 41-repository corpus and scanning 36 of
 them. The five held out by `tools/corpus.py` stayed out: adjudication decides a
@@ -417,7 +417,7 @@ previous session could not get: scanning Arbiter with itself, the only rules
 reaching twenty were doc-drift and blanket-suppression, and both were largely
 the tool detecting itself.
 
-**REQ-014, and a claim made without checking.** `Location.short()` builds its
+**ARB-014, and a claim made without checking.** `Location.short()` builds its
 prefix from the Location rather than the Finding, and `doc_drift` set the id on
 the Finding alone, so all 330 drift findings rendered as bare paths. The
 requirement as first written stated that the three sibling probes already did
@@ -427,9 +427,9 @@ reverse holds: `assurance` sets it at every construction site, while `secrets`
 attributed 0 of 377, `supply_chain` 0 of 1,817 and `resource_policy` 7 of 1,040.
 The registry entry now carries the correction instead of the claim. That is the
 second consecutive session in which the defect was a stated justification rather
-than an oversight — REQ-012 was the same shape.
+than an oversight — ARB-012 was the same shape.
 
-**REQ-015, and why the renderer and not the probes.** Roughly twenty
+**ARB-015, and why the renderer and not the probes.** Roughly twenty
 construction sites across eight probes omit the id, and several are repo-level
 or cross-repo where the right value is a judgement, not a substitution. The
 Finding carries the id in all 3,564 cases, so `review.where()` qualifies the
@@ -455,9 +455,9 @@ queues of twenty were generated and no verdict was marked. `knowledge.save()`
 runs only under `--apply`, so this is guaranteed by the code path and not only
 by restraint. The suite went from 315 to 317.
 
-## 2026-09-12 — Attribution at the source (REQ-016)
+## 2026-09-12 — Attribution at the source (ARB-016)
 
-**Closing what REQ-015 deferred.** The renderer fix qualified queue lines from
+**Closing what ARB-015 deferred.** The renderer fix qualified queue lines from
 the Finding, which made adjudication possible without waiting on the probes, and
 left SARIF, the HTML report and the console still unqualified. That was recorded
 as residual risk on the requirement and in the changelog rather than quietly
@@ -477,7 +477,7 @@ only two sites in the tree that set no repository on the Finding at all, so they
 reported against the `root` default whatever they matched, and it meant one
 repository's LICENSE satisfied a required-path rule for all thirty-six. Both now
 ask the question per repository. This is a behaviour change, not only an
-attribution one, and it is recorded as risk on REQ-016: a forbidden path present
+attribution one, and it is recorded as risk on ARB-016: a forbidden path present
 in three repositories is now three findings, and a required path missing from
 three is now three rather than none.
 
@@ -499,7 +499,7 @@ reason two of the six queues are almost entirely teaching material.
 **Still not adjudicated.** The ledger holds 15 rules, zero observations and zero
 adjudications, re-verified after this work. The suite went from 317 to 320.
 
-## 2026-09-12 — The sampler was measuring repositories (REQ-017)
+## 2026-09-12 — The sampler was measuring repositories (ARB-017)
 
 **The defect the previous section named.** Attribution was never why two of the
 six queues were nearly useless. `select()` spread within a rule across distinct
@@ -520,7 +520,7 @@ and a library that ranks findings for adjudication must not import the test
 harness to do its ranking — the coupling would be backwards, and it would only
 work for repositories the corpus happens to know. Repository spread is the proxy
 the library can compute from what a Finding already carries, which is why
-REQ-016 mattered first.
+ARB-016 mattered first.
 
 **Measured on the same corpus, same four probes.** Average distinct repositories
 per queue 6.0 to 12.2; largest single-repository share 64.2% to 30.0%;
@@ -547,7 +547,7 @@ way it could have recorded anything is if the marks had been supplied by the
 assistant. That is the one thing this ledger cannot survive. The suite went from
 320 to 321.
 
-## 2026-09-12 — A hosted API, reversing the MCP-only decision (REQ-018)
+## 2026-09-12 — A hosted API, reversing the MCP-only decision (ARB-018)
 
 **The decision.** Build toward running Arbiter as a service the customer calls
 instead of installs. MCP stays, as one of two front doors over a shared service
@@ -643,7 +643,7 @@ with a body limit because an unauthenticated upload is read before the key is
 checked, one key per tester, and what the request log is for.
 `docs/pilot-terms.md` is what a tester is told about their code; it was approved
 for pilot use on 2026-09-13 and goes out as written, but it has not been through
-counsel, so it covers a pilot and nothing that looks like a customer. REQ-005
+counsel, so it covers a pilot and nothing that looks like a customer. ARB-005
 still owns the reviewed version and the L-3 term structure.
 
 `deploy/` holds the arrangement itself: a Dockerfile, a `compose.yaml` and a
@@ -657,18 +657,18 @@ stay private: running semgrep server-side conveys no copy, which is the whole
 reason hosting escapes L-6, but pushing the image to a public registry would
 convey copies and put those obligations back.
 
-## 2026-09-13 — Hosted surfaces completed (REQ-018, REQ-019, REQ-010)
+## 2026-09-13 — Hosted surfaces completed (ARB-018, ARB-019, ARB-010)
 
 The hosted API closed first because its service, identity, rate-limit and audit
 layers are the shared base. The remote CLI and authenticated HTTPS MCP transport
 then closed as independent consumers of that base; neither depends on the
 other. The rebased branch passed all 53 requirement-specific tests on Windows
 and all 399 tests in a Linux-native checkout with the `dev`, `api` and `mcp`
-extras installed: 396 passed and 3 skipped. REQ-018, REQ-019 and REQ-010 were
-then archived in that order. REQ-005 remains the only active requirement and
+extras installed: 396 passed and 3 skipped. ARB-018, ARB-019 and ARB-010 were
+then archived in that order. ARB-005 remains the only active requirement and
 still belongs to counsel rather than engineering.
 
-## 2026-09-14 — Verdicts carry a name (REQ-020)
+## 2026-09-14 — Verdicts carry a name (ARB-020)
 
 **What changed.** `Knowledge.adjudicated` held `{finding_id: "true_positive"}`
 or `"false_positive:note"` and nothing else. It now holds a `Verdict` record
@@ -690,7 +690,7 @@ documentation says so in those words. `review_ui._getch()` still falls back to
 `input()`, nothing calls `isatty()`, and `review --apply` reads a file that
 anything able to write markdown can produce. The rule that verdicts come from
 people remains procedural — enforced in assistant instructions, not in code.
-REQ-021 adds the guard against the accidental case and will not change that
+ARB-021 adds the guard against the accidental case and will not change that
 sentence.
 
 **Reviewer resolution stops at two sources.** `--reviewer`, then
@@ -714,10 +714,10 @@ re-applied to that run's ledger instead of text-merging two versions of the
 same artifact, landing at `k:2e88d7a07351` — the hash on `main`.
 
 **State.** 398 passed, 3 skipped on this machine, up from 396/3 by the two
-tests REQ-020 required. The adjudicated ledger is still empty, so every path
+tests ARB-020 required. The adjudicated ledger is still empty, so every path
 here is exercised by tests and by nothing else.
 
-## 2026-09-14 — Adapter scope is declared, not inherited (REQ-022)
+## 2026-09-14 — Adapter scope is declared, not inherited (ARB-022)
 
 **What was wrong, and it was not the behaviour.** `register_adapters` built
 every adapter-backed `Probe` without a `scope` argument, so all five external
@@ -758,12 +758,12 @@ absence of measurement rather than as a property of the tools.
 described as making partial scans cover more. It makes an existing limit
 visible and gives it an honest reason.
 
-**State.** 403 passed, 3 skipped, up from 400/3 by the three tests REQ-022
+**State.** 403 passed, 3 skipped, up from 400/3 by the three tests ARB-022
 required.
 
-## 2026-09-14 — Adjudicating needs a terminal (REQ-021)
+## 2026-09-14 — Adjudicating needs a terminal (ARB-021)
 
-**The hole REQ-020 left open.** Every verdict now carries a name, but nothing
+**The hole ARB-020 left open.** Every verdict now carries a name, but nothing
 checked that a person was on the other end when it was made. `cmd_feedback`
 recorded happily from a fully non-interactive invocation, and
 `review_ui._getch()` falls back to `input()` when raw terminal mode is
@@ -795,10 +795,10 @@ pseudo-terminal and walks through, and that is not a gap to close later — no
 check available to a local CLI distinguishes a person from a program that wants
 to look like one. The claim stays exactly as small as the mechanism.
 
-**State.** 406 passed, 3 skipped, up from 403/3 by the three tests REQ-021
+**State.** 406 passed, 3 skipped, up from 403/3 by the three tests ARB-021
 required.
 
-## 2026-09-14 — The nightly job owns its write-back (REQ-023)
+## 2026-09-14 — The nightly job owns its write-back (ARB-023)
 
 **Why it needed a requirement at all.** The job produces the only evidence this
 project accumulates, and it had never been covered by one. Four defects were
@@ -830,15 +830,15 @@ later as a lost night. A third asserts the check appears before the cycle in
 both callers, which is the whole point and the easiest thing to undo by
 accident.
 
-**State.** 410 passed, 3 skipped, up from 406/3 by the four tests REQ-023
+**State.** 410 passed, 3 skipped, up from 406/3 by the four tests ARB-023
 required.
 
-## 2026-09-14 — The Windows code paths run in CI (REQ-024)
+## 2026-09-14 — The Windows code paths run in CI (ARB-024)
 
 **The gap was structural, not a missing test.** Neither workflow had ever run
 on Windows — `pr-check.yml` was ubuntu-only and `train.yml` is a single ubuntu
 job — so every Windows-specific branch was verified by one developer's machine
-or not at all. REQ-006 is what that costs: a crash on every adapter timeout on
+or not at all. ARB-006 is what that costs: a crash on every adapter timeout on
 Windows, because `os.killpg` is absent there and the process-group path raised
 `AttributeError` while the analyzer outlived the timeout that was supposed to
 kill it. It was found by hand.
@@ -876,11 +876,11 @@ anywhere in the job) but it is not *required*, because nothing on this
 repository requires any check: `repos/:owner/:repo/rulesets` returns `[]` and
 `main` reports "Branch not protected". Making it required is a repository
 setting, not a file, and the last ruleset here blocked a push earlier the same
-day. REQ-024 stays pending on that one point.
+day. ARB-024 stays pending on that one point.
 
 **State.** 417 passed, 3 skipped, up from 410/3.
 
-## 2026-09-17 — Testing the reading, and testing the measurement (REQ-030)
+## 2026-09-17 — Testing the reading, and testing the measurement (ARB-030)
 
 **What prompted it.** A question about whether the testing parameters were
 actually dialed in, and whether the self-testing was good enough for senior
@@ -902,8 +902,8 @@ wrong about real code fell into one of: platform and path assumptions,
 encoding defaults, attribution that did not propagate, heuristic proxies with
 edges nobody had hit, and errors in the measurement code itself. Each had been
 fixed with a test for the one case that failed, which is why the missing
-`repo_id` had to be found three separate times (REQ-014, REQ-015, REQ-016) and
-why the path-separator assumption came back in REQ-029. The new tests state
+`repo_id` had to be found three separate times (ARB-014, ARB-015, ARB-016) and
+why the path-separator assumption came back in ARB-029. The new tests state
 the property over the whole output of a scan instead, so a new probe or a new
 construction site is covered the day it is written.
 
@@ -917,7 +917,7 @@ adds 110 checks that had no measured severity at all. And a severity table
 documented a band its own code cannot produce.
 
 **Two more the new tests found immediately.** Seven configuration reads used
-the platform default codec -- the same defect as REQ-009 and REQ-012, in call
+the platform default codec -- the same defect as ARB-009 and ARB-012, in call
 sites those fixes never touched. And `_is_binary` treated any NUL byte as
 binary, so every UTF-16 file was classified as data and never read; a
 credential in a file saved as "Unicode" was invisible. Headerless UTF-16 is
@@ -941,7 +941,7 @@ table records them and leaves the decision alone. `MIN_OBSERVATIONS = 20` is
 the one worth attacking first, since it is currently the reason no rule in the
 tool is proven.
 
-## 2026-10-09 — The workspace re-synced to its upstream (REQ-031)
+## 2026-10-09 — The workspace re-synced to its upstream (ARB-031)
 
 **What changed.** The OmniEngineering scaffold this repo carried was a fork:
 `make_ai.py` was closest to an upstream commit from 2026-06-23, with three
@@ -967,7 +967,7 @@ lossless: each entry gained `category` from its former key, ids and
 statuses are unchanged, and `python omni requirement list --all` shows all 30.
 The archive is now `requirements-archive.json`; upstream's `omni requirement
 archive` already allocates ids across both files, which was the point of
-REQ-004's version, and it gained the `withdrawn` status and the refusal to
+ARB-004's version, and it gained the `withdrawn` status and the refusal to
 archive live work from arbiter's.
 
 **Why fixtures are excluded from the graph's code layer, not from `.ai/.ignore`.**
@@ -982,7 +982,7 @@ readable directory that is nevertheless not the project's source.
 STEP-Migration text (`python3 app.py`, `tests/validate_stacks.py`, pyright,
 "`./omni map` is intentionally never run against this repo") that
 contradicted `.ai/project-configuration.md`, which says `omni map` is safe
-here. They had survived REQ-001's check for STEP-specific content because
+here. They had survived ARB-001's check for STEP-specific content because
 the check looked for CUI and project names, not for commands. They are
 upstream's versions now, and `core-context.md`'s matching paragraph is
 corrected.
@@ -990,7 +990,7 @@ corrected.
 **Known limits.** The gate's `co_changed` rules require `CHANGELOG.md` and
 the registry to change with any other file; `training/**` and `.arbiter/**`
 are exempt because the nightly job commits there without a requirement by
-design (REQ-023), and `python omni waive` is the escape for anything else.
+design (ARB-023), and `python omni waive` is the escape for anything else.
 `omni requirement complete` only demands a ledger entry when the category
 matches defect/bug/fix/regression, which arbiter's categories do not; record
 defects deliberately. The graph needs `tree-sitter-python` and
@@ -1000,7 +1000,7 @@ OmniEngineering suite has one pre-existing failure in this container
 (`test_gate_hook`'s background rebuild, which needs the tree-sitter grammar
 on the system interpreter) that is unrelated to the ported changes.
 
-## 2026-10-09 — Arbiter evaluates itself (REQ-032 … REQ-037)
+## 2026-10-09 — Arbiter evaluates itself (ARB-032 … ARB-037)
 
 **The gap.** After the workspace re-sync, a self-scan was the obvious next
 question, and the answer was embarrassing in a useful way: the grade was
@@ -1017,7 +1017,7 @@ runs `arbiter gate --changed` with native probes only, which is honest as
 long as the Linux job runs the full one.
 
 **Why adapter output is filtered against the inventory rather than each
-tool taught its exclusions.** REQ-026 and REQ-029 taught bandit, checkov and
+tool taught its exclusions.** ARB-026 and ARB-029 taught bandit, checkov and
 semgrep the inventory's exclusions through their own flags; gitleaks was not
 taught and walked `__pycache__` and a git-ignored graph file into four
 critical findings. Enforcing the boundary once, on the way in, means the next
@@ -1025,7 +1025,7 @@ adapter cannot miss it. The tools still do their own traversal; what reaches
 the report is what the inventory decided was in scope.
 
 **Why not-applicable leaves the denominator, and why that is not a loophole.**
-`ProbeOutcome.applicable` already existed (REQ-022 added it for the control
+`ProbeOutcome.applicable` already existed (ARB-022 added it for the control
 matrix) and the engine already set it; only `compute_scorecard` ignored it.
 The honest distinction is between a probe with no question to answer (seams
 on one repository) and a probe prevented from answering (a missing binary).
@@ -1046,13 +1046,13 @@ findings stay in the report marked as suppressed. That is the feature: the
 report can say how much of what it did not act on was a decision.
 
 **The two gates now meet.** OmniEngineering gained a `command` validation
-type (its REQ-032), and `completion.arbiter_gate` in this repository's
+type (its ARB-032), and `completion.arbiter_gate` in this repository's
 completion rulepack runs `arbiter gate --changed <base>` inside `omni gate`
 whenever source, tests, tools or policy change. The pre-commit hook, the
 Claude Code Stop hook and CI all run it, so a change to Arbiter cannot be
 reported complete while Arbiter itself rejects it.
 
-**What is still open.** REQ-005 (licensing) needs counsel. REQ-024's last
+**What is still open.** ARB-005 (licensing) needs counsel. ARB-024's last
 criterion, making the check required, is a repository setting. The control
 packs' identifiers were transcribed, not reproduced, and must be verified
 against the licensed PCI DSS and TSC texts before an audit package cites them.

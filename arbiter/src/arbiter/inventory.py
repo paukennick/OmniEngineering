@@ -89,6 +89,12 @@ class Inventory:
     files: list[FileInfo] = field(default_factory=list)
     stacks: set[str] = field(default_factory=set)
     by_repo: dict[str, list[FileInfo]] = field(default_factory=dict)
+    # The complete inventory this one was narrowed from (a partial scan, or
+    # the result cache showing a probe only the files it must re-read), or
+    # None for a complete inventory. A probe that asks which paths EXIST in
+    # the repository -- not what they contain -- answers from here, so that
+    # the answer is a fact about the repository rather than about the subset.
+    whole: "Inventory | None" = None
 
     def text_files(self, repo_id: str | None = None) -> list[FileInfo]:
         src = self.files if repo_id is None else self.by_repo.get(repo_id, [])
@@ -225,6 +231,10 @@ def walk_repo(root: Path, repo_id: str, exclude: set[str] | None = None) -> list
         ]
         for name in filenames:
             ap = Path(dirpath) / name
+            if str(ap) in excluded:
+                # A file Arbiter writes (the result cache) rather than a
+                # directory; `root` is resolved, so `ap` already is.
+                continue
             try:
                 st = ap.stat()
             except OSError:

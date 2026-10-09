@@ -19,7 +19,9 @@ findings never blend, the tool never executes the target.
 | Record a verdict | the CLI only: `arbiter review --apply FILE --reviewer NAME`; no MCP tool records a verdict, by design |
 | Anything with `--changed`, `--baseline`, `--system`, formats | the CLI: `arbiter scan`, `arbiter gate`, `arbiter diff`, `arbiter ab` |
 | One finding in full | `arbiter explain <finding-id>` |
+| A scan that must not remember the last one (CI, a measurement) | `--no-cache`; the file-local probes otherwise reuse `.arbiter/cache.json`, and `--verify-cache` audits it |
 | What was and was not checked for a framework | `arbiter controls --framework <id>` |
+| The trend across runs | `arbiter dashboard`, from `<out>/history.jsonl`, which every scan and gate appends to (`--no-history` skips it) |
 
 ## Reading a report
 
@@ -34,6 +36,11 @@ findings never blend, the tool never executes the target.
   as a deterministic one, and never present a bare reference link as a fix.
 - A suppressed finding is still in the report, marked and attributed. That is
   the feature; do not delete it from the corpus.
+- The `governance` probe reads `.ai/failures/failure-ledger.json` against the
+  change (an open failure's file touched without its regression test; a fixed
+  failure whose test file is gone) and is `n/a` without a ledger. Under
+  `--changed`, findings in the change carry `req:<ID>` tags from the commit
+  messages since the base, summarised in the report's **By requirement** table.
 
 ## Gating a change to Arbiter itself
 

@@ -33,6 +33,7 @@ treated as passes.
 | `assurance` | assurance | nothing | Whether the *checking* is switched on — see below |
 | `authored` | supply chain, security | nothing | Defects characteristic of machine-drafted code — see below |
 | `contract` | drift | nothing | Contracts declared in one artifact and implemented in another — see below |
+| `governance` | drift | a failure ledger | The ledger held against the change — see [Probe scopes](#probe-scopes). `governance.open-failure-untested`: an open or mitigated entry's affected file changed without any of its regression tests (`--changed` only). `governance.regression-test-missing`: a fixed entry whose regression test file is gone. Not applicable (`n/a`) without `.ai/failures/failure-ledger.json` |
 | `judgement` | drift | a model | Claims in prose the code contradicts. Inferred, never gates |
 
 List what can run in a given checkout, and why anything cannot:
@@ -40,6 +41,24 @@ List what can run in a given checkout, and why anything cannot:
 ```bash
 arbiter probes ./repo
 ```
+
+### Probe scopes
+
+Every probe declares how much of the tree it needs to answer honestly, which
+is what decides its fate under `--changed` (see [ci.md](ci.md#scanning-only-what-changed)):
+
+| Scope | Meaning | In a partial scan |
+|---|---|---|
+| `file` | every finding depends only on the file it is in | runs over the changed files; the answer is complete for those files |
+| `repo` | the answer depends on relationships between files | recorded as not assessed, because a subset gives a wrong answer rather than a smaller one |
+| `change` | reads a small, fixed set of files it names itself (the failure ledger, the requirement registry) plus the set of changed paths | runs; a full scan is the same probe answered with the empty change |
+
+`governance` is the one change-scoped probe. In a `--changed` scan it also
+reads the commit messages since the base: every finding in the change is
+tagged `req:<ID>` for each requirement id they cite, and the Markdown report
+and the pull-request comment add a **By requirement** table (counts by
+severity and the first three titles per id, with an `unattributed` row for
+in-change findings no commit attributed). Titles only, never evidence.
 
 ## External adapters
 

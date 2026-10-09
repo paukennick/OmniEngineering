@@ -21,7 +21,18 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   attribution lives in `incremental.attribute_requirements`, called by the
   engine after every probe has run, since a tag on every finding cannot be
   applied by one probe.
-- ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
+- ARB-045 | Tool versions are memoised. Every `arbiter` invocation ran the five
+  analyzers' `--version` at registration (25 s measured here; semgrep alone
+  reaches its 20 s cutoff), including the partial-scan gate that never runs an
+  adapter. `Adapter.tool_version` now reads `~/.cache/arbiter/tool-versions.json`
+  (`ARBITER_CACHE_DIR`), keyed on the resolved executable's path, mtime and
+  size (and a script argument's, for a tool run through an interpreter); a miss
+  probes once and writes the memo atomically, a missing binary is never probed,
+  a corrupt or unwritable memo costs one probe. `--no-cache` leaves it alone
+  (it is not a result cache); `ARBITER_NO_VERSION_MEMO=1` switches it off. A
+  tool replaced in place with the same size and mtime keeps its old string
+  until the file is deleted. Registration: 24.5 s cold, 0.3 s warm. The
+  mutation tool proves a memo that ignores the binary's stamp is caught.
 - ARB-046 | The suite runs in a fast and a slow tier and CI shards them.
   `tests/test_arbiter.py` (5,516 lines, 438 collected ids) is fourteen files by
   area, each under `arbiter.yaml`'s 900-line limit, with the helpers more than
@@ -35,7 +46,24 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   and a parallel Linux `slow-tier` job runs the slow tier with the analyzers
   installed; `.ai/test-suites.json` names the fast tier as the gate's suite
   and the slow tier as an integration suite the gate does not run.
-- ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.
+- ARB-047 | Adapters run concurrently and replay when nothing they read
+  changed. Probes registered from a manifest carry `Probe.external` and run
+  after the native probes in a thread pool of `probes.adapters_parallel`
+  workers (default min(4, cpu count); 1 runs them in turn), each on its own
+  copy of the probe context, with outcomes and findings recorded in registry
+  order so reports stay deterministic. With the result cache on, one entry per
+  adapter, keyed on its name, the tool version, the rules hash and a digest
+  over every inventory file plus the analyzer configuration at the root
+  (`pyproject.toml`, `ruff.toml`, `.ruff.toml`, `setup.cfg`, `.bandit`,
+  `bandit.yaml`, `.semgrep.yml`, `.semgrep.yaml`, `.semgrep/`, `.checkov.yaml`,
+  `.checkov.yml`, `.gitleaks.toml`), replays the findings with the outcome
+  reason `replayed from cache (nothing the tool reads changed)`. All-or-nothing
+  by design: no adapter has been measured to be file-local, so one changed
+  byte re-runs the whole tool. `--verify-cache` re-runs one memoised adapter a
+  scan and reports a divergence as `arbiter/assurance.cache-divergence`;
+  `--no-cache` disables the memo (CI's self-gate). Integrity invariant CI-14
+  proves a changed inventory file misses the memo, and the mutation tool
+  proves a memo keyed without the tree is caught.
 - ARB-048 | The doc-drift probe leaves generated output, git-ignored paths and
   cross-repository references alone. Scanning Arbiter with itself, `doc_drift`
   reported every path the root `.gitignore` keeps out of a checkout

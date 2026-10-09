@@ -307,3 +307,19 @@ def test_pr_check_runs_the_self_gate_in_github_mode_and_uploads_sarif():
                             .read_text(encoding="utf-8"))
     run = next(s for s in action["runs"]["steps"] if s.get("id") == "run")["run"]
     assert "--github" in run
+
+
+def test_sarif_min_severity_keeps_only_findings_at_or_above_it(tmp_path):
+    """The code-scanning upload can be trimmed; every other format is untouched by the flag."""
+    import json
+    from arbiter.core import Finding, Location, Report
+    from arbiter.report import write_sarif
+    report = Report(system="s", repos=[], findings=[
+        Finding(rule_id="x/high", dimension="security", severity="high", title="h", location=Location(path="a.py", start_line=1)),
+        Finding(rule_id="x/low", dimension="quality", severity="low", title="l", location=Location(path="b.py", start_line=1)),
+    ])
+    write_sarif(report, str(tmp_path / "all.sarif"))
+    write_sarif(report, str(tmp_path / "medium.sarif"), min_severity="medium")
+    rules = lambda name: {r["ruleId"] for r in json.loads((tmp_path / name).read_text(encoding="utf-8"))["runs"][0]["results"]}
+    assert rules("all.sarif") == {"x/high", "x/low"}        # control
+    assert rules("medium.sarif") == {"x/high"}

@@ -17,11 +17,11 @@ from .ab import (
     Arm, arm_from_dict, load_ab_spec, render_ab_console, render_ab_html, run_ab,
 )
 from .adapters import register_adapters
-from .core import Report
+from .core import SEVERITIES, Report
 from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
-from .report import render_annotations, render_console, render_markdown, write_all
+from .report import render_annotations, render_console, write_all
 from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
@@ -82,6 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="GitHub Actions mode: print findings as workflow-command "
                              "annotations and append the pull-request comment to "
                              "$GITHUB_STEP_SUMMARY. Default: on when GITHUB_ACTIONS=true.")
+        sp.add_argument("--sarif-min-severity", choices=SEVERITIES, default=None, metavar="SEV",
+                        help="drop findings below this severity from report.sarif (the code-scanning upload); "
+                             "the other formats always carry every active finding")
         sp.add_argument("--no-cache", action="store_true",
                         help="neither read nor write the per-file result cache "
                              "(.arbiter/cache.json); every probe runs over every file")
@@ -432,7 +435,8 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
         github = os.environ.get("GITHUB_ACTIONS") == "true"
     if github and "annotations" not in formats:
         formats = [*formats, "annotations"]
-    written = write_all(report, args.out, [f for f in formats if f != "console"])
+    written = write_all(report, args.out, [f for f in formats if f != "console"],
+                        sarif_min_severity=getattr(args, "sarif_min_severity", None))
     if "console" in formats or not formats:
         print(render_console(report, limit=getattr(args, "limit", 40)))
     for kind, path in written.items():
@@ -1033,7 +1037,8 @@ def cmd_remote(args) -> int:
 
     report = client.report_from(answer)
     formats = _formats(args.format)
-    written = write_all(report, args.out, [f for f in formats if f != "console"])
+    written = write_all(report, args.out, [f for f in formats if f != "console"],
+                        sarif_min_severity=getattr(args, "sarif_min_severity", None))
     if "console" in formats or not formats:
         print(render_console(report, limit=args.limit))
     for kind, path in written.items():

@@ -61,5 +61,7 @@ Before claiming completion, confirm:
 
 ## When The Task Touches Arbiter
 
-Read `docs/arbiter-integration.md` once: it says how `omni gate` runs `arbiter gate`,
-how findings reach the ledger and the graph, and which switches turn each piece off.
+Read the integration handbook once: `docs/arbiter-integration.md` in the OmniEngineering
+repository (https://github.com/paukennick/OmniEngineering/blob/main/docs/arbiter-integration.md;
+an adopted workspace carries no copy). It says how `omni gate` runs `arbiter gate`, how
+findings reach the ledger and the graph, and which switches turn each piece off.

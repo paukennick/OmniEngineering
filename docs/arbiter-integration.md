@@ -289,6 +289,19 @@ uploads to code scanning (`continue-on-error`, so the gate's own exit code
 stays the verdict). Titles and rule ids only: no format ever reprints
 evidence.
 
+Code scanning does not read the baseline: it compares the uploaded SARIF
+with the base branch's last analysis by the same tool, and its own pull
+request check fails on any error-level alert it counts as new. On the first
+pull request that brings Arbiter to a repository there is no earlier analysis,
+so every active finding counts as new there, baselined or not. Two kinds of
+finding therefore belong in `arbiter.yaml` under `suppress`, with the reason
+written out, rather than in the baseline: defects planted on purpose (the
+adopt-loop job and its test write `verify=False` into a throwaway repository
+to prove the gate catches it) and matches that are false by construction (a
+constant that holds an environment variable's name). Real debt, such as an
+action pinned to a mutable tag, stays active and in the baseline, so it is
+visible in the Security tab without failing the check.
+
 ## 8. What CI proves
 
 | Job | Proves |

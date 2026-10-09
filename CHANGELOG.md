@@ -117,6 +117,14 @@
   `arbiter/pyproject.toml` instead of hard-coding 3.11. Found and fixed on the way: `omni adopt
   --include-cli` into an empty target always exited 1 because the graph-viewer files were counted as
   already present once `.ai` had been copied in the same run (FAIL-015).
+  - The first upstream pull request (M4K4TT4CK/OmniEngineering#3) was green on every job and red on
+    code scanning's own `arbiter` check: it does not read the baseline, so on a branch whose base has
+    no earlier analysis every uploaded finding counts as new, and it fails on one error-level alert.
+    That alert was the planted defect itself, as text in the adopt-loop job (and its test), and the
+    warning beside it was a constant holding an environment variable's name. Both are now suppressed in
+    `arbiter.yaml` with the reason written out, the baseline is re-cut without them, and the handbook
+    says which findings belong in a suppression rather than the baseline. The four unpinned-action
+    notes stay active: real low-severity debt, visible in the Security tab, not a check failure.
 
 - `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
   --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other

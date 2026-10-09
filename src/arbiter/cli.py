@@ -86,8 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="drop findings below this severity from report.sarif (the code-scanning upload); "
                              "the other formats always carry every active finding")
         sp.add_argument("--no-cache", action="store_true",
-                        help="neither read nor write the per-file result cache "
-                             "(.arbiter/cache.json); every probe runs over every file")
+                        help="neither read nor write the result cache (.arbiter/cache.json): "
+                             "every probe runs over every file and every adapter runs")
         sp.add_argument("--cache-path", default=None, metavar="FILE",
                         help="where the result cache lives (default: "
                              ".arbiter/cache.json under the first target)")
@@ -107,7 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="never open the HTML report automatically")
     sc.add_argument("--verify-cache", action="store_true",
                      help="re-run each cacheable probe on a random 5%% sample of its "
-                          "cache hits and report any entry that no longer matches")
+                          "cache hits, and one memoised adapter, and report any entry "
+                          "that no longer matches")
 
     gt = common(sub.add_parser("gate", help="analyze and exit non-zero on policy failure"))
     gt.add_argument("--out", default="arbiter-out")

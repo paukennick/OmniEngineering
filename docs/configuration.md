@@ -12,6 +12,7 @@ implicit user-level defaults.
 - [Suppressions](#suppressions)
 - [House rules](#house-rules)
 - [Adaptive thresholds](#adaptive-thresholds)
+- [External analyzers](#external-analyzers)
 - [Where state lives](#where-state-lives)
 
 ---
@@ -158,6 +159,35 @@ complexity      n=210  median=5.5  p95=27
 A distribution with fewer than 30 samples is ignored and the fixed threshold
 stands.
 
+## External analyzers
+
+The adapters (ruff, bandit, semgrep, checkov, gitleaks) run after the native
+probes, concurrently, in a thread pool of `probes.adapters_parallel` workers
+(default: the smaller of 4 and the CPU count; `1` runs them one after
+another). Their outcomes and findings are written into the report in
+registry order whatever order they finished in, so the report's bytes do not
+depend on the scheduler.
+
+```yaml
+probes:
+  adapters_parallel: 2
+```
+
+With the result cache on, each adapter is also memoised whole in
+`.arbiter/cache.json`: one entry per adapter, keyed on its name, the tool's
+version, the configuration, Arbiter's own source, a digest of every inventory
+file and of the analyzer configuration at the repository root
+(`pyproject.toml`, `ruff.toml`, `.ruff.toml`, `setup.cfg`, `.bandit`,
+`bandit.yaml`, `.semgrep.yml`, `.semgrep.yaml`, `.semgrep/`, `.checkov.yaml`,
+`.checkov.yml`, `.gitleaks.toml`). A hit replays the stored findings and the
+probe's outcome says `replayed from cache (nothing the tool reads changed)`.
+It is all-or-nothing by design: none of these tools has been measured to be
+file-local, so one changed byte in one file re-runs the whole adapter rather
+than guessing which of its findings survive. `--verify-cache` re-runs one
+memoised adapter per scan and reports a divergence as
+`arbiter/assurance.cache-divergence`; `--no-cache` disables the memo along
+with the rest of the cache.
+
 ## Where state lives
 
 | Path | Contents | Commit it? |
@@ -166,7 +196,7 @@ stands.
 | `.arbiter/baseline.json` | accepted current state | yes |
 | `.arbiter/knowledge.json` | calibration ledgers and learned confidence | yes |
 | `.arbiter/external-severity.json` | measured severities for external checks | yes |
-| `.arbiter/cache.json` | per-file results of the file-local probes | no — git-ignored |
+| `.arbiter/cache.json` | per-file results of the file-local probes, and one whole-tree entry per external analyzer | no — git-ignored |
 | `~/.cache/arbiter/tool-versions.json` (`ARBITER_CACHE_DIR`) | the external analyzers' version strings, keyed on each binary's path, mtime and size, so registration does not run every `--version` on every invocation; `--no-cache` leaves it alone, `ARBITER_NO_VERSION_MEMO=1` bypasses it, and a tool replaced in place with the same size and mtime keeps its old string until the file is deleted | no — machine-local |
 | `arbiter-out/` | reports from the last run | no — git-ignored |
 | `arbiter-ab/` | A/B harness output | no — git-ignored |

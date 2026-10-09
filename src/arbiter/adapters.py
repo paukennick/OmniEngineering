@@ -645,5 +645,6 @@ def register_adapters(extra_dirs: list[str] | None = None) -> list[Adapter]:
             scope=a.scope,
             scope_reason=SCOPE_REASON,
             version=a.tool_version() or "",
+            external=True,
         ))
     return adapters

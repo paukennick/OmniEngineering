@@ -96,6 +96,12 @@ class Probe:
     # and must give the same answer for it.
     cacheable: bool = False
     cache_context: Callable[["ProbeContext"], str] | None = None
+    # Registered from an adapter manifest (adapters.py), so `run` starts an
+    # external process and waits on it rather than reading files in this
+    # one. The engine runs these in a thread pool, where a native probe --
+    # which shares the read cache and the probe context -- would race, and
+    # memoises each one whole in the result cache (ARB-047).
+    external: bool = False
 
 
     # A probe's own answer to "is there anything here for me to check": a

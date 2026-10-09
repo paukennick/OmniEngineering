@@ -425,6 +425,30 @@ default, and requires `--force` before replacing anything. A successful
 source path and git commit adopted from -- this is what `omni update` (below)
 diffs against later.
 
+### Arbiter alongside the workspace
+
+[Arbiter](https://github.com/paukennick/arbiter) is the repository evaluator
+this workspace pairs with: it scans the code and refuses to grade what it did
+not inspect, and its gate is the product-side half of `omni gate`. Bring it in
+with the adoption, or add it to a repository adopted earlier:
+
+```bash
+./omni adopt --target ../your-project --include-cli --with-arbiter ../arbiter   # a checkout
+./omni adopt --target ../your-project --include-cli --with-arbiter             # the GitHub URL
+cd ../your-project && ./omni arbiter install --source ../arbiter               # already adopted
+```
+
+Four things land, each skipped when already present and never overwritten:
+the `arbiter-eval[mcp]` package (editable from a checkout, or from the git
+URL), an `arbiter` entry in `.mcp.json` so assistants reach `arbiter_scan`,
+`arbiter_gate` and `arbiter_review_queue` as tools, a `completion.arbiter_gate`
+rule of type `command` in the completion rulepack so `omni gate` runs
+`arbiter gate --changed <base>` whenever source changes, and a starter
+`arbiter.yaml` (fail on critical, fail on new high). `--skip-pip` writes the
+wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
+server for real. Arbiter is a separate, proprietary product; this command
+installs and wires it, it does not vendor it.
+
 ### Updating an adopted workspace
 
 Once a project has adopted OmniEngineering and customized its rules,

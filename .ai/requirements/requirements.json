@@ -1130,6 +1130,42 @@
         "gate_status over MCP evaluates the same rules",
         "so a command rule runs there too; keep it to checks that only read."
       ]
+    },
+    {
+      "id": "REQ-033",
+      "category": "Feature",
+      "title": "Arbiter installs alongside the workspace: omni adopt --with-arbiter and omni arbiter install",
+      "description": "Adopting the workspace should bring the evaluator it pairs with. omni adopt --with-arbiter [SOURCE] and omni arbiter install pip-install arbiter-eval[mcp] from a checkout or the GitHub URL and write the wiring: the arbiter MCP server in .mcp.json, a completion.arbiter_gate command rule so omni gate runs arbiter gate --changed, a starter arbiter.yaml, and arbiter-out/ in .gitignore. Idempotent, never overwrites, --skip-pip and --dry-run.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_arbiter_install.py",
+        "README.md",
+        "design/cli-design.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "omni arbiter install writes the four wiring artefacts and reports each as already present on rerun",
+        "existing .mcp.json servers and an existing arbiter.yaml are kept",
+        "--dry-run writes nothing",
+        "adopt --with-arbiter accepts a source or defaults to the GitHub URL",
+        "omni doctor in an adopted directory starts arbiter mcp and lists its tools"
+      ],
+      "validation_required": [
+        "python3 -m unittest tests.test_arbiter_install",
+        "end-to-end adopt into a scratch directory with a local arbiter checkout",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "Arbiter is proprietary and not on PyPI; the default source is its GitHub URL",
+        "which needs access. The pip step reports failure with the output tail and leaves the wiring in place."
+      ]
     }
   ]
 }

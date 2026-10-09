@@ -560,6 +560,25 @@ ADOPTION_PRESENTATION_FILES = [
 
 OMNI_VERSION_FILE = ".ai/omni-version.json"
 
+# Arbiter (github.com/paukennick/arbiter) is the repository evaluator this
+# workspace pairs with: `omni gate` can run `arbiter gate` through a
+# `command` rule, and `omni doctor` starts its MCP server. Adopting with
+# --with-arbiter installs the package and writes the wiring files.
+ARBITER_DEFAULT_SOURCE = "git+https://github.com/paukennick/arbiter"
+ARBITER_PIP_EXTRAS = "mcp"
+ARBITER_GATE_RULE_ID = "completion.arbiter_gate"
+ARBITER_STARTER_CONFIG = """# Arbiter policy for this repository. See docs/configuration.md in the
+# arbiter checkout for every key; this is the minimum `omni gate` relies on.
+version: 1
+profile: offline
+
+gate:
+  fail_on:
+    severity: critical
+    new: high
+  gate_on_inferred: false
+"""
+
 # Files an adopter owns outright once copied -- omni update never touches
 # these, no matter what changes upstream.
 ADOPTER_OWNED_FILES = {
@@ -3129,9 +3148,135 @@ def run_adopt(args: argparse.Namespace) -> int:
             "-- future template improvements can be pulled in with `omni update`."
         )
 
+    with_arbiter = getattr(args, "with_arbiter", None)
+    if with_arbiter is not None:
+        print("")
+        print("Arbiter alongside the workspace:")
+        if arbiter_install(target_root, with_arbiter, skip_pip=getattr(args, "skip_pip", False), dry_run=args.dry_run) != 0:
+            return 1
+
     if missing:
         return 1
     return 1 if skipped and not args.dry_run else 0
+
+
+def _arbiter_pip_command(source: str) -> list[str]:
+    """`pip install` for a local checkout (editable, so a developer's fixes
+    land immediately) or for a git/PyPI spec, both with the extra the MCP
+    server needs."""
+    local = Path(source).expanduser()
+    if local.is_dir() and (local / "pyproject.toml").is_file():
+        return [sys.executable, "-m", "pip", "install", "-e", f"{local.resolve()}[{ARBITER_PIP_EXTRAS}]"]
+    if source.startswith(("git+", "http://", "https://")):
+        return [sys.executable, "-m", "pip", "install", f"arbiter-eval[{ARBITER_PIP_EXTRAS}] @ {source}"]
+    return [sys.executable, "-m", "pip", "install", f"{source}[{ARBITER_PIP_EXTRAS}]"]
+
+
+def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_run: bool = False) -> int:
+    """Install Arbiter beside the workspace and wire the two together.
+
+    Four things, each skipped when already present so the command is safe to
+    rerun: the package (pip), the `arbiter` entry in `.mcp.json`, the
+    `completion.arbiter_gate` command rule in the completion rulepack, and a
+    starter `arbiter.yaml`. Nothing is overwritten; a project that tuned any
+    of them keeps its version.
+    """
+    verb = "would " if dry_run else ""
+    status = 0
+
+    if skip_pip:
+        print("- pip: skipped (--skip-pip); make sure `arbiter` is on PATH before `omni gate` runs")
+    else:
+        command = _arbiter_pip_command(source)
+        print(f"- pip: {verb}run {' '.join(command)}")
+        if not dry_run:
+            completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if completed.returncode != 0:
+                tail = "\n".join((completed.stdout + "\n" + completed.stderr).strip().splitlines()[-5:])
+                print(f"  pip failed (exit {completed.returncode}):\n{tail}", file=sys.stderr)
+                status = 1
+            elif shutil.which("arbiter") is None:
+                print("  installed, but `arbiter` is not on PATH in this shell; open a new one or check pip's script directory")
+
+    mcp_path = target_root / MCP_REGISTRATION_PATH
+    registration: dict[str, Any] = {"mcpServers": {}}
+    if mcp_path.is_file():
+        try:
+            loaded = load_json(mcp_path)
+            if isinstance(loaded, dict):
+                registration = loaded
+        except json.JSONDecodeError:
+            print(f"- {MCP_REGISTRATION_PATH}: not valid JSON; fix it by hand, then rerun", file=sys.stderr)
+            return 1
+    servers = registration.setdefault("mcpServers", {})
+    if "arbiter" in servers:
+        print(f"- {MCP_REGISTRATION_PATH}: `arbiter` already registered")
+    else:
+        servers["arbiter"] = {"command": "arbiter", "args": ["mcp"]}
+        print(f"- {MCP_REGISTRATION_PATH}: {verb}register `arbiter mcp`")
+        if not dry_run:
+            write_json(mcp_path, registration)
+
+    rulepack_path = target_root / ".ai" / "rules" / "completion-workflow.json"
+    if not rulepack_path.is_file():
+        print(f"- {rulepack_path.relative_to(target_root)}: missing; adopt the workspace first, then rerun")
+        status = 1
+    else:
+        rulepack = load_json(rulepack_path)
+        rules = rulepack.setdefault("rules", [])
+        if any(isinstance(r, dict) and r.get("id") == ARBITER_GATE_RULE_ID for r in rules):
+            print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` already present")
+        else:
+            rules.append({
+                "id": ARBITER_GATE_RULE_ID,
+                "severity": "required",
+                "statement": "A change passes Arbiter's own gate (`arbiter gate --changed <base>` under arbiter.yaml) before it is reported complete.",
+                "scope": ["completion", "validation"],
+                "validation": {
+                    "type": "command",
+                    "run": "arbiter gate --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
+                    "when_changed": ["**"],
+                    "ignore": [".ai/**", "CHANGELOG.md", "*.md", "docs/**"],
+                    "timeout": 600,
+                },
+            })
+            print(f"- completion rulepack: {verb}add `{ARBITER_GATE_RULE_ID}` (type command)")
+            if not dry_run:
+                write_json(rulepack_path, rulepack)
+
+    config_path = target_root / "arbiter.yaml"
+    if config_path.is_file():
+        print("- arbiter.yaml: already present, left alone")
+    else:
+        print(f"- arbiter.yaml: {verb}write a starter policy (fail on critical, fail on new high)")
+        if not dry_run:
+            config_path.write_text(ARBITER_STARTER_CONFIG, encoding="utf-8")
+
+    gitignore = target_root / ".gitignore"
+    if gitignore.is_file() and "arbiter-out" in gitignore.read_text(encoding="utf-8", errors="replace"):
+        print("- .gitignore: arbiter-out/ already ignored")
+    else:
+        print(f"- .gitignore: {verb}ignore arbiter-out/ (scan output)")
+        if not dry_run:
+            with gitignore.open("a", encoding="utf-8") as handle:
+                handle.write("\n# Arbiter scan output\narbiter-out/\n")
+
+    print("")
+    print("Next: `omni doctor` starts the registered MCP server for real, and `omni gate` now runs")
+    print("`arbiter gate --changed` whenever source changes. For CI, see ci/github-action in the")
+    print("arbiter checkout, or run `arbiter gate .` after the test step.")
+    return status
+
+
+def run_arbiter_install(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    print(f"Arbiter alongside OmniEngineering in {target_root}")
+    print(f"Mode: {'dry-run' if args.dry_run else 'apply'}")
+    print("")
+    return arbiter_install(target_root, args.source, skip_pip=args.skip_pip, dry_run=args.dry_run)
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -4574,6 +4719,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     adopt_parser.add_argument(
+        "--with-arbiter",
+        nargs="?",
+        const=ARBITER_DEFAULT_SOURCE,
+        default=None,
+        metavar="SOURCE",
+        help=(
+            "Also install Arbiter (a local checkout path, a git+https URL, or a pip spec; "
+            f"default {ARBITER_DEFAULT_SOURCE}) and wire it in: .mcp.json, the completion.arbiter_gate "
+            "command rule, a starter arbiter.yaml."
+        ),
+    )
+    adopt_parser.add_argument(
+        "--skip-pip",
+        action="store_true",
+        help="With --with-arbiter: write the wiring but do not pip install (arbiter is already installed).",
+    )
+    adopt_parser.add_argument(
         "--include-cli",
         action="store_true",
         help="Copy ./omni and make_ai.py.",
@@ -4810,6 +4972,18 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_tools = mcp_subparsers.add_parser("tools", help="List the available tools without starting the server (for a quick check, or piping into a client's config).")
     mcp_tools.add_argument("--json", action="store_true", help="Print the full tool specs (name, description, input schema) as JSON.")
 
+    arbiter_parser = subparsers.add_parser("arbiter", help="Install and wire the Arbiter evaluator beside this workspace.")
+    arbiter_subparsers = arbiter_parser.add_subparsers(dest="arbiter_command")
+    arbiter_install_parser = arbiter_subparsers.add_parser(
+        "install",
+        help="pip install Arbiter and register it: .mcp.json, the completion.arbiter_gate command rule, a starter arbiter.yaml.",
+    )
+    arbiter_install_parser.add_argument("--source", default=ARBITER_DEFAULT_SOURCE,
+                                        help=f"Local checkout, git+https URL or pip spec (default {ARBITER_DEFAULT_SOURCE}).")
+    arbiter_install_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_install_parser.add_argument("--skip-pip", action="store_true", help="Write the wiring only; arbiter is already installed.")
+    arbiter_install_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing or installing.")
+
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
     hook_install = hook_subparsers.add_parser("install", help="Install the Claude Code Stop hook that runs `omni gate`.")
@@ -4927,6 +5101,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_gate(args)
     if command == "waive":
         return run_waive(args)
+    if command == "arbiter":
+        if args.arbiter_command == "install":
+            return run_arbiter_install(args)
+        parser.error("arbiter requires a subcommand (install)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

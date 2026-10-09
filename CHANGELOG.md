@@ -4,6 +4,17 @@
 
 ### Completed
 
+- `REQ-033` | Feature | Arbiter installs alongside the workspace.
+  - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install
+    --source SOURCE` pip-install `arbiter-eval[mcp]` (editable from a local checkout, or from the GitHub
+    URL by default) and write the wiring the two tools need to meet: the `arbiter` server in `.mcp.json`,
+    a `completion.arbiter_gate` rule of type `command` in the completion rulepack so `omni gate` runs
+    `arbiter gate --changed <base>`, a starter `arbiter.yaml`, and `arbiter-out/` in `.gitignore`. Each
+    step is skipped when already present and nothing is overwritten, so the command is safe to rerun;
+    `--skip-pip` writes the wiring only and `--dry-run` reports it. The arbiter repository itself was the
+    first consumer, by hand, in its REQ-031 and REQ-032; this makes the same wiring one command for every
+    other adopter.
+
 - `REQ-032` | Feature | The gate can run the project's own check, and defect work is recognised by a
   configurable pattern.
   - A fourth validation type, `command`: `{"type": "command", "run": "arbiter gate --changed {base}",

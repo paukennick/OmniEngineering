@@ -246,7 +246,7 @@ def run_scan(
         run_config["quality"] = resolve_quality_config(config, profiles)
 
     ctx = ProbeContext(repos=repos, inventory=inv, graph=graph, config=run_config, system=manifest,
-                       changed=changed_set, changed_since=changed_since)
+                       changed=changed_set, changed_since=changed_since, out_dir=out_dir or "")
 
     disabled = set((config.get("probes") or {}).get("disable") or []) | set(skip or [])
     enabled_only = set(only or []) or None

@@ -1163,6 +1163,37 @@
       "risk_notes": [
         "pip wheel needs setuptools available offline; the two dependency wheels are downloaded once and documented"
       ]
+    },
+    {
+      "id": "ARB-052",
+      "category": "quality",
+      "title": "The governance probe tags a finding with the requirements its file's recent commits cite, not every open one",
+      "description": "req: tags named every open requirement, so a finding in a gate run cited all five requirements of a round and OmniEngineering's graph could not say which one introduced it. The probe now reads the commits between the gate base (changed_since) and HEAD that touch the finding's path, collects the requirement ids their messages cite (through the registry's aliases), and tags those as req:; only when none cites one does it fall back to the open requirements, adding a req-scope:open tag so a reader knows the tags are context rather than attribution. A full scan without a base keeps today's behaviour with the same marker.",
+      "priority": "high",
+      "status": "pending",
+      "minimum_access_scope": [
+        "src/arbiter/probes.py",
+        "tests/",
+        "docs/probes.md"
+      ],
+      "acceptance_criteria": [
+        "a finding in a file whose commits since base cite ARB-052 is tagged req:ARB-052 alone",
+        "a file with no citing commit falls back to open requirements with req-scope:open",
+        "a full scan carries req-scope:open",
+        "the governance tests pass"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python -m pytest -q -rs -m 'not slow'"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "docs/probes.md"
+      ],
+      "risk_notes": [
+        "git log per changed file costs one subprocess per file; batch with one git log --name-only over the range"
+      ]
     }
   ]
 }

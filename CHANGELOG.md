@@ -8,6 +8,7 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- ARB-052 | (in progress) The governance probe tags a finding with the requirements its file's recent commits cite, not every open one.
 - ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
 - ARB-046 | (in progress) The suite runs in a fast and a slow tier and CI shards them.
 - ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.

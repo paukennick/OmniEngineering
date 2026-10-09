@@ -444,8 +444,11 @@ URL), an `arbiter` entry in `.mcp.json` so assistants reach `arbiter_scan`,
 `arbiter_gate` and `arbiter_review_queue` as tools, a `completion.arbiter_gate`
 rule of type `command` in the completion rulepack so `omni gate` runs
 `arbiter gate --changed <base>` whenever source changes, and a starter
-`arbiter.yaml` (fail on critical, fail on new high). `--skip-pip` writes the
-wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
+`arbiter.yaml` (fail on critical, fail on new high), plus `arbiter-out/` in
+`.gitignore`: Arbiter reads tracked files as source, so a committed report of
+its own would be scanned and gated on the next run (FAIL-012). A workspace
+wired by hand needs that ignore entry before its first run. `--skip-pip`
+writes the wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
 server for real. Arbiter is a separate, proprietary product; this command
 installs and wires it, it does not vendor it.
 

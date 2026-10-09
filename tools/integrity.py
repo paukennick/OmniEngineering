@@ -323,8 +323,8 @@ def check_adapter_memo() -> tuple[bool, str]:
             (root / "b.py").write_bytes(b"y = 2\n")
             config = dict(load_config(None))
             config["cache"] = {"enabled": True}
-            kw = dict(only=["fake_adapter"], use_adapters=False,
-                      cache_path=str(Path(tmp) / "cache.json"))
+            kw = {"only": ["fake_adapter"], "use_adapters": False,
+                  "cache_path": str(Path(tmp) / "cache.json")}
             run_scan([str(root)], config, **kw)
             if calls["n"] != 1:
                 return False, f"a cold scan ran the adapter {calls['n']} time(s), not once"

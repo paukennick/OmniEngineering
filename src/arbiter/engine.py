@@ -211,7 +211,7 @@ def _run_external_probes(
         to_run.sort(key=lambda item: item[0])
 
     def work(item):
-        slot, probe, oc, _k, _cached = item
+        _slot, probe, oc, _k, _cached = item
         t0 = time.time()
         try:
             produced = probe.run(copy.copy(ctx)) or []

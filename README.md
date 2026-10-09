@@ -166,6 +166,7 @@ arbiter review arbiter-out/report.json         # adjudicate a batch in one pass
 arbiter feedback f:8c41 --false-positive       # adjudicate one finding
 arbiter learn                                  # what has been learned
 arbiter ab --spec examples/ab-native-vs-checkov.yaml    # compare two arms
+arbiter dashboard                              # the trend across runs, as one page
 ```
 
 Against a hosted instance, with nothing but Arbiter itself installed locally:
@@ -209,7 +210,15 @@ profile cost you.
 ### Output and exit codes
 
 `--format json,sarif,html,markdown,console`. JSON is canonical and written
-first; every other format is a rendering of it.
+first; every other format is a rendering of it. Under GitHub Actions
+(`--github`, automatic when `GITHUB_ACTIONS=true`) `gate` also prints each
+finding as a workflow-command annotation and appends the pull-request comment
+to the job summary; see [docs/ci.md](docs/ci.md#github-actions).
+
+Every scan and gate also appends one summary line — time, commit, grade,
+coverage, counts, gate result; no evidence and no paths — to
+`arbiter-out/history.jsonl`, which accumulates across runs and is what
+`arbiter dashboard` renders (`--no-history` skips it).
 
 | Code | Meaning |
 |---|---|
@@ -280,7 +289,7 @@ enumerates, and any change that regresses on one of them fails the suite.
 | [docs/mcp.md](docs/mcp.md) | The MCP surface: the tools, stdio and HTTPS, and who is allowed to call |
 | [docs/pilot-runbook.md](docs/pilot-runbook.md) | Standing a pilot up, in the order the steps have to happen |
 | [docs/pilot-terms.md](docs/pilot-terms.md) | What each tester is told happens to their code |
-| [docs/licensing.md](docs/licensing.md) | Licensing requirements and the questions still open (REQ-005) |
+| [docs/licensing.md](docs/licensing.md) | Licensing requirements and the questions still open (ARB-005) |
 | [CHANGELOG.md](CHANGELOG.md) | Dated entries, referenced to requirements |
 | [NOTICE.md](NOTICE.md) | Third-party components and their licenses |
 
@@ -298,7 +307,7 @@ tuning set of 36. On the severities that gate a build the separation is total:
 zero criticals and zero highs across 2.3 million lines of well-maintained
 production code. Method and limits: [docs/evidence.md](docs/evidence.md).
 
-**Not yet built:** air-gapped bundles and the dashboard. The Claude Code
+**Not yet built:** air-gapped bundles. The Claude Code
 skill is `.claude/skills/arbiter/SKILL.md`; the commercial control packs
 (PCI DSS v4, HIPAA Security Rule, SOC 2 TSC, CIS Controls v8) sit beside the
 five government packs in `src/arbiter/packs/controls/`, each declaring the
@@ -334,7 +343,7 @@ the operative licence unchanged.
 The licensing position is specified in **[docs/licensing.md](docs/licensing.md)**
 — eight requirements covering the operative grant, copyright ownership,
 ownership of scan output, and the redistribution review that blocks the
-air-gapped bundle. Tracked as REQ-005.
+air-gapped bundle. Tracked as ARB-005.
 
 Arbiter depends only on PyYAML at runtime. The external analyzers it adapts are
 neither vendored nor redistributed — each is installed separately by the

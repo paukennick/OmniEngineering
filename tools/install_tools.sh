@@ -122,6 +122,47 @@ pip_install() {
   fi
 }
 
+# checkov pulls pyston and pyston-autoload on CPython < 3.11 (linux and macOS
+# x86_64). pyston-autoload switches the pyston JIT on in every process of that
+# interpreter, and pyston 2.3.5 segfaults inside pytest's tmp_path fixture on
+# Python 3.10 (FAIL-040). Arbiter only ever runs the `checkov` executable, so
+# it gets the same treatment as semgrep: a venv used by nothing else, with the
+# launcher copied onto PATH.
+install_checkov_isolated() {
+  local venv="$ARBITER_CACHE_DIR/checkov-venv" marker="$ARBITER_CACHE_DIR/.checkov-isolated"
+  if [ -f "$marker" ] && [ "$(cat "$marker" 2>/dev/null)" = "$CHECKOV_VERSION" ] \
+     && [ -x "$HOME/.local/bin/checkov" -o -x "$HOME/.local/bin/checkov.exe" ]; then
+    printf '  have   %-10s %s (isolated)\n' checkov "$CHECKOV_VERSION"
+    return 0
+  fi
+  local py
+  py="$(command -v python3 || command -v python)"
+  if [ -z "$py" ]; then
+    printf '  MISSED %-10s no python3 to build an isolated venv\n' checkov
+    return 0
+  fi
+  if ! "$py" -m venv "$venv" >/dev/null 2>&1; then
+    printf '  MISSED %-10s could not create an isolated venv\n' checkov
+    return 0
+  fi
+  local venv_bin="$venv/bin"
+  [ -d "$venv_bin" ] || venv_bin="$venv/Scripts"
+  if ! "$venv_bin/pip" install --quiet "checkov==${CHECKOV_VERSION}" >/dev/null 2>&1; then
+    printf '  MISSED %-10s isolated install failed\n' checkov
+    return 0
+  fi
+  mkdir -p "$HOME/.local/bin"
+  local src="$venv_bin/checkov"
+  [ -f "$src" ] || src="$venv_bin/checkov.exe"
+  cp "$src" "$HOME/.local/bin/" 2>/dev/null
+  printf '%s' "$CHECKOV_VERSION" > "$marker"
+  printf '  got    %-10s %s -> %s (isolated: keeps pyston out of Arbiter'"'"'s interpreter)\n' \
+    checkov "$CHECKOV_VERSION" "$HOME/.local/bin"
+  if command -v pip >/dev/null 2>&1 && pip show checkov >/dev/null 2>&1; then
+    pip uninstall -y checkov pyston-autoload pyston >/dev/null 2>&1
+  fi
+}
+
 # semgrep's own `cli.py` imports `mcp.server.fastmcp` unconditionally -- for
 # its own optional `semgrep mcp` subcommand, which scanning never touches --
 # and that API doesn't exist in mcp>=2, which Arbiter's own MCP transport
@@ -202,7 +243,7 @@ fetch_semgrep_rules() {
 
 echo "External analyzers"
 
-wants checkov && pip_install checkov "checkov==${CHECKOV_VERSION}"
+wants checkov && install_checkov_isolated
 wants semgrep && install_semgrep_isolated
 wants semgrep && fetch_semgrep_rules
 wants bandit  && pip_install bandit  "bandit==${BANDIT_VERSION}"

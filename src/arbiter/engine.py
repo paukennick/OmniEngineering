@@ -144,6 +144,10 @@ def run_scan(
     changed_since: str | None = None,
     only_files: list[str] | None = None,
     out_dir: str | None = None,
+    use_cache: bool = True,
+    cache_path: str | None = None,
+    verify_cache: bool = False,
+    verify_sample: float = 0.05,
 ) -> Report:
     started = time.time()
     if use_adapters:
@@ -165,7 +169,16 @@ def run_scan(
     # the second run reports on the first run's HTML -- 27% of unsuppressed
     # findings, concentrated in the suppression rules, which the rendered
     # report is naturally full of.
-    inv = build_inventory(repos, {out_dir} if out_dir else None)
+    # The result cache is a file Arbiter writes inside the tree it scans, so
+    # it is excluded for the same reason the output directory is: a scan must
+    # never read its own previous output back as evidence. See cache.py.
+    from . import cache as _cache
+    cache = None
+    if use_cache and (config.get("cache") or {}).get("enabled", True) and repos:
+        cache = _cache.ResultCache.load(
+            Path(cache_path) if cache_path else _cache.default_path(repos[0].path))
+    excluded = {p for p in (out_dir, str(cache.path) if cache else None) if p}
+    inv = build_inventory(repos, excluded or None)
     plans = list(plan_paths or [])
     plans += [str(p) for p in ((config.get("terraform") or {}).get("plans") or [])]
 
@@ -174,6 +187,7 @@ def run_scan(
     # facts about the repository rather than about the diff. What narrows is
     # which files the probes are shown. See incremental.py.
     scan_scope: dict = {"mode": "full"}
+    changed_set: dict[str, set[str]] = {}
     if changed_since or only_files:
         from .incremental import git_changed, narrow
         selected: dict[str, set[str]] = {}
@@ -204,6 +218,7 @@ def run_scan(
         scan_scope = {"mode": "partial", **stats}
         scan_scope["basis"] = (f"changed since {changed_since}" if changed_since
                                else "an explicit file list")
+        scan_scope["changed_since"] = changed_since
         if changed_since and only_files:
             scan_scope["basis"] = f"changed since {changed_since}, plus an explicit file list"
 
@@ -230,7 +245,8 @@ def run_scan(
     if profiles:
         run_config["quality"] = resolve_quality_config(config, profiles)
 
-    ctx = ProbeContext(repos=repos, inventory=inv, graph=graph, config=run_config, system=manifest)
+    ctx = ProbeContext(repos=repos, inventory=inv, graph=graph, config=run_config, system=manifest,
+                       changed=changed_set, changed_since=changed_since)
 
     disabled = set((config.get("probes") or {}).get("disable") or []) | set(skip or [])
     enabled_only = set(only or []) or None
@@ -251,7 +267,7 @@ def run_scan(
             oc.status, oc.reason = "skipped", "disabled in configuration"
             outcomes.append(oc)
             continue
-        if scan_scope["mode"] == "partial" and probe.scope != "file":
+        if scan_scope["mode"] == "partial" and probe.scope not in ("file", "change"):
             # Not run against a subset, because the answer would be wrong
             # rather than merely incomplete. Recorded as not-assessed so it
             # stays in the coverage denominator.
@@ -288,7 +304,20 @@ def run_scan(
 
         t0 = time.time()
         try:
-            produced = probe.run(ctx) or []
+            if cache is not None and probe.cacheable:
+                # Hits are assembled from the cache, misses from the probe,
+                # and nothing downstream can tell them apart: calibration,
+                # overrides, the baseline and suppressions all run on both.
+                context = probe.cache_context(ctx) if probe.cache_context else ""
+                produced, note = _cache.run_with_cache(
+                    probe, ctx, cache, _cache.rules_hash(run_config, probe, context),
+                    verify_fraction=verify_sample if verify_cache else 0.0)
+                if note["hits"]:
+                    oc.reason = (f"{note['hits']} file(s) from cache, "
+                                 f"{note['misses']} re-read"
+                                 + (f", {note['verified']} verified" if note["verified"] else ""))
+            else:
+                produced = probe.run(ctx) or []
             oc.status = "ran"
             oc.finding_count = len(produced)
             findings.extend(produced)
@@ -305,11 +334,29 @@ def run_scan(
         oc.duration_s = round(time.time() - t0, 3)
         outcomes.append(oc)
 
+    if cache is not None:
+        scan_scope["cache"] = {**cache.stats(), "path": str(cache.path)}
+        cache.save()
+
     findings = _dedupe(findings)
     if scan_scope["mode"] == "partial":
         for f in findings:
             if f.location.path and f.location.path not in changed_set.get(f.repo_id, set()):
                 f.tags.append("outside-this-change")
+    if changed_since:
+        # Every finding in the change is attributed to the requirement ids the
+        # commits since the base cite, so a report can be read per requirement
+        # (REQ-038). Findings in context files are not: they were not
+        # introduced under any of these ids.
+        from .incremental import requirement_ids_since, requirement_prefix
+        for r in repos:
+            ids = requirement_ids_since(r.path, changed_since, prefix=requirement_prefix(r.path))
+            if not ids:
+                continue
+            in_change = changed_set.get(r.id, set())
+            for f in findings:
+                if f.repo_id == r.id and f.location.path in in_change:
+                    f.tags.extend(f"req:{i}" for i in ids)
 
     from .learn import apply as apply_knowledge
     calibration = apply_knowledge(findings, knowledge)

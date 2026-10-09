@@ -1,6 +1,6 @@
 # Hosted API
 
-> **Status: built, not deployed.** Tracked as **REQ-018**. The service layer
+> **Status: built, not deployed.** Tracked as **ARB-018**. The service layer
 > (`src/arbiter/service.py`) and the HTTP surface (`src/arbiter/api.py`) exist
 > and are tested. Nothing has been exposed to a network. It binds to localhost
 > by default, and must not face an external caller before the custody terms in

@@ -24,8 +24,23 @@
     baseline: .arbiter/baseline.json
 ```
 
-The action uploads SARIF so findings render inline on the pull request, and
-posts the Markdown report as a comment.
+The action runs `arbiter gate --github`, so one run reaches the pull request
+three ways:
+
+| Where | What | How |
+|---|---|---|
+| the job log and the diff | one annotation per finding: `::error` for what failed the gate, `::notice` for findings in files the change did not touch, `::warning` for the rest | workflow commands on stdout, on automatically when `GITHUB_ACTIONS=true` |
+| the job summary | the pull-request comment: verdict, reasons, grade, what was not assessed | appended to `$GITHUB_STEP_SUMMARY` |
+| the Security tab | the active findings at or above `--sarif-min-severity` (pr-check uses `medium`; without the flag, every active finding), with rule and remediation | `report.sarif` uploaded with `github/codeql-action/upload-sarif` |
+
+The SARIF upload needs `permissions: security-events: write` (and `contents:
+read`) on the job or the workflow; the annotations and the summary need
+nothing beyond the default token. The upload step runs with
+`continue-on-error: true` and `if: always()`: code scanning is not enabled on
+every fork or mirror, and a refused upload must not turn the gate's own
+verdict into a failure, while a failed gate is exactly the run whose findings
+should be visible. Annotations never carry evidence, only the rule id, the
+title and the location, so the log is not where a credential gets reprinted.
 
 ## GitLab CI
 
@@ -63,11 +78,15 @@ arbiter gate . --changed origin/main --baseline .arbiter/baseline.json
 Every probe declares a scope. **file** means every finding depends only on the
 file it is in — a hardcoded secret is a secret whether or not the rest of the
 tree was read. **repo** means the answer depends on relationships between
-files, and a subset-based answer is not weaker, it is false.
+files, and a subset-based answer is not weaker, it is false. **change** means
+the probe reads a few files it names itself plus the changed paths — the
+`governance` probe, which holds the failure ledger against the change — so a
+partial scan is the question it was built for, and it runs in both modes.
 
-In a partial scan the file-scoped probes run, and the repo-scoped ones are
-recorded as skipped with the partial scan named as the reason — so they stay in
-the coverage denominator as not-assessed rather than vanishing. The files read
+In a partial scan the file-scoped and change-scoped probes run, and the
+repo-scoped ones are recorded as skipped with the partial scan named as the
+reason — so they stay in the coverage denominator as not-assessed rather than
+vanishing. The files read
 are the changed ones plus dependency manifests, lockfiles, CI workflows and
 Terraform, which is where a rule genuinely reasons about a file it is not
 reporting on.
@@ -110,6 +129,11 @@ green gate that read no files at all.
 Findings that land in a context file the branch did not touch are tagged
 `outside-this-change`, so a pull request is not blamed for a lockfile it never
 opened. The baseline is what keeps them out of the gate.
+
+Findings in the change are tagged `req:<ID>` for every requirement id the
+commits since the base cite (the prefix comes from the registry's
+`requirement_id_prefix`, `REQ` by default), and the Markdown report and the
+pull-request comment summarise them in a **By requirement** table.
 
 ## A ready-made workflow
 
@@ -170,11 +194,11 @@ Two workflows, split by how long they take rather than by what they cover.
 | platforms | ubuntu-latest **and** windows-latest | ubuntu-latest |
 | writes to the repo | no | yes — the five accumulating files |
 
-**Why the pull-request check runs on two platforms.** REQ-006 was a crash on
+**Why the pull-request check runs on two platforms.** ARB-006 was a crash on
 every adapter timeout on Windows: `os.killpg` does not exist there, so the
 process-group kill path raised `AttributeError` and the analyzer outlived the
 timeout meant to stop it. It was found by hand, months later, because no
-automation had ever run on Windows. UTF-8 decoding (REQ-007) and path handling
+automation had ever run on Windows. UTF-8 decoding (ARB-007) and path handling
 are sensitive the same way, and a developer's machine is not a control.
 
 The matrix is on this workflow and not the nightly one deliberately. Running a
@@ -192,11 +216,11 @@ high, and with no baseline every finding is new. It runs after
 `tools/install_tools.sh`, so the external analyzers are present and the
 self-gate cannot pass by failing to run half its probes. The first time it ran
 it reported three high findings: the `authored` probe matching the TLS-off
-patterns listed in its own module docstring (REQ-032). The Windows job does
+patterns listed in its own module docstring (ARB-032). The Windows job does
 not run the self-gate, because not every analyzer installs there and a gate at
 lower coverage would answer a different question. The same job installs the
 `api` extra, so the sixteen hosted-API tests run on every pull request instead
-of skipping (REQ-034).
+of skipping (ARB-034).
 
 **Skips are printed, not counted.** The pull-request check runs `pytest -rs`,
 so every skip appears in the log with its reason. Windows legitimately skips

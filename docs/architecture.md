@@ -6,6 +6,7 @@
 - [The scan pipeline](#the-scan-pipeline)
 - [Probe outcomes and coverage](#probe-outcomes-and-coverage)
 - [Fingerprinting](#fingerprinting)
+- [Result cache](#result-cache)
 - [Scoring](#scoring)
 - [The report](#the-report)
 
@@ -22,6 +23,7 @@ src/arbiter/
   adapters.py    declarative external-tool adapters
   policy.py      config, profiles, suppressions, scoring, gate
   engine.py      the scan pipeline
+  cache.py       the persistent per-file result cache
   claims.py      the claim ledger and its invariants
   controls.py    control-framework evaluation
   learn.py       knowledge file, calibration, adaptive thresholds
@@ -61,7 +63,9 @@ particular dishonesty impossible.
    differs, the run fails rather than proceeding with different calibration than
    was pinned.
 8. **Resolve adaptive thresholds**, when `quality.adaptive` is set.
-9. **Run the probes**, each with an explicit outcome.
+9. **Run the probes**, each with an explicit outcome. A probe declared
+   `cacheable` is shown only the files the result cache cannot answer for;
+   its hits are assembled from the cache and are indistinguishable downstream.
 10. **Post-process the findings**: deduplicate, apply calibration, apply
     severity overrides, apply the baseline, apply suppressions — in that order.
 11. **Assemble the report**, including lines of code by language and by role.
@@ -118,6 +122,40 @@ Reformat a file and the baseline survives; change a port number and it does not.
 Without this, the "new findings only" gate turns into noise and people switch it
 off — which costs far more than the occasional collision the shortened digest
 risks.
+
+## Result cache
+
+`cache.py` keeps, in `.arbiter/cache.json` under the first target, one entry
+per (probe, file): the findings the probe produced for that file, as produced,
+before any post-processing. The key is
+
+```text
+sha256( sha256(file bytes) ‖ rules hash ‖ repo id ‖ path )
+rules hash = sha256( config as sorted JSON ‖ probe.version ‖ Arbiter version
+                     ‖ digest of Arbiter's own source ‖ the probe's context digest )
+```
+
+so an edited file, a changed configuration, a new release or an edited probe
+all miss, and the same bytes at two paths are two entries. A clean file is
+stored as an empty list, which is the common hit.
+
+**What is never cached.** Only probes declared `cacheable` take part:
+`secrets`, `supply_chain`, `ast_metrics`, `house_rules_ast` and `authored`.
+The declaration claims the probe is file-local — the same file under the same
+rules yields the same findings whether or not any other file is present — and
+`tools/integrity.py` (CI-13) tests the claim on every run by scanning a file
+alone and beside another. `house_rules` is file-scoped but not cacheable: a
+`file_exists` rule reports on the repository, with no path to attribute to.
+`authored` reads the manifests to decide whether an import is declared, so it
+declares them as its context and their digest is in its key. Findings without
+a path are never stored. Calibration, overrides, the baseline and
+suppressions are never stored either: they run on everything, every scan.
+
+The cache file is excluded from the inventory the way the output directory
+is, so Arbiter never reads its own evidence back. `--no-cache` bypasses it,
+`--verify-cache` re-runs a sample of hits and reports any divergence as
+`arbiter/assurance.cache-divergence`, and CI runs without it: a pull-request
+gate measures the tree in front of it.
 
 ## Scoring
 

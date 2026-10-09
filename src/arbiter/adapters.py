@@ -16,7 +16,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,18 @@ from .core import Finding, Location
 from .probes import Probe, ProbeContext, register
 
 PACKS = Path(__file__).parent / "packs" / "adapters"
+
+
+def _toml_loads(text: str) -> dict:
+    """Parse TOML with the standard library where it has a parser (3.11+)
+    and with `tomli`, the same code published separately, below that. This
+    is the one place either module is imported, so Python 3.10 support is
+    decided here and nowhere else (REQ-040)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - exercised on 3.10 only
+        import tomli as tomllib  # type: ignore[no-redef]
+    return tomllib.loads(text)
 
 
 def cache_dir() -> Path:
@@ -467,7 +478,7 @@ def _scope_of(data: dict) -> str:
 
 
 def load_adapter(path: Path) -> Adapter:
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    data = _toml_loads(path.read_text(encoding="utf-8"))
     req = data.get("requires", {})
     inv = data.get("invoke", {})
     sel = data.get("selects", {})

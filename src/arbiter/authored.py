@@ -317,7 +317,10 @@ def _workspace_packages(ctx: ProbeContext, repo_id: str) -> set[str]:
 def _local_modules(ctx: ProbeContext, repo_id: str) -> set[str]:
     """Top-level names that resolve to something inside this repository."""
     out: set[str] = set(_LOCAL_ROOTS)
-    for f in ctx.inventory.text_files():
+    # Which names resolve locally is a question about every path in the
+    # repository, so a narrowed inventory answers it from the whole one.
+    whole = getattr(ctx.inventory, "whole", None) or ctx.inventory
+    for f in whole.text_files():
         if f.repo_id != repo_id:
             continue
         parts = f.path.split("/")
@@ -659,6 +662,7 @@ def _unkept_promises(f, text) -> list[Finding]:
 
 
 def register_authored() -> None:
+    from .cache import make_context_digest
     from .probes import Probe, register
     register(Probe(
         name="authored",
@@ -669,4 +673,10 @@ def register_authored() -> None:
         dimensions=["supply_chain", "security", "quality", "drift"],
         checks=4,
         run=probe_authored,
+        # Cacheable with a declared context: whether an import is declared is
+        # decided by the manifests, and whether a name is local by which
+        # paths exist, so both are folded into the cache key. An unchanged
+        # file is served from the cache only while neither has moved.
+        cacheable=True,
+        cache_context=make_context_digest(_MANIFESTS),
     ))

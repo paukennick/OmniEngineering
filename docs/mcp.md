@@ -2,7 +2,7 @@
 
 Arbiter as tools an agent can call, over two transports: **stdio** for one agent
 on one machine, and **HTTPS** for several people sharing one. Tracked as
-**REQ-010**.
+**ARB-010**.
 
 This is one of two front doors over `service.py`, which holds the containment
 rules. The other is [the hosted API](hosted-api.md). Nothing about where output

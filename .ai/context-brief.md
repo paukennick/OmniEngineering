@@ -58,3 +58,10 @@ Before claiming completion, confirm:
   `python omni waive <rule-id> --reason "..."`.
 - `CHANGELOG.md` and `.ai/project-context.md` record the outcome.
 - Final response includes remaining risk or follow-up, if any.
+
+## When The Task Touches Arbiter
+
+Read the integration handbook once: `docs/arbiter-integration.md` in the OmniEngineering
+repository (https://github.com/paukennick/OmniEngineering/blob/main/docs/arbiter-integration.md;
+an adopted workspace carries no copy). It says how `omni gate` runs `arbiter gate`, how
+findings reach the ledger and the graph, and which switches turn each piece off.

@@ -173,5 +173,5 @@
       "Use .ai/.ignore to exclude sensitive or irrelevant paths."
     ]
   },
-  "note": "2026-10-09 (REQ-031): re-synced to the OmniEngineering upstream (see .ai/omni-version.json) with python omni update; the registry moved to the upstream flat format, the archive to requirements-archive.json, and the arbiter-authored adapters, rulepacks and public-release checklist from REQ-028 were kept and 3-way merged. See .ai/project-context.md."
+  "note": "2026-10-09 (ARB-031): re-synced to the OmniEngineering upstream (see .ai/omni-version.json) with python omni update; the registry moved to the upstream flat format, the archive to requirements-archive.json, and the arbiter-authored adapters, rulepacks and public-release checklist from ARB-028 were kept and 3-way merged. See .ai/project-context.md."
 }

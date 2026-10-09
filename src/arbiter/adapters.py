@@ -421,8 +421,31 @@ class Adapter:
                 raise RuntimeError(f"{self.name} timed out after {self.timeout}s")
             if code not in self.ok_exit and not out.strip():
                 raise RuntimeError(f"{self.name} exited {code}")
-            findings.extend(self.to_findings(self.parse_output(out), repo.id, repo.path))
+            produced = self.to_findings(self.parse_output(out), repo.id, repo.path)
+            known = {f.path for f in ctx.inventory.by_repo.get(repo.id, [])}
+            findings.extend(in_scope(produced, known))
         return findings
+
+
+def in_scope(findings: list[Finding], known_paths: set[str]) -> list[Finding]:
+    """Keep only findings on files the inventory decided to scan.
+
+    Every external analyzer walks the tree itself, and each one has its own
+    idea of what to skip. The inventory is Arbiter's single answer to that
+    question -- SKIP_DIRS, git-ignored paths, generated roles -- and REQ-026
+    and REQ-029 taught bandit, checkov and semgrep to honour it through their
+    own exclusion flags. gitleaks was not taught, and the first self-gate
+    reported four critical secrets: fixture token shapes it found in a
+    git-ignored graph file and in __pycache__. Rather than teach each tool
+    separately and miss the next one, the boundary is enforced once, here,
+    on the way in. A finding with no path (a tool-level verdict) is kept.
+    """
+    out: list[Finding] = []
+    for f in findings:
+        path = f.location.path
+        if not path or path in known_paths:
+            out.append(f)
+    return out
 
 
 SCOPE_REASON = ("no measurement establishes that this external analyzer returns "

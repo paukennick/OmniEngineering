@@ -62,7 +62,8 @@
       "src",
       "tools",
       "training"
-    ]
+    ],
+    "defect_category_pattern": "defect|bug|fix|regress|incident|failure"
   },
   "global_operating_principles": {
     "targeted_access_only": {

@@ -24,9 +24,76 @@ suppress:
     path: "fixtures/**"
     reason: "planted defects — this is the golden-fixture test corpus"
     expires: 2099-01-01
+  - rule: "semgrep/*"
+    path: "fixtures/**"
+    reason: "planted defects — this is the golden-fixture test corpus"
+    expires: 2099-01-01
+  - rule: "bandit/*"
+    path: "fixtures/**"
+    reason: "planted defects — this is the golden-fixture test corpus"
+    expires: 2099-01-01
+  - rule: "gitleaks/*"
+    path: "fixtures/**"
+    reason: "planted defects — this is the golden-fixture test corpus"
+    expires: 2099-01-01
+  - rule: "gitleaks/*"
+    path: "tests/**"
+    reason: "the tests assert on token shapes (Stripe, Slack) that are documentation examples, not live"
+    expires: 2099-01-01
+  # Semgrep's python36-compatibility rules flag the `encoding` and `errors`
+  # arguments to Popen. pyproject.toml requires Python 3.11 or later, so
+  # the incompatibility they warn about cannot occur here.
+  - rule: "semgrep/semgrep-rules.python.lang.compatibility.*"
+    reason: "requires-python >= 3.11 (pyproject.toml); the 3.6 compatibility warnings cannot apply"
+    expires: 2099-01-01
   - rule: "arbiter/secrets.*"
     path: "tests/**"
     reason: "the test asserts on the AWS documentation example key, which is not live"
+    expires: 2099-01-01
+  # OmniEngineering's maintenance tooling ships into this repository as
+  # copies (see .ai/omni-version.json) and is improved upstream, not here.
+  # Scoring it as arbiter's own code put 44 of 90 complexity findings on
+  # files this project does not author. Suppressed, not excluded: the
+  # findings stay in the report, attributed to the tooling.
+  - rule: "arbiter/ast.*"
+    path: "make_ai.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "arbiter/ast.*"
+    path: "omni_graph.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "arbiter/ast.*"
+    path: "omni_mcp.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "arbiter/quality.*"
+    path: "omni_graph.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "arbiter/quality.*"
+    path: "make_ai.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "semgrep/*"
+    path: "make_ai.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "semgrep/*"
+    path: "omni_graph.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "semgrep/*"
+    path: "omni_mcp.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "bandit/*"
+    path: "make_ai.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
+    expires: 2099-01-01
+  - rule: "bandit/*"
+    path: "omni_graph.py"
+    reason: "OmniEngineering tooling, maintained upstream; see .ai/omni-version.json"
     expires: 2099-01-01
 
 rules:
@@ -48,8 +115,14 @@ rules:
     type: ast_query
     languages: [python]
     files: "src/**/*.py"
-    query: "(except_clause) @hit"
-    title: "Bare or broad except clause"
-    description: "Structural check: catches the clause wherever it is formatted."
+    # The predicate is the rule. Without it `(except_clause)` matched every
+    # handler in the tree, `except OSError:` included -- 89 findings on a
+    # self-scan, none of them what the title says. A bare `except:` has no
+    # identifier child to match, so it is left to ruff E722, which the
+    # pull-request job installs.
+    query: '(except_clause (identifier) @t (#match? @t "^(Exception|BaseException)$")) @hit'
+    capture: hit
+    title: "Broad except clause"
+    description: "Structural check for `except Exception` and `except BaseException`; bare `except:` is ruff E722."
     remediation: "Catch the specific exception, or re-raise after handling."
     severity: low

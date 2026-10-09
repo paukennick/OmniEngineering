@@ -951,6 +951,81 @@
       ],
       "prevention_notes": "Never spawn a shell or tool by bare name from a test or from src/: resolve it with shutil.which first. The same CreateProcess ordering bit REQ-006's taskkill path.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-036",
+      "date": "2026-10-09",
+      "title": "The authored probe reported its own docstring's pattern list as three disabled TLS checks",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "First self-gate: three high findings arbiter/authored.security-check-disabled at src/arbiter/authored.py:33-34, evidence verify=False, rejectUnauthorized: false, InsecureSkipVerify: true. Those lines are the module docstring listing what the probe looks for.",
+      "how_detected": "running arbiter gate on this repository for the first time (REQ-032)",
+      "root_cause": "_blank_comments blanks # comments for hash languages but not Python triple-quoted strings, so docstring prose was scanned as code. _strip_prose already blanked docstrings for the import scanner; the disabled-check scanner never got the same treatment.",
+      "requirement": "REQ-032",
+      "affected": [
+        "src/arbiter/authored.py"
+      ],
+      "fix_summary": "_blank_comments blanks triple-quoted strings for Python using the existing _PY_DOCSTRING regex.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter.py::test_a_docstring_listing_the_dangerous_settings_is_not_the_setting"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Arbiter now gates its own pull requests (pr-check self-gate), so a probe that misreads its own source fails CI the day it ships.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-037",
+      "date": "2026-10-09",
+      "title": "The no-bare-except house rule matched every except clause",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "Self-scan: 89 house/no-bare-except findings under src/, including except OSError: and except BaseException: ... raise, none of them bare or broad.",
+      "how_detected": "self-scan triage (REQ-033)",
+      "root_cause": "The tree-sitter query was (except_clause) @hit with no predicate on the caught type, so it captured every handler; the title promised bare or broad.",
+      "requirement": "REQ-033",
+      "affected": [
+        "arbiter.yaml"
+      ],
+      "fix_summary": "Query narrowed with (#match? @t ...) to Exception and BaseException; bare except: is left to ruff E722, which the pull-request job now installs.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter.py::test_the_broad_except_house_rule_matches_only_broad_clauses"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "A house rule earns its place by a test that plants the thing it names and one it does not; the rule shipped with neither.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-038",
+      "date": "2026-10-09",
+      "title": "gitleaks findings on git-ignored and cache files reached the report as critical secrets",
+      "status": "fixed",
+      "severity": "high",
+      "symptom": "First self-gate with the analyzers installed: 4 critical gitleaks findings, three of them on .ai/project-graph.json (git-ignored) and tests/__pycache__/*.pyc, files the inventory never scans.",
+      "how_detected": "running arbiter gate on this repository with tools/install_tools.sh applied (REQ-032)",
+      "root_cause": "Every adapter walks the tree itself. REQ-026 and REQ-029 taught bandit, checkov and semgrep the inventory's exclusions through their own flags; gitleaks was never taught, and adapter output was never checked against the inventory on the way in.",
+      "requirement": "REQ-033",
+      "affected": [
+        "src/arbiter/adapters.py"
+      ],
+      "fix_summary": "Adapter.run keeps only findings whose path the inventory scanned (in_scope), so the boundary is enforced once for every tool rather than per manifest.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter.py::test_adapter_findings_outside_the_inventory_are_dropped"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "data.scope_boundary"
+      ],
+      "prevention_notes": "Scope is decided in one place, the inventory; a tool's own traversal is an implementation detail its output must be reconciled with.",
+      "recurrence_of": "FAIL-023"
     }
   ]
 }

@@ -9,6 +9,10 @@ Five government framework packs ship with Arbiter:
 | `nist-800-218-ssdf` | NIST SSDF (SP 800-218) |
 | `fedramp-moderate-r5` | FedRAMP Moderate Rev. 5 |
 | `cmmc-l2` | CMMC Level 2 |
+| `pci-dss-v4` | PCI DSS v4.0 — 32 of the 63 x.y requirement sections enumerated |
+| `hipaa-security-rule` | HIPAA Security Rule (45 CFR 164 Subpart C) — 32 of 59 standards and implementation specifications |
+| `soc2-tsc-2017` | SOC 2, AICPA Trust Services Criteria 2017 — 29 of 61 criteria |
+| `cis-controls-v8` | CIS Controls v8 — 41 of 153 safeguards, implementation group in the title |
 
 Each is an **independent** pack — controls map straight to checks, never routed
 through a hub framework, because chaining two approximate crosswalks produces a
@@ -75,6 +79,16 @@ Rules declare the controls they support:
 
 ## Commercial packs
 
-PCI-DSS, HIPAA, SOC 2 and CIS are each a data file in the format the five
-government packs already use. The interfaces exist; those packs do not ship. See
-the roadmap in the [README](../README.md#project-status).
+PCI DSS v4.0, the HIPAA Security Rule, SOC 2 (Trust Services Criteria 2017)
+and CIS Controls v8 ship as `pci-dss-v4`, `hipaa-security-rule`,
+`soc2-tsc-2017` and `cis-controls-v8`, in the same format as the government
+packs. Each declares the framework's full published size at its unit (PCI's
+63 x.y requirement sections, HIPAA's 20 standards plus 39 implementation
+specifications, the 61 TSC criteria, the 153 CIS safeguards) and enumerates
+only the scanner-relevant subset, so an unlisted control reads as *not
+enumerated* rather than as a pass. Physical safeguards are `not_automatable`
+throughout. The identifiers were transcribed from the public framework texts;
+PCI DSS and the TSC are licensed documents, so verify them against the licensed
+text before an audit package cites them. CIS titles carry the implementation
+group as an `(IG1)`/`(IG2)`/`(IG3)` suffix, which is Arbiter's annotation, not
+part of the CIS title.

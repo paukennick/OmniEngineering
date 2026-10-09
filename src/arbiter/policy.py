@@ -161,6 +161,12 @@ def compute_scorecard(
     applicable: dict[str, int] = {}
     ran: dict[str, int] = {}
     for o in outcomes:
+        # A probe that could never have applied here -- seams on a single
+        # repository -- is not an unassessed check; there is nothing it would
+        # have assessed. It leaves the denominator. A probe that was prevented
+        # (missing binary, profile) stays in it: that gap is real.
+        if not getattr(o, "applicable", True):
+            continue
         for d in o.dimensions or []:
             if o.status in ("ran", "error", "skipped"):
                 applicable[d] = applicable.get(d, 0) + _checks_of(o)

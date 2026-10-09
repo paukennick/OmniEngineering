@@ -191,6 +191,26 @@
         "completion",
         "graph"
       ]
+    },
+    {
+      "id": "completion.arbiter_gate",
+      "severity": "required",
+      "statement": "A change to Arbiter's source, tests, packs or policy passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete. The repository holds its own code to the standard it holds others to.",
+      "scope": [
+        "completion",
+        "validation"
+      ],
+      "validation": {
+        "type": "command",
+        "run": "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
+        "when_changed": [
+          "src/**",
+          "tests/**",
+          "arbiter.yaml",
+          "tools/**"
+        ],
+        "timeout": 600
+      }
     }
   ]
 }

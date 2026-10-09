@@ -152,6 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
     rv.add_argument("--apply", metavar="FILE",
                     help="read a marked review file back and record the verdicts")
     rv.add_argument("--note", default="", help="note stored with each verdict")
+    rv.add_argument("--ledger", metavar="FILE", default="",
+                    help="with --apply: draft an open OmniEngineering failure-ledger "
+                         "entry for every verdict recorded as a true positive")
     rv.add_argument("--reviewer", default="",
                     help="who is answerable for these verdicts "
                          "(default: git config user.email)")
@@ -639,6 +642,21 @@ def cmd_review(args) -> int:
         for rule in proven:
             print(f"\n  {rule} has reached {MIN_OBSERVATIONS} adjudications "
                   "and is no longer reported as unproven.")
+        if args.ledger:
+            from .ledger import draft_entries
+            try:
+                drafted = draft_entries(report.findings,
+                                        res["recorded_ids"].get("true_positive", []),
+                                        Path(args.ledger))
+            except ValueError as exc:
+                print(f"\n  ledger not written: {exc}", file=sys.stderr)
+                return EXIT_ERROR
+            if drafted:
+                print(f"\n  drafted {len(drafted)} open failure-ledger entr"
+                      f"{'y' if len(drafted) == 1 else 'ies'} in {args.ledger}: "
+                      f"{', '.join(drafted)}")
+                print("  fill in the root cause, fix and regression test with "
+                      "`omni failure update <id> ...`")
         if not res["recorded"]:
             print("\n  Nothing recorded. Marks go inside the brackets: [y] or [n].")
         print(f"\n  knowledge is now {version}")

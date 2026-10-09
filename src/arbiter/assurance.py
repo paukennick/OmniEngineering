@@ -218,7 +218,10 @@ def _suppressions(ctx: ProbeContext, repo_id: str) -> list[Finding]:
     total = 0
 
     for f in ctx.inventory.text_files():
-        if f.repo_id != repo_id or f.role == "generated":
+        # Documentation discusses suppressions; it does not apply them. README
+        # and the decision log here both explain what `# noqa` means and were
+        # reported as blanket suppressions for saying so.
+        if f.repo_id != repo_id or f.role in ("generated", "docs"):
             continue
         if _EXPECTED_SUPPRESSIONS.search(f.path):
             continue

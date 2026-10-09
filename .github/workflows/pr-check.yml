@@ -36,7 +36,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Linux installs the five analyzers and runs the self-gate; semgrep alone
+    # takes about six minutes over this tree and the adapter tests then run
+    # the real tools, so the Linux job is twenty-odd minutes. Windows stays
+    # near two. The limit is for the slower one.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +58,19 @@ jobs:
           # mcp: omni doctor starts the `arbiter mcp` server .mcp.json
           # registers and asks it for its tools, so the SDK has to be there.
           pip install -e .[dev,mcp]
+
+      # Linux only: the five external analyzers and the hosted-API extra.
+      # Without them the adapter code paths ran only in the nightly job and
+      # the sixteen API tests skipped on every pull request (REQ-034). The
+      # installer never fails the build; a tool it could not fetch shows up
+      # in the self-gate below as not assessed. Windows keeps the fast core
+      # run: the analyzers are not all available there and the matrix exists
+      # for the platform-sensitive paths, not for the adapters.
+      - name: Install analyzers and the api extra
+        if: runner.os == 'Linux'
+        run: |
+          pip install -e .[api]
+          ./tools/install_tools.sh
 
       # -rs prints the reason for every skip. Windows runners legitimately skip
       # things Linux does not, and a skip that is silently absent from the log
@@ -92,3 +109,15 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
         run: python omni gate
+
+      # Arbiter evaluates itself (REQ-032). arbiter.yaml is the policy: the
+      # gate fails on any critical and on any new high, and with no baseline
+      # every finding is new, so this is the standard the repository holds
+      # its own code to. Linux only, because that is where the analyzers are
+      # installed and a self-gate that could not run half its probes would
+      # pass for the wrong reason.
+      - name: Arbiter self-gate
+        if: runner.os == 'Linux'
+        env:
+          PYTHONIOENCODING: utf-8
+        run: arbiter gate . --out arbiter-out --format json,markdown

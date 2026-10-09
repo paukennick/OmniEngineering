@@ -27,6 +27,7 @@ training/*
 # machine-specific; the Headroom wiring lives in settings.local.json.
 .claude/*
 !.claude/settings.json
+!.claude/skills/
 
 # Same reasoning as .claude/ above, for Codex CLI: local Headroom wiring with
 # a machine-specific path and profile id, not project configuration.

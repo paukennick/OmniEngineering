@@ -443,6 +443,191 @@
       "risk_notes": [
         "arbiter's requirement categories (developer-tooling etc.) do not match the defect/bug/fix pattern that makes omni requirement complete demand a ledger entry; record defects deliberately or file them under a defect category. The gate's co_changed rules now require CHANGELOG.md and the registry to change with any other file; the nightly training job is exempt by path. The graph needs tree-sitter-python and tree-sitter-bash; a machine without them still has every other command."
       ]
+    },
+    {
+      "id": "REQ-032",
+      "category": "defect",
+      "title": "Arbiter gates its own pull requests, and the authored probe stops reading its own docstring as code",
+      "description": "pr-check never ran arbiter on this repository although it ships a GitHub Action and a two-job example workflow; a self-scan withheld the grade and reported three high findings that were the authored probe matching the TLS-off patterns listed in its own module docstring. _blank_comments blanks # comments for Python but not triple-quoted strings, so prose inside a docstring was scanned as code. pr-check now runs arbiter gate on ubuntu after the suite, and the probe blanks docstrings the way the import scanner already does.",
+      "priority": "high",
+      "status": "completed",
+      "minimum_access_scope": [
+        "src/arbiter/authored.py",
+        "tests/test_arbiter.py",
+        ".github/workflows/pr-check.yml",
+        "arbiter.yaml",
+        "docs/ci.md"
+      ],
+      "acceptance_criteria": [
+        "arbiter gate . exits 0 on this repository with the tools pr-check installs",
+        "a regression test plants verify=False inside a docstring and inside code and asserts only the code one is reported",
+        "FAIL entry recorded"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/mutate_tests.py",
+        "arbiter gate .",
+        "python omni gate"
+      ],
+      "documentation_required": [
+        "changelog"
+      ],
+      "risk_notes": [
+        "The gate runs with no baseline so every finding is new; the gate policy in arbiter.yaml fails on new high and above",
+        "which is the standard this repository holds itself to."
+      ]
+    },
+    {
+      "id": "REQ-033",
+      "category": "defect",
+      "title": "Probe precision on real repositories: history-aware doc drift, prose excluded from suppression scanning, a house rule that means what it says, tooling attributed upstream, and not-applicable probes kept out of the coverage denominator",
+      "description": "The self-scan's noise had five distinct causes. drift.doc-references-missing-file reported 24 paths named in CHANGELOG.md and project-context.md, most of them files that once existed and were deliberately removed or renamed, which an append-only history file is right to mention; the probe now asks git whether the path was ever tracked and reports those at info as removed rather than missing. assurance.blanket-suppression fired on Markdown prose that discusses # noqa; the probe now skips the docs role. house/no-bare-except matched every except clause, including except OSError, because its tree-sitter query had no predicate; it now matches only bare and Exception/BaseException clauses. OmniEngineering's own make_ai.py, omni_graph.py and omni_mcp.py were scored as arbiter's code in the quality dimension (44 of 90 complexity findings); arbiter.yaml now suppresses quality findings on them with the reason recorded, so they stay visible and attributed. The interface probe on a single-repository scan reported skipped with 0% dimension coverage although there is nothing to assess; a probe that declares itself not applicable is now recorded as such and excluded from the coverage denominator, while a probe that could have run but did not still counts against coverage.",
+      "priority": "high",
+      "status": "completed",
+      "minimum_access_scope": [
+        "src/arbiter/probes.py",
+        "src/arbiter/assurance.py",
+        "src/arbiter/engine.py",
+        "src/arbiter/policy.py",
+        "src/arbiter/report.py",
+        "src/arbiter/claims.py",
+        "arbiter.yaml",
+        "tests/test_arbiter.py",
+        "docs/probes.md"
+      ],
+      "acceptance_criteria": [
+        "self-scan drift findings on once-tracked paths are info and say removed",
+        "no blanket-suppression finding on a .md file",
+        "no-bare-except reports except Exception and bare except but not except OSError",
+        "self-scan coverage no longer counts the interface probe when the system has one repo and the scorecard says so",
+        "existing golden fixtures unchanged"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q",
+        "python tools/integrity.py",
+        "python tools/mutate_tests.py",
+        "arbiter scan ."
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "Excluding not-applicable probes from the denominator is a scoring change; it is limited to probes that declare not-applicable themselves and the claim ledger records them separately so a report cannot pass off could-not-run as not-applicable."
+      ]
+    },
+    {
+      "id": "REQ-034",
+      "category": "developer-tooling",
+      "title": "pr-check exercises the external analyzers and the hosted API on Linux",
+      "description": "The pull-request job installed none of bandit, checkov, gitleaks or semgrep and not the api extra, so the adapter code paths ran only in the nightly job and the 16 hosted-API tests always skipped. On ubuntu the job now runs tools/install_tools.sh and installs .[dev,mcp,api]; Windows keeps the fast core run.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        ".github/workflows/pr-check.yml",
+        "docs/ci.md"
+      ],
+      "acceptance_criteria": [
+        "ubuntu job log shows the adapter tests and the API tests running rather than skipping",
+        "job time stays under ten minutes"
+      ],
+      "validation_required": [
+        "pull request run"
+      ],
+      "documentation_required": [
+        "changelog"
+      ],
+      "risk_notes": [
+        "Tool installs add minutes to the ubuntu job; the install script never fails the build and a missing tool shows as not assessed."
+      ]
+    },
+    {
+      "id": "REQ-035",
+      "category": "integration",
+      "title": "A true-positive adjudication can draft a failure-ledger entry",
+      "description": "Arbiter's adjudication ledger and the OmniEngineering failure ledger both record what was wrong and why, in parallel. arbiter review --apply gains --ledger PATH: for every verdict recorded as true_positive it appends an open entry to the OmniEngineering ledger (title from the finding, symptom from its description and location, how_detected naming the rule, affected naming the file), skipping findings already present, so the fix that follows the verdict lands in the record the workspace's gate and graph already read.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "src/arbiter/ledger.py",
+        "src/arbiter/cli.py",
+        "src/arbiter/review.py",
+        "tests/test_arbiter.py",
+        "docs/calibration.md"
+      ],
+      "acceptance_criteria": [
+        "a marked review applied with --ledger adds one open entry per true positive and none for false positives or repeats",
+        "the resulting file passes python omni failure check",
+        "no entry is written when the verdict was refused"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q -k ledger",
+        "python omni failure check"
+      ],
+      "documentation_required": [
+        "changelog"
+      ],
+      "risk_notes": [
+        "The ledger schema is OmniEngineering's; the bridge writes only the fields it requires plus affected and how_detected."
+      ]
+    },
+    {
+      "id": "REQ-036",
+      "category": "integration",
+      "title": "A Claude Code skill for Arbiter",
+      "description": "README listed the Claude skill as not yet built. .claude/skills/arbiter/SKILL.md tells a session when to use the arbiter MCP tools versus the CLI, how to read a withheld grade and a not-assessed probe, how to adjudicate with review --apply, and what the self-gate in pr-check requires of a change.",
+      "priority": "low",
+      "status": "completed",
+      "minimum_access_scope": [
+        ".claude/skills/arbiter/SKILL.md",
+        ".gitignore",
+        "README.md"
+      ],
+      "acceptance_criteria": [
+        "the skill file is tracked and names only commands and tools that exist",
+        "README no longer lists the skill as unbuilt"
+      ],
+      "validation_required": [
+        "manual_verification"
+      ],
+      "documentation_required": [
+        "readme"
+      ],
+      "risk_notes": [
+        "none"
+      ]
+    },
+    {
+      "id": "REQ-037",
+      "category": "compliance",
+      "title": "Commercial control packs: PCI DSS v4, HIPAA Security Rule, SOC 2 TSC, CIS Controls v8",
+      "description": "README said the interfaces exist and the implementations do not. Four packs in the format of the five government packs, each honest about the scanner-relevant subset it covers and about residual human work, with control identifiers transcribed from the public framework texts and flagged for verification against the licensed documents before audit use.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "src/arbiter/packs/controls/",
+        "docs/compliance.md",
+        "README.md",
+        "tests/test_arbiter.py"
+      ],
+      "acceptance_criteria": [
+        "arbiter controls lists the nine frameworks",
+        "every satisfied_by id is a real rule",
+        "pack tests pass"
+      ],
+      "validation_required": [
+        "python -m pytest tests/ -q -k control",
+        "arbiter controls"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "PCI DSS and the TSC are licensed documents; identifiers are transcribed",
+        "not reproduced",
+        "and must be verified before an audit package cites them."
+      ]
     }
   ]
 }

@@ -28,6 +28,22 @@ pip install -e .
 arbiter scan ./my-repo
 ```
 
+### With OmniEngineering
+
+If the repository uses the OmniEngineering workspace, let it install Arbiter
+and wire the two together in one step: the `arbiter` MCP server in
+`.mcp.json`, a `completion.arbiter_gate` rule so `omni gate` runs
+`arbiter gate --changed`, and a starter `arbiter.yaml`.
+
+```bash
+./omni adopt --target ../your-project --include-cli --with-arbiter ../arbiter   # from the OmniEngineering checkout
+./omni arbiter install --source ../arbiter                                     # in a repository adopted earlier
+```
+
+Both are safe to rerun and never overwrite a tuned `arbiter.yaml`. The source
+can be a checkout, the GitHub URL, or a pip spec; `--skip-pip` writes only
+the wiring.
+
 ### Optional extras
 
 | Extra | Install | Enables |

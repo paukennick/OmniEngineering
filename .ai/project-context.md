@@ -1000,3 +1000,60 @@ OmniEngineering suite has one pre-existing failure in this container
 (`test_gate_hook`'s background rebuild, which needs the tree-sitter grammar
 on the system interpreter) that is unrelated to the ported changes.
 
+## 2026-10-09 — Arbiter evaluates itself (REQ-032 … REQ-037)
+
+**The gap.** After the workspace re-sync, a self-scan was the obvious next
+question, and the answer was embarrassing in a useful way: the grade was
+withheld at 22% coverage, three high findings were the `authored` probe
+reading its own docstring, and the repository that ships a GitHub Action had
+never run that action on itself. The user chose to close the whole list:
+self-gate first, then the noise, then the capability gaps.
+
+**Why the self-gate runs on Linux only.** The analyzers do not all install
+on the Windows runner, and a gate that passed at lower coverage would answer
+a different question from the one `arbiter.yaml` asks. The Windows job keeps
+the suite, integrity, mutation, doctor and `omni gate`; `omni gate` on Windows
+runs `arbiter gate --changed` with native probes only, which is honest as
+long as the Linux job runs the full one.
+
+**Why adapter output is filtered against the inventory rather than each
+tool taught its exclusions.** REQ-026 and REQ-029 taught bandit, checkov and
+semgrep the inventory's exclusions through their own flags; gitleaks was not
+taught and walked `__pycache__` and a git-ignored graph file into four
+critical findings. Enforcing the boundary once, on the way in, means the next
+adapter cannot miss it. The tools still do their own traversal; what reaches
+the report is what the inventory decided was in scope.
+
+**Why not-applicable leaves the denominator, and why that is not a loophole.**
+`ProbeOutcome.applicable` already existed (REQ-022 added it for the control
+matrix) and the engine already set it; only `compute_scorecard` ignored it.
+The honest distinction is between a probe with no question to answer (seams
+on one repository) and a probe prevented from answering (a missing binary).
+The first now leaves the denominator; the second never does. CI-12 makes the
+distinction machine-checked: a report that pairs `applicable=False` with the
+engine's own prevented-reason wording, or with a `ran` or `error` status,
+fails verification, and `tools/integrity.py` breaks it on every run to prove
+the check is live. Coverage on this repository is 99% with the analyzers
+installed, and the 1% is the `judgement` probe the offline profile forbids,
+which is exactly right.
+
+**Suppressions, not exclusions, for the tooling and the corpus.**
+`arbiter.yaml` now suppresses quality and semgrep findings on
+OmniEngineering's three tooling files, all analyzer findings under
+`fixtures/`, gitleaks under `tests/`, and semgrep's Python 3.6 compatibility
+rules project-wide. Every entry carries its reason and an expiry, and the
+findings stay in the report marked as suppressed. That is the feature: the
+report can say how much of what it did not act on was a decision.
+
+**The two gates now meet.** OmniEngineering gained a `command` validation
+type (its REQ-032), and `completion.arbiter_gate` in this repository's
+completion rulepack runs `arbiter gate --changed <base>` inside `omni gate`
+whenever source, tests, tools or policy change. The pre-commit hook, the
+Claude Code Stop hook and CI all run it, so a change to Arbiter cannot be
+reported complete while Arbiter itself rejects it.
+
+**What is still open.** REQ-005 (licensing) needs counsel. REQ-024's last
+criterion, making the check required, is a repository setting. The control
+packs' identifiers were transcribed, not reproduced, and must be verified
+against the licensed PCI DSS and TSC texts before an audit package cites them.
+

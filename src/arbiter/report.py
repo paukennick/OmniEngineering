@@ -274,7 +274,8 @@ def render_console(report: Report, color: bool | None = None, limit: int = 40) -
     if skipped:
         L.append(_color(color, "bold", "  NOT ASSESSED"))
         for p in skipped:
-            mark = "error" if p.status == "error" else "skip "
+            mark = ("error" if p.status == "error"
+                    else "n/a  " if not getattr(p, "applicable", True) else "skip ")
             L.append(f"  {mark}  {p.name:<18} {p.reason}")
         L.append("")
 

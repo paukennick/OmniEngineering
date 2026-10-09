@@ -28,7 +28,7 @@ treated as passes.
 | `house_rules_ast` | quality, security | tree-sitter | Your own tree-sitter queries from `arbiter.yaml` |
 | `supply_chain` | supply chain | nothing | Unpinned Python/npm dependencies, GitHub Actions on mutable refs, `pull_request_target` |
 | `doc_drift` | drift | nothing | Broken documentation links, files described in prose that do not exist, documented environment variables nothing reads |
-| `interface` | interface | 2+ repos | Six cross-repo seam checks — see [systems.md](systems.md) |
+| `interface` | interface | 2+ repos | Six cross-repo seam checks — see [systems.md](systems.md). On a single repository it is recorded as not applicable (`n/a` in the NOT ASSESSED block) and leaves the coverage denominator; a probe that was *prevented* from running stays in it, and claim invariant CI-12 refuses a report that marks a prevented probe as not applicable. |
 | `house_rules` | quality, drift | nothing | Your own rules from `arbiter.yaml` |
 | `assurance` | assurance | nothing | Whether the *checking* is switched on — see below |
 | `authored` | supply chain, security | nothing | Defects characteristic of machine-drafted code — see below |
@@ -238,3 +238,13 @@ Three rules it obeys:
   model-stated confidence never reaches `high` — confidence asserted by a model
   is a different quantity from confidence measured from adjudicated outcomes,
   and sharing a scale would be a category error.
+
+## Two findings that read history
+
+`drift.doc-references-missing-file` asks git whether a path named in prose was
+ever committed. A path that was tracked and is gone is reported at `info` as
+*removed*: a changelog or decision record is right to name it. A path that was
+never there keeps the `low` finding, because that is a typo or a rename the
+document missed. `assurance.blanket-suppression` does not read documentation
+at all: a README explaining what `# noqa` means is not a suppression.
+

@@ -38,6 +38,3 @@ training/*/
 
 # OmniEngineering graph viewer bundle (vendored JS, large)
 .ai/graph-viewer/
-
-# OmniEngineering graph viewer bundle (vendored JS, large)
-.ai/graph-viewer/

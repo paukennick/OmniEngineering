@@ -76,6 +76,11 @@ the coverage figure is lower and nothing pretends otherwise.
 
 ---
 
+If the repository already carries the OmniEngineering workspace, `./omni
+arbiter install --source ../arbiter` installs Arbiter and registers it with
+the workspace's gate and MCP configuration in one step (see `SETUP.md`,
+"With OmniEngineering"); the rest of this guide applies unchanged.
+
 ## 2. First full scan
 
 Run from the root of the repository you want scanned. If you were already

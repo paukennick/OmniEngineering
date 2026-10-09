@@ -140,7 +140,9 @@ def requirement_scope_note(findings: list[Finding], base: str | None = None) -> 
         parts.append(f"{from_open} from the requirements open when the scan ran, because no "
                      f"commit {since} touching the file cited one -- context, not attribution "
                      f"(`{REQ_SCOPE_OPEN}`)")
-    return "Scope of the `req:` tags: " + "; ".join(parts) + "." if parts else ""
+    if not parts:
+        return ""
+    return "Scope of the `req:` tags: " + "; ".join(parts) + "."
 
 
 def requirement_block(findings: list[Finding], heading: str = "## By requirement",

@@ -13,7 +13,7 @@
 
 - `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
   --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other
-  (both held a REQ-035). The registry gains an optional `id_aliases` map (old id to new id) that the
+  (each registry had reached number 035 with a different requirement). The registry gains an optional `id_aliases` map (old id to new id) that the
   gate's requirement-id check, `requirement show/update/complete/archive`, `failure add/update/check`
   and doctor resolve; doctor errors on an alias that points nowhere or that is still a live id.
   `renumber` changes the prefix, renumbers the registry and archive keeping the numbers, writes the

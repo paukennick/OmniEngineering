@@ -167,5 +167,6 @@ stands.
 | `.arbiter/knowledge.json` | calibration ledgers and learned confidence | yes |
 | `.arbiter/external-severity.json` | measured severities for external checks | yes |
 | `.arbiter/cache.json` | per-file results of the file-local probes | no — git-ignored |
+| `~/.cache/arbiter/tool-versions.json` (`ARBITER_CACHE_DIR`) | the external analyzers' version strings, keyed on each binary's path, mtime and size, so registration does not run every `--version` on every invocation; `--no-cache` leaves it alone, `ARBITER_NO_VERSION_MEMO=1` bypasses it, and a tool replaced in place with the same size and mtime keeps its old string until the file is deleted | no — machine-local |
 | `arbiter-out/` | reports from the last run | no — git-ignored |
 | `arbiter-ab/` | A/B harness output | no — git-ignored |

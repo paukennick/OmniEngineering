@@ -21,6 +21,7 @@ from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
 from .report import render_console, render_markdown, write_all
+from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
 
@@ -74,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--tfplan", action="append", default=[], metavar="[REPO=]PATH",
                         help="Terraform plan or state JSON; supersedes reading .tf source. "
                              "Repeatable, and prefix with `repo=` in a multi-repo system.")
+        sp.add_argument("--no-history", action="store_true",
+                        help="do not append this run to <out>/history.jsonl")
         return sp
 
     sc = common(sub.add_parser("scan", help="analyze and report"))
@@ -90,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     gt = common(sub.add_parser("gate", help="analyze and exit non-zero on policy failure"))
     gt.add_argument("--out", default="arbiter-out")
     gt.add_argument("--format", default="json,console")
+
+    db = sub.add_parser("dashboard",
+                        help="render the run history as a self-contained trend page")
+    db.add_argument("--history", default="arbiter-out/history.jsonl",
+                    help="history file every scan and gate appends to")
+    db.add_argument("--out", default="arbiter-out/dashboard.html", help="page to write")
 
     ab = sub.add_parser("ab", help="run two arms over the same target and compare")
     ab.add_argument("--spec", help="A/B spec YAML")
@@ -393,6 +402,8 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
         print(render_console(report, limit=getattr(args, "limit", 40)))
     for kind, path in written.items():
         print(f"  wrote {kind}: {path}")
+    if not getattr(args, "no_history", False):
+        print(f"  appended history: {history.append(report, args.out)}")
     if written:
         print()
 
@@ -404,6 +415,21 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
 
     if gate_mode and not (report.gate or {}).get("passed"):
         return EXIT_GATE_FAIL
+    return EXIT_OK
+
+
+def cmd_dashboard(args) -> int:
+    rows = history.load(Path(args.history))
+    latest = rows[-1] if rows else {}
+    title = f"Arbiter \u2014 {latest.get('system') or 'run history'}"
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(history.render_dashboard(rows, title), encoding="utf-8")
+    if rows:
+        print(f"  {len(rows)} run(s) in {args.history}")
+    else:
+        print(f"  no runs recorded in {args.history} yet; the page says so")
+    print(f"  wrote dashboard: {out}\n")
     return EXIT_OK
 
 
@@ -982,6 +1008,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "gate":
             args.limit = 40
             return cmd_scan(args, gate_mode=True)
+        if args.cmd == "dashboard":
+            return cmd_dashboard(args)
         if args.cmd == "ab":
             return cmd_ab(args)
         if args.cmd == "probes":

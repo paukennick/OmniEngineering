@@ -20,6 +20,7 @@ findings never blend, the tool never executes the target.
 | Anything with `--changed`, `--baseline`, `--system`, formats | the CLI: `arbiter scan`, `arbiter gate`, `arbiter diff`, `arbiter ab` |
 | One finding in full | `arbiter explain <finding-id>` |
 | What was and was not checked for a framework | `arbiter controls --framework <id>` |
+| The trend across runs | `arbiter dashboard`, from `<out>/history.jsonl`, which every scan and gate appends to (`--no-history` skips it) |
 
 ## Reading a report
 

@@ -166,6 +166,7 @@ arbiter review arbiter-out/report.json         # adjudicate a batch in one pass
 arbiter feedback f:8c41 --false-positive       # adjudicate one finding
 arbiter learn                                  # what has been learned
 arbiter ab --spec examples/ab-native-vs-checkov.yaml    # compare two arms
+arbiter dashboard                              # the trend across runs, as one page
 ```
 
 Against a hosted instance, with nothing but Arbiter itself installed locally:
@@ -210,6 +211,11 @@ profile cost you.
 
 `--format json,sarif,html,markdown,console`. JSON is canonical and written
 first; every other format is a rendering of it.
+
+Every scan and gate also appends one summary line — time, commit, grade,
+coverage, counts, gate result; no evidence and no paths — to
+`arbiter-out/history.jsonl`, which accumulates across runs and is what
+`arbiter dashboard` renders (`--no-history` skips it).
 
 | Code | Meaning |
 |---|---|
@@ -298,7 +304,7 @@ tuning set of 36. On the severities that gate a build the separation is total:
 zero criticals and zero highs across 2.3 million lines of well-maintained
 production code. Method and limits: [docs/evidence.md](docs/evidence.md).
 
-**Not yet built:** air-gapped bundles and the dashboard. The Claude Code
+**Not yet built:** air-gapped bundles. The Claude Code
 skill is `.claude/skills/arbiter/SKILL.md`; the commercial control packs
 (PCI DSS v4, HIPAA Security Rule, SOC 2 TSC, CIS Controls v8) sit beside the
 five government packs in `src/arbiter/packs/controls/`, each declaring the

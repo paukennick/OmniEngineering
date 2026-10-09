@@ -10,6 +10,7 @@ target repository.
 - [Adjudication and calibration](#adjudication-and-calibration)
 - [Integrity and compliance](#integrity-and-compliance)
 - [Output formats](#output-formats)
+- [Run history](#run-history)
 - [Exit codes](#exit-codes)
 
 ---
@@ -23,6 +24,7 @@ arbiter scan . --tfplan tfplan.json             # read a Terraform plan
 arbiter scan . --profile connected              # override the configured profile
 arbiter scan . --pin-knowledge k:4cf3d3fa2f02   # freeze calibration for a release gate
 arbiter gate ./repo --baseline .arbiter/baseline.json   # exit 1 on policy failure
+arbiter scan . --no-history                     # leave history.jsonl alone this run
 arbiter probes ./repo                           # what can run here, and why not
 arbiter explain f:8c41d2ae9b07                  # one finding in full
 ```
@@ -93,6 +95,25 @@ a fact the JSON does not.
 | `html` | a self-contained page, no server and no network |
 | `markdown` | PR comments and reports for people |
 | `console` | terminal output, the default alongside `json` |
+
+## Run history
+
+```bash
+arbiter dashboard                               # arbiter-out/history.jsonl -> arbiter-out/dashboard.html
+arbiter dashboard --history ci/history.jsonl --out ci/trend.html
+```
+
+Every `scan` and `gate` appends one line to `<out>/history.jsonl`: time,
+commit, system, profile, scan mode, grade, score, coverage, counts by severity,
+new findings at high or above, the gate result, duration and the finding
+total. No evidence, no paths, no titles — the line is safe to keep where the
+report is not. `--no-history` on either command skips the append.
+
+`dashboard` renders that file as a self-contained page: the latest grade,
+coverage, new-high count and gate as tiles, score and coverage over time,
+findings stacked by severity per run, and the runs newest first. It exits 0
+on an empty or missing history and says so on the page; a corrupt line is
+skipped, not fatal.
 
 ## Exit codes
 

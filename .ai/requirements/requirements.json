@@ -1551,7 +1551,8 @@
         "docs/release-notes-2026-10-09.md"
       ],
       "risk_notes": [
-        "command names must be re-checked against the final Arbiter release"
+        "command names must be re-checked against the final Arbiter release",
+        "2026-10-09: the release notes list every requirement on both sides (REQ-035 and REQ-045 were missing, ARB-044 has its own row, FAIL-015 is counted) and end with a table of every path the integration added and the commands that did not exist before; the README's Arbiter section carries the same inventory and its License section states the arbiter/ exclusion."
       ]
     }
   ]

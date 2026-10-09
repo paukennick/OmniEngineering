@@ -2993,6 +2993,146 @@ def run_test_check(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# omni test run: run registered suites -- all, by name, or only those the change set impacts
+# --------------------------------------------------------------------------
+
+TEST_RUN_DEFAULT_TIMEOUT = 900.0
+TEST_RUN_TAIL_LINES = 5
+
+
+def _suite_scope_touches(entries: list[str], impacted: set[str]) -> bool:
+    """Does any file, path or coverage entry of a suite overlap an impacted path? Directory prefixes count both ways."""
+    for raw in entries:
+        entry = str(raw).strip().replace("\\", "/")
+        if entry.startswith("./"):
+            entry = entry[2:]
+        entry = entry.rstrip("/")
+        if not entry:
+            continue
+        if any(char in entry for char in "*?["):
+            if any(fnmatch.fnmatch(path, entry) for path in impacted):
+                return True
+            continue
+        for path in impacted:
+            if path == entry or path.startswith(entry + "/") or entry.startswith(path + "/"):
+                return True
+    return False
+
+
+def select_suites(resolved: dict[str, Any], names: list[str], impacted: set[str] | None) -> list[dict[str, Any]]:
+    """Which suites to run: the named ones; else those whose files, paths or coverage meet an impacted path; else all."""
+    suites = [s for s in resolved.get("suites", []) if isinstance(s, dict) and s.get("id")]
+    if names:
+        wanted = {str(n).strip() for n in names if str(n).strip()}
+        return [s for s in suites if s["id"] in wanted or str(s.get("name") or "") in wanted]
+    if impacted is None:
+        return suites
+    paths = {str(p).strip().replace("\\", "/").rstrip("/") for p in impacted if str(p).strip()}
+    return [
+        s for s in suites
+        if _suite_scope_touches(list(s.get("files") or []) + list(s.get("paths") or []) + list(s.get("covers") or []), paths)
+    ]
+
+
+def _output_tail(*chunks: Any) -> list[str]:
+    lines: list[str] = []
+    for chunk in chunks:
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode("utf-8", errors="replace")
+        lines.extend(line for line in str(chunk or "").splitlines() if line.strip())
+    return lines[-TEST_RUN_TAIL_LINES:]
+
+
+def run_test_suite(suite: dict[str, Any], root: Path, timeout: float) -> dict[str, Any]:
+    """Run one suite's registered command through the shell from the project root and report PASS, FAIL, SKIP or TIMEOUT."""
+    name = str(suite.get("name") or suite.get("id") or "")
+    command = str(suite.get("command") or "").strip()
+    result: dict[str, Any] = {"name": name, "id": suite.get("id"), "command": command, "status": "SKIP", "exit": None, "duration_s": 0.0, "tail": []}
+    if not command:
+        result["tail"] = ["no run command registered; set one with `omni test add --command` or edit the suite registry"]
+        return result
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            command, shell=True, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        result.update(status="TIMEOUT", duration_s=round(time.monotonic() - started, 2), tail=_output_tail(exc.stdout, exc.stderr) or [f"no output within {timeout:.0f}s"])
+        return result
+    except OSError as exc:
+        result.update(status="FAIL", duration_s=round(time.monotonic() - started, 2), tail=[f"could not start: {exc}"])
+        return result
+    result.update(
+        status="PASS" if completed.returncode == 0 else "FAIL", exit=completed.returncode,
+        duration_s=round(time.monotonic() - started, 2), tail=_output_tail(completed.stdout, completed.stderr),
+    )
+    return result
+
+
+def run_test_run(args: argparse.Namespace) -> int:
+    if not require_omni_graph():
+        return 1
+    root = Path(".").resolve()
+    resolved = omni_graph.resolve_test_suites(root, project_source_files())
+    names = [str(n) for n in (getattr(args, "names", None) or [])]
+    notes: list[str] = []
+    impacted: set[str] | None = None
+    reached_suites: set[str] = set()
+    base = None
+    if args.impacted and not names:
+        base = args.changed or gate_base_commit()
+        changed = sorted(gate_changed_paths(base))
+        graph_path = Path(GRAPH_DEFAULT_OUTPUT)
+        if graph_path.is_file():
+            impact = omni_graph.impact(graph_path, changed)
+            impacted = set(changed) | {str(t["file"]) for t in impact["tests"] if t.get("file")}
+            reached_suites = {str(s["name"]) for s in impact["suites"]}
+        else:
+            notes.append(f"note: no graph at {graph_path} (run `omni graph build`), so the change set cannot be narrowed; running every suite")
+    selected = select_suites(resolved, names, impacted)
+    if reached_suites:
+        chosen = {s["id"] for s in selected}
+        selected += [s for s in resolved["suites"] if s["id"] in reached_suites and s["id"] not in chosen]
+    if names:
+        found = {s["id"] for s in selected} | {str(s.get("name") or "") for s in selected}
+        unknown = [n for n in names if n not in found]
+        if unknown:
+            print(f"Unknown test suite(s): {', '.join(unknown)}. Registered: {', '.join(s['id'] for s in resolved['suites']) or 'none'}", file=sys.stderr)
+            return 1
+
+    for note in notes:
+        print(note)
+    if not selected:
+        if args.json:
+            print(json.dumps({"base": base, "impacted": sorted(impacted) if impacted is not None else None, "results": [], "summary": {}, "ok": True}, indent=2))
+        elif impacted is not None:
+            print(f"No registered suite covers the {len(impacted)} impacted path(s); nothing to run.")
+        else:
+            print("No test suites registered or detected; run `omni test detect --write` first.")
+        return 0
+
+    results: list[dict[str, Any]] = []
+    for suite in selected:
+        outcome = run_test_suite(suite, root, max(1.0, float(args.timeout)))
+        results.append(outcome)
+        if not args.json:
+            print(f"{outcome['status']:<8} {suite['id']:<32} {outcome['duration_s']:>7.1f}s  {outcome['command'] or '-'}")
+            if outcome["status"] != "PASS":
+                for line in outcome["tail"]:
+                    print(f"    {line}")
+    summary = {status: sum(1 for r in results if r["status"] == status) for status in ("PASS", "FAIL", "SKIP", "TIMEOUT")}
+    ok = not (summary["FAIL"] or summary["TIMEOUT"])
+    if args.json:
+        print(json.dumps({
+            "base": base, "impacted": sorted(impacted) if impacted is not None else None,
+            "selected": [s["id"] for s in selected], "results": results, "summary": summary, "ok": ok,
+        }, indent=2))
+    else:
+        print(f"\n{len(results)} suite(s): {summary['PASS']} passed, {summary['FAIL']} failed, {summary['TIMEOUT']} timed out, {summary['SKIP']} skipped")
+    return 0 if ok else 1
+
+
 def run_graph_render(args: argparse.Namespace) -> int:
     if not require_omni_graph():
         return 1
@@ -5337,6 +5477,12 @@ def build_parser() -> argparse.ArgumentParser:
     test_remove.add_argument("id")
     test_subparsers.add_parser("list", help="Registered suites plus any detected but unregistered.")
     test_subparsers.add_parser("check", help="Verify every registered path matches files, and report unregistered tests.")
+    test_run = test_subparsers.add_parser("run", help="Run registered suites: all of them, the named ones, or only those the pending change set impacts.")
+    test_run.add_argument("names", nargs="*", help="Suite ids or names to run (default: every registered or detected suite).")
+    test_run.add_argument("--impacted", action="store_true", help="Only suites that `omni graph impact` ties to the change set; every suite when no graph exists.")
+    test_run.add_argument("--changed", metavar="BASE", help="Base commit for the change set (default: the merge-base `omni gate` uses).")
+    test_run.add_argument("--timeout", type=float, default=TEST_RUN_DEFAULT_TIMEOUT, help="Seconds each suite may run (default 900).")
+    test_run.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     failure_parser = subparsers.add_parser(
         "failure",
@@ -5504,11 +5650,11 @@ def main(argv: list[str] | None = None) -> int:
     if command == "test":
         handlers = {
             "detect": run_test_detect, "add": run_test_add, "remove": run_test_remove,
-            "list": run_test_list, "check": run_test_check,
+            "list": run_test_list, "check": run_test_check, "run": run_test_run,
         }
         if args.test_command in handlers:
             return handlers[args.test_command](args)
-        parser.error("test requires a subcommand (detect, add, remove, list, check)")
+        parser.error("test requires a subcommand (detect, add, remove, list, check, run)")
     if command == "failure":
         handlers = {
             "add": run_failure_add, "update": run_failure_update, "show": run_failure_show,

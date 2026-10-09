@@ -1044,7 +1044,33 @@ doctor` validates the config. The suite registry is managed with `omni test`:
 omni test detect [--write]   # find suites from file contents and CI commands; register them
 omni test add --name "Backend JUnit" --paths backend/src/test --framework junit --command "cd backend && mvn test" --covers backend/src/main
 omni test list | check | remove <id>
+omni test run                # run every registered suite's command, one line per suite, exit 1 on any failure
+omni test run backend-junit  # by id or name
+omni test run --impacted     # only the suites `omni graph impact` ties to the pending change set
 ```
+
+`omni test run` runs each suite's registered command through the shell from the
+project root and reports `PASS`, `FAIL`, `SKIP` (no command registered) or `TIMEOUT`
+(`--timeout`, default 900 s) with the last five lines of output for anything that did
+not pass; `--json` gives the same as data. `--impacted` resolves the change set
+(`--changed BASE`, else the merge-base `omni gate` uses) through the graph and picks
+the suites whose files, paths or declared coverage meet a changed file or a test
+file the walk reached, directory prefixes included; without a graph it says so and
+runs every suite. The completion rulepack ships a `completion.tests` rule as the
+worked example of wiring it into the gate:
+
+```json
+{
+  "id": "completion.tests",
+  "severity": "recommended",
+  "validation": {"type": "command", "run": "omni test run --impacted", "when_changed": ["**"],
+                 "ignore": [".ai/**", "*.md", "docs/**"], "timeout": 900}
+}
+```
+
+It is `recommended`, and `omni gate` executes only `required` rules, so the
+pre-commit hook stays fast by default; an adopter whose suite registry is complete
+promotes it to `required` and every commit then runs the tests its change reaches.
 
 ### MCP server: the graph as tools for any assistant
 

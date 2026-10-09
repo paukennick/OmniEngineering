@@ -8,11 +8,70 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
-- In progress, one entry per requirement, finalised when each completes:
-  ARB-038 governance probe (Arbiter reads the failure ledger and requirement
-  ids), ARB-039 PR-native output (annotations, step summary, SARIF upload),
-  ARB-040 Python 3.10 support, ARB-041 persistent result cache, ARB-042 run
-  history and the trend dashboard.
+- ARB-044 | Requirements use the `ARB` prefix. Two registries on `REQ` collided the
+  moment Arbiter was vendored into OmniEngineering (each had reached number 035
+  with a different requirement), so `omni requirement renumber --prefix ARB`
+  renumbered every requirement keeping its number, wrote `id_aliases` so the
+  commits and ledger entries that cite the old ids stay valid, and rewrote the
+  governance text. Code, tests and git history are untouched; the gate resolves
+  an old id through the aliases.
+- ARB-043 | Synced the OmniEngineering workspace tooling as of 2026-10-09:
+  `omni doctor` ends with a `Posture:` line and offers `--json`;
+  `omni requirement complete` refuses while this branch's Arbiter report is
+  missing, stale or red; `omni graph impact`, `omni graph findings` and
+  `omni test run` exist here; the `completion.arbiter_gate` rule now runs
+  `arbiter gate . --changed {base} --profile offline --baseline
+  .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment`,
+  with `.arbiter/baseline.json` cut from a full scan and committed, so "new"
+  means new since this baseline; the installed Arbiter version is recorded in
+  `.ai/omni-version.json`; the recommended `completion.tests` example rule is
+  present. The handbook for the whole loop is
+  `docs/arbiter-integration.md` in the OmniEngineering repository.
+- ARB-042 | Run history and the trend dashboard. Every `scan` and `gate`
+  appends one line to `<out>/history.jsonl` (time, commit, system, profile,
+  mode, grade, score, coverage, counts by severity, new high-or-above, gate
+  result, duration, total findings; no evidence, no paths, no titles) unless
+  `--no-history`; `arbiter dashboard [--history] [--out]` renders the trend as a
+  self-contained HTML page (tiles, a score and coverage line chart, stacked
+  severity bars per run, the runs table, an honest empty state). The README's
+  "not yet built" list loses the dashboard.
+- ARB-041 | A persistent per-file result cache for the file-local probes.
+  `.arbiter/cache.json` (git-ignored, never scanned) stores per-file findings
+  for `secrets`, `supply_chain`, `ast_metrics`, `house_rules_ast` and
+  `authored`, keyed on the file bytes, the path, the configuration, Arbiter's
+  own source and a per-probe context digest (the manifests, for `authored`).
+  `--no-cache` bypasses it, `--cache-path` relocates it, `--verify-cache`
+  re-runs a sample of hits and reports a divergence as
+  `arbiter/assurance.cache-divergence` (high). Integrity invariant CI-13 proves
+  every cacheable probe is file-local, the mutation tool proves a config change
+  invalidates, and CI runs the self-gate with `--no-cache`. On the
+  OmniEngineering tree with the adapters skipped (a machine under load from
+  three parallel suites): cold 29.3 s wall (scan 4.4 s), warm 25.8 s wall
+  (scan 1.1 s), identical findings.
+- ARB-040 | Arbiter runs on Python 3.10. `tomllib` was the only 3.11 construct;
+  one helper reads TOML with `tomllib` or the `tomli` fallback,
+  `requires-python` is `>=3.10` with `tomli` as a conditional dependency, and
+  pr-check gains an ubuntu 3.10 cell. OmniEngineering's CI now reads the floor
+  from `pyproject.toml`, so its 3.10 cells run doctor and gate with a vendored
+  Arbiter.
+- ARB-039 | PR-native output. The gate names the findings that failed it
+  (`failing_ids`); `--format annotations` prints GitHub workflow commands
+  (`::error` for the gating findings, `::warning` for the rest, `::notice`
+  for findings outside the change; titles and rule ids only, never evidence);
+  `--github` (automatic under `GITHUB_ACTIONS=true`) adds the annotations and
+  appends the pull-request comment to `$GITHUB_STEP_SUMMARY`; pr-check runs the
+  self-gate in that mode and uploads `report.sarif` to code scanning
+  (`continue-on-error`, so the gate's exit code stays the verdict); the
+  composite action passes `--github`.
+- ARB-038 | The `governance` probe and requirement attribution. A change-scoped
+  probe (the new scope runs in partial and full mode) reads the OmniEngineering
+  failure ledger: a changed file named as affected by an open or mitigated
+  entry, with none of that entry's regression tests in the change, is
+  `arbiter/governance.open-failure-untested`; a fixed entry whose regression
+  test no longer exists is `arbiter/governance.regression-test-missing`; both
+  medium, both n/a without a ledger. Findings inside the change carry
+  `req:<ID>` tags from the commits since the base (the registry's own prefix),
+  and `REPORT.md` and the pull-request comment gain a "By requirement" block.
 - Closed ARB-024 with the pull-request check deliberately advisory. The
   Windows matrix has now run for real and found two defects (FAIL-035,
   FAIL-039), which was its purpose; the remaining criterion, a required

@@ -682,7 +682,7 @@
       "title": "Governance probe: Arbiter reads the OmniEngineering failure ledger and requirement ids",
       "description": "Arbiter read nothing from the .ai/ workspace. A change-scoped governance probe reports a changed file named as affected by an open or mitigated failure-ledger entry when none of that entry's regression tests is in the change, and a fixed entry whose regression test no longer exists. Findings inside a change carry req:<ID> tags from the commits since the base, and the PR comment and Markdown report group findings by requirement. Not applicable (n/a) when no ledger exists.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/probes.py",
         "src/arbiter/engine.py",
@@ -722,7 +722,7 @@
       "title": "PR-native output: GitHub annotations, step summary and SARIF upload",
       "description": "Arbiter already renders SARIF and pr-comment.md but no CI consumed them. The gate names the findings that failed it (failing_ids); a new annotations format prints ::error for gating findings, ::warning for the rest and ::notice for out-of-change findings, titles only, never evidence; --github (default under GITHUB_ACTIONS) adds annotations and appends the PR comment to GITHUB_STEP_SUMMARY; pr-check and the composite action upload report.sarif to code scanning with continue-on-error.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/policy.py",
         "src/arbiter/report.py",
@@ -761,7 +761,7 @@
       "title": "Arbiter runs on Python 3.10",
       "description": "The only 3.11 dependency was import tomllib in adapters.py, which made OmniEngineering's CI skip doctor and gate on its 3.10 cells when Arbiter is vendored. One helper reads TOML with tomllib or the tomli fallback; requires-python becomes >=3.10 with tomli as a conditional dependency; pr-check gains an ubuntu 3.10 cell.",
       "priority": "medium",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/adapters.py",
         "pyproject.toml",
@@ -792,7 +792,7 @@
       "title": "Persistent per-file result cache for file-scoped probes",
       "description": "Every scan re-read everything, so the pre-commit gate paid full price. An opt-in cache in .arbiter/cache.json keyed on file bytes, config hash, probe version and Arbiter version stores per-file findings for probes declared cacheable (secrets, supply_chain, ast_metrics, house_rules_ast, authored). --no-cache bypasses it, CI and pr-check run without it, --verify-cache re-runs a sample of hits and reports divergence, and integrity invariant CI-13 proves every cacheable probe is file-local. The cache file is never scanned.",
       "priority": "medium",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/cache.py",
         "src/arbiter/probes.py",
@@ -833,7 +833,7 @@
       "title": "Run history and the trend dashboard",
       "description": "Every report was standalone. Each scan or gate appends one line to <out>/history.jsonl (time, commit, grade, coverage, counts, gate result; no evidence, no paths) and arbiter dashboard renders the trend as a self-contained HTML page. Closes the README's 'not yet built: the dashboard' item.",
       "priority": "medium",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/history.py",
         "src/arbiter/cli.py",
@@ -867,7 +867,7 @@
       "title": "Sync the workspace tooling from OmniEngineering (posture, baseline, impact, test run, findings in the graph, aliases)",
       "description": "Pull the OmniEngineering CLI and rulepacks as of 2026-10-09 into this repository with omni update, rewrite the completion.arbiter_gate rule to pass the committed baseline and emit json, sarif and pr-comment, cut and commit .arbiter/baseline.json, and record the installed Arbiter version in .ai/omni-version.json.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "make_ai.py",
         "omni_graph.py",
@@ -898,7 +898,7 @@
       "title": "Requirements use the ARB prefix so they never collide with an OmniEngineering registry",
       "description": "Two registries on the REQ prefix collide the moment Arbiter is vendored into OmniEngineering (each had reached number 035 with a different requirement). omni requirement renumber --prefix ARB renumbers every requirement keeping its number, writes id_aliases so commits and ledger entries that cite REQ-### stay valid, and rewrites the governance text; code, tests and git history are untouched.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         ".ai/requirements/requirements.json",
         ".ai/requirements/requirements-archive.json",

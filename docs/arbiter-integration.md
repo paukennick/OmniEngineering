@@ -51,7 +51,7 @@ skipped when present and never overwritten:
 
 | File | What it holds | Why |
 |---|---|---|
-| `.mcp.json` | an `arbiter` server entry (`arbiter mcp`) beside `omni` | assistants get `arbiter_scan`, `arbiter_gate`, `arbiter_review_queue` as tools; `omni doctor` starts the server for real |
+| `.mcp.json` | an `arbiter` server entry (`arbiter mcp`) beside `omni` | assistants get `arbiter_scan`, `arbiter_gate`, `arbiter_review_queue` as tools; `omni doctor` starts the server for real (once a day, see section 4) |
 | `.ai/rules/completion-workflow.json` | the required rule `completion.arbiter_gate`, type `command`, run text `arbiter gate . --changed {base} --profile offline --baseline .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment` | `omni gate` runs Arbiter on the change set and fails when Arbiter fails |
 | `arbiter.yaml` | a starter policy: profile offline, fail on critical, fail on new high | the gate has a policy on day one |
 | `.gitignore` | `arbiter-out/` and `.arbiter/cache.json` | reports and the cache are never scanned as source (FAIL-012) and never committed |
@@ -128,6 +128,15 @@ Each arrow is enforced, not advisory:
   at the top of `posture.arbiter` (`present`, `fresh`, `grade`, `coverage`,
   `gate_passed`, ...) stay for one release, filled from the `gate` block; move
   readers to `posture.arbiter.gate` before they go.
+- **The gate reuses the day's MCP probe.** `omni gate` runs the doctor on every
+  commit, and the doctor's live check of the servers in `.mcp.json` is memoised
+  (REQ-050): a successful probe is stored in the git directory beside the gate's
+  own state, keyed on the digest of `.mcp.json`, PATH and each server's resolved
+  executable (path, mtime, size), and reused for 24 hours, the doctor line then
+  reading `(probed <time>, run omni doctor --probe to re-check)`. `omni doctor
+  --probe` launches every server for real and refreshes the memo, `omni gate`
+  never forces a launch, a failed probe is never remembered, and
+  `OMNI_DOCTOR_NO_MEMO=1` (for CI) turns the memo off.
 - **Completion checks the gate.** `omni requirement complete` refuses with the
   exact command to run (`./omni gate`) when the report is missing, stale or
   red. `--no-arbiter-check REASON` records the reason in the requirement's

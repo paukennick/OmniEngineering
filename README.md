@@ -836,7 +836,12 @@ The doctor checks:
   brings it level.
 - Registered MCP servers: every stdio server in `.mcp.json` is launched for real,
   taken through `initialize` and `tools/list`, and must answer with at least one
-  tool (a registration that no longer starts would otherwise fail silently).
+  tool (a registration that no longer starts would otherwise fail silently). A
+  successful probe is remembered for 24 hours in the git directory, keyed on
+  `.mcp.json`, `PATH` and the server's executable (path, mtime, size), so a
+  repeat `omni doctor` or `omni gate` reads the memo and says when the server was
+  probed; `omni doctor --probe` launches the servers again, a failed probe is never
+  remembered, and `OMNI_DOCTOR_NO_MEMO=1` turns the memo off.
 - Arbiter baseline: once `completion.arbiter_gate` is wired, `.arbiter/baseline.json`
   must exist, be no older than the newest fixed failure-ledger entry, and match
   the current `arbiter.yaml` (`config_hash`); each gap names

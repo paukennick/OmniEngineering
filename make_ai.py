@@ -45,6 +45,11 @@ REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_re
 TERMINAL_REQUIREMENT_STATUSES = {"completed", "withdrawn"}
 MCP_REGISTRATION_PATH = Path(".mcp.json")
 MCP_PROBE_TIMEOUT_SECONDS = 30.0
+# REQ-050: a successful live probe is remembered in the git directory (beside the gate's own state, never
+# tracked) and reused for a day while .mcp.json, PATH and each server's executable are unchanged.
+MCP_PROBE_MEMO_FILE = "omni-mcp-probe.json"
+MCP_PROBE_MEMO_MAX_AGE_SECONDS = 24 * 60 * 60
+MCP_PROBE_NO_MEMO_ENV = "OMNI_DOCTOR_NO_MEMO"
 REQUIREMENT_PRIORITIES = ["critical", "high", "medium", "low"]
 REQUIREMENT_STRING_FIELDS = ("id", "category", "title", "description")
 REQUIREMENT_LIST_FIELDS = (
@@ -1778,15 +1783,102 @@ def probe_mcp_server(
         process.stdout.close()
 
 
-def validate_mcp_registrations(report: DoctorReport) -> None:
+def mcp_probe_memo_file() -> Path | None:
+    """Where the live-probe memo lives: inside the git directory beside `omni-gate-last.json`, which git never
+    tracks; None outside a git checkout, where every probe is live."""
+    git_dir = git_run("rev-parse", "--git-dir")
+    return Path(git_dir.strip()) / MCP_PROBE_MEMO_FILE if git_dir else None
+
+
+def mcp_probe_memo_disabled() -> bool:
+    """`OMNI_DOCTOR_NO_MEMO=1` (CI may set it) turns the memo off: every probe is live and nothing is stored."""
+    return os.environ.get(MCP_PROBE_NO_MEMO_ENV, "").strip().lower() not in ("", "0", "false", "no")
+
+
+def mcp_executable_fingerprint(command: str) -> dict[str, Any] | None:
+    """What the memo keys a server on: the resolved executable's path, mtime and size, read through any
+    symlink so a retargeted `python` or a reinstalled console script invalidates it. None when the command
+    does not resolve, which the live probe then reports."""
+    executable = shutil.which(command) or (command if Path(command).is_file() else None)
+    if executable is None:
+        return None
+    try:
+        resolved = Path(executable).resolve()
+        stat = resolved.stat()
+    except OSError:
+        return None
+    return {"path": str(resolved), "mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
+
+
+def mcp_probe_memo_key(registration_text: str) -> dict[str, str]:
+    """The part of the key shared by every server: the digest of `.mcp.json` as written and PATH as seen."""
+    return {
+        "registration_digest": hashlib.sha256(registration_text.encode("utf-8")).hexdigest(),
+        "path": os.environ.get("PATH", ""),
+    }
+
+
+def load_mcp_probe_memo(memo_file: Path | None, key: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """The remembered servers by name, or {} when the memo is missing, unreadable, or was written for another
+    registration or PATH."""
+    if memo_file is None:
+        return {}
+    try:
+        memo = json.loads(memo_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(memo, dict) or any(memo.get(field) != value for field, value in key.items()):
+        return {}
+    servers = memo.get("servers")
+    return {name: record for name, record in servers.items() if isinstance(record, dict)} if isinstance(servers, dict) else {}
+
+
+def mcp_probe_memo_hit(record: dict[str, Any] | None, fingerprint: dict[str, Any] | None, now: float) -> str | None:
+    """The ISO time of the remembered probe when `record` still applies: the executable is the same file
+    (path, mtime, size), the probe is younger than a day and it listed tools. Otherwise None, and the server
+    is launched for real."""
+    if not record or fingerprint is None or record.get("executable") != fingerprint:
+        return None
+    probed_at = record.get("probed_at")
+    stamp = _arbiter_timestamp(probed_at)
+    if stamp is None or not 0 <= now - stamp < MCP_PROBE_MEMO_MAX_AGE_SECONDS:
+        return None
+    tools = record.get("tools")
+    if not isinstance(tools, list) or not tools or not isinstance(record.get("server_name"), str):
+        return None
+    return str(probed_at)
+
+
+def store_mcp_probe_memo(memo_file: Path | None, key: dict[str, str], servers: dict[str, dict[str, Any]]) -> None:
+    """Write the memo: the shared key plus one record per server that answered. A write that fails is not a
+    doctor finding; the next run simply probes live again."""
+    if memo_file is None:
+        return
+    try:
+        write_json(memo_file, {"schema_version": 1, **key, "servers": servers})
+    except OSError:
+        pass
+
+
+def validate_mcp_registrations(report: DoctorReport, force_probe: bool = False) -> None:
     """`.mcp.json` tells assistants which MCP servers to start for this repo. A registration that looks right
     but cannot start is worse than none, because the assistant silently falls back to shelling out, so every
     stdio server listed is launched for real and must answer with at least one tool. Remote (`url`) servers
-    are not probed: reaching them is a network question, not a workspace one."""
+    are not probed: reaching them is a network question, not a workspace one.
+
+    A successful probe is memoised (REQ-050): while `.mcp.json`, PATH and the server's resolved executable
+    (path, mtime, size) are unchanged and the probe is younger than a day, the next run reads the memo instead
+    of launching the server, and its line says when it was probed. `force_probe` (`omni doctor --probe`)
+    launches every server and refreshes the memo; a failed probe is never remembered; `OMNI_DOCTOR_NO_MEMO=1`
+    turns the memo off. `omni gate` runs the doctor with the memo, so a commit no longer starts the servers."""
     if not MCP_REGISTRATION_PATH.is_file():
         return
     try:
-        registration = load_json(MCP_REGISTRATION_PATH)
+        registration_text = MCP_REGISTRATION_PATH.read_text(encoding="utf-8")
+        registration = json.loads(registration_text)
+    except OSError as exc:
+        report.error(f"Cannot read {MCP_REGISTRATION_PATH}: {exc}")
+        return
     except json.JSONDecodeError as exc:
         report.error(f"Invalid JSON in {MCP_REGISTRATION_PATH}: line {exc.lineno}, column {exc.colno}")
         return
@@ -1794,6 +1886,12 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
     if not isinstance(servers, dict) or not servers:
         report.error(f"{MCP_REGISTRATION_PATH} must contain a non-empty mcpServers object")
         return
+
+    memo_file = None if mcp_probe_memo_disabled() else mcp_probe_memo_file()
+    memo_key = mcp_probe_memo_key(registration_text)
+    memo = {} if force_probe else load_mcp_probe_memo(memo_file, memo_key)
+    remembered: dict[str, dict[str, Any]] = {}
+    now = time.time()
 
     for name, config in servers.items():
         if not isinstance(config, dict):
@@ -1814,6 +1912,16 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
         if not isinstance(env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
             report.error(f"MCP server {name!r} env must be an object of string values")
             continue
+        fingerprint = mcp_executable_fingerprint(command)
+        record = memo.get(name)
+        probed_at = mcp_probe_memo_hit(record, fingerprint, now)
+        if probed_at is not None and record is not None:
+            remembered[name] = record
+            report.pass_check(
+                f"MCP server {name!r} ({record['server_name']}) answers initialize and lists "
+                f"{len(record['tools'])} tool(s) (probed {probed_at}, run omni doctor --probe to re-check)"
+            )
+            continue
         tools, detail = probe_mcp_server(command, args, env, Path.cwd())
         rendered = " ".join([command, *args])
         if tools is None:
@@ -1822,6 +1930,14 @@ def validate_mcp_registrations(report: DoctorReport) -> None:
             report.error(f"MCP server {name!r} (`{rendered}`) started but lists no tools")
         else:
             report.pass_check(f"MCP server {name!r} ({detail}) answers initialize and lists {len(tools)} tool(s)")
+            if fingerprint is not None:
+                remembered[name] = {
+                    "executable": fingerprint,
+                    "probed_at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"),
+                    "server_name": detail,
+                    "tools": list(tools),
+                }
+    store_mcp_probe_memo(memo_file, memo_key, remembered)
 
 
 def find_placeholders(value: Any) -> set[str]:
@@ -3388,7 +3504,9 @@ def run_context(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_doctor_report() -> DoctorReport:
+def build_doctor_report(probe: bool = False) -> DoctorReport:
+    """Every doctor check. `probe` forces the MCP servers to be launched (`omni doctor --probe`, REQ-050);
+    `omni gate` never passes it, so a commit reuses the day's memo."""
     report = DoctorReport()
     verify_required_ai_files(report)
     parsed = validate_json_files(report)
@@ -3411,7 +3529,7 @@ def build_doctor_report() -> DoctorReport:
     validate_project_graph(report)
     validate_recent_commits_tracked(report)
     validate_cli_entrypoints(report)
-    validate_mcp_registrations(report)
+    validate_mcp_registrations(report, force_probe=probe)
     validate_vendored_workspaces(report)
     validate_arbiter_baseline(report)
     validate_arbiter_version(report)
@@ -3421,7 +3539,7 @@ def build_doctor_report() -> DoctorReport:
 
 
 def run_doctor(args: argparse.Namespace | None = None) -> int:
-    report = build_doctor_report()
+    report = build_doctor_report(probe=bool(getattr(args, "probe", False)))
     if getattr(args, "json", False):
         print(json.dumps(report.to_json(), indent=2))
     else:
@@ -5987,8 +6105,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser = subparsers.add_parser("doctor", help="Check OmniEngineering workspace health.")
     doctor_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
+    doctor_parser.add_argument(
+        "--probe", action="store_true",
+        help="Launch every stdio MCP server in .mcp.json for real instead of trusting the day's memo.",
+    )
     validate_parser = subparsers.add_parser("validate", help="Alias for doctor.")
     validate_parser.add_argument("--json", action="store_true", help="Print the report as JSON (schema_version 2).")
+    validate_parser.add_argument(
+        "--probe", action="store_true",
+        help="Launch every stdio MCP server in .mcp.json for real instead of trusting the day's memo.",
+    )
 
     map_parser = subparsers.add_parser(
         "map",

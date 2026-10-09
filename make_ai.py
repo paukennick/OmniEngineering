@@ -1615,6 +1615,64 @@ def validate_recent_commits_tracked(report: DoctorReport) -> None:
         report.pass_check("No commits postdating the last CHANGELOG.md update are missing changelog coverage")
 
 
+def _commit_identity_problem(email: str, configured: str) -> str | None:
+    """Why a commit's email is suspect (REQ-049): it is not the configured one, or its domain is a
+    machine-local placeholder (`.local`, `localhost`) that no forge can attribute. None when it is fine."""
+    normalised = email.strip().lower()
+    domain = normalised.rsplit("@", 1)[-1] if "@" in normalised else normalised
+    if domain == "localhost" or domain.endswith(".local"):
+        return f"has the machine-local domain `{domain}`"
+    if normalised != configured:
+        return f"differs from git config user.email ({configured})"
+    return None
+
+
+def validate_commit_identity(report: DoctorReport) -> None:
+    """Warn (never error) when a commit since the gate base, or one of the last 20 when there is no base,
+    carries an author or committer email other than `git config user.email`, or one ending in `.local`
+    or `localhost`: the identity an assistant or a fresh machine commits under is easy to get wrong and
+    is only noticed after the push. A repository with no configured email skips the check (REQ-049)."""
+    if not Path(".git").exists():
+        return
+    configured = (git_run("config", "user.email") or "").strip().lower()
+    if not configured:
+        return
+    head = (git_run("rev-parse", "--verify", "-q", "HEAD") or "").strip()
+    if not head:
+        return
+    base = gate_base_commit()
+    log_format = "--format=%h%x09%ae%x09%ce"
+    if base and base != head:
+        log = git_run("log", "--no-merges", log_format, f"{base}..HEAD")
+        span = "since the gate base"
+    else:
+        log = git_run("log", "--no-merges", "-20", log_format, "HEAD")
+        span = "among the last 20"
+    commits = [line.split("\t") for line in (log or "").splitlines() if line.count("\t") == 2]
+    if not commits:
+        return
+    problems: list[str] = []
+    for index, (short, author, committer) in enumerate(commits):
+        for role, email in (("author", author), ("committer", committer)):
+            problem = _commit_identity_problem(email, configured)
+            if problem is None:
+                continue
+            fix = (
+                "git commit --amend --reset-author" if index == 0
+                else f"git rebase -i {base[:12] if base and base != head else 'HEAD~' + str(len(commits))} and --reset-author it"
+            )
+            problems.append(f"{short} {role} {email} {problem}; fix: {fix}")
+    if problems:
+        preview = "; ".join(problems[:5])
+        suffix = "" if len(problems) <= 5 else f" (+{len(problems) - 5} more)"
+        report.warning(
+            f"Commit identity: {len(problems)} email(s) on commits {span} look wrong: {preview}{suffix}. "
+            "Set `git config user.email` to the address the forge knows and rewrite the commits before pushing."
+        )
+    else:
+        report.pass_check(f"{len(commits)} commit(s) {span} carry the configured identity ({configured})")
+
+
 def validate_cli_entrypoints(report: DoctorReport) -> None:
     omni_path = Path("omni")
     if not omni_path.is_file():
@@ -3407,6 +3465,7 @@ def build_doctor_report() -> DoctorReport:
     validate_project_map_freshness(report)
     validate_project_graph(report)
     validate_recent_commits_tracked(report)
+    validate_commit_identity(report)  # REQ-049
     validate_cli_entrypoints(report)
     validate_mcp_registrations(report)
     validate_vendored_workspaces(report)
@@ -4315,7 +4374,8 @@ def validate_arbiter_version(report: DoctorReport) -> None:
     if wanted != installed:
         report.warning(
             f"Arbiter drift: {OMNI_VERSION_FILE} recorded {wanted}, installed {installed}: "
-            "run `omni arbiter update` (upgrades, refreshes the gate rule and re-records the version)"
+            "run `omni arbiter sync` (levels the subtree or package, the record and the baseline) "
+            "or `omni arbiter update` (upgrades, refreshes the gate rule and re-records the version)"
         )
     else:
         report.pass_check(f"Installed Arbiter {installed} matches {OMNI_VERSION_FILE}")
@@ -4480,6 +4540,128 @@ def run_arbiter_update(args: argparse.Namespace) -> int:
     print("Next: run `omni arbiter baseline --refresh` after the gate is green, so the baseline")
     print("matches what the upgraded Arbiter reports; `omni doctor` confirms the versions agree.")
     return status
+
+
+def _omni_cli_argv() -> list[str]:
+    """How a subprocess runs this CLI: the `omni` script beside this module under the interpreter running
+    now (so an adopted repository, where `omni` is not on PATH, still works), else this module itself."""
+    here = Path(__file__).resolve().parent
+    script = here / "omni"
+    return [sys.executable, str(script if script.is_file() else Path(__file__).resolve())]
+
+
+def _arbiter_sync_git_source(target_root: Path, source: str) -> str:
+    """What `git subtree pull` fetches from: the pip source minus its `git+`, unless that is a local
+    path inside the target (the vendored subtree itself, which `adopt --with-arbiter ./arbiter` records)
+    or no directory at all; then Arbiter's upstream."""
+    git_source = _arbiter_git_source(source)
+    local = Path(git_source)
+    if local.is_dir():
+        resolved = local.resolve()
+        if resolved == target_root or target_root in resolved.parents:
+            return _arbiter_git_source(ARBITER_DEFAULT_SOURCE)
+    elif not source.startswith(("git+", "http://", "https://", "ssh://", "git@")):
+        return _arbiter_git_source(ARBITER_DEFAULT_SOURCE)
+    return git_source
+
+
+def run_arbiter_sync(args: argparse.Namespace) -> int:
+    """Level the vendored subtree, the installed package, the recorded version and the baseline in one
+    go (REQ-049). Subtree mode (arbiter/pyproject.toml present): git subtree pull, pip install -e
+    ./arbiter[mcp], the version record, `omni arbiter baseline` (--refresh when one exists) unless
+    --skip-baseline, then `omni doctor`. Pip mode: pip --upgrade from the recorded source, then the
+    same tail. Every step is printed before it runs; the first non-zero exit stops the sequence naming
+    the step and what to do; --dry-run prints the commands only."""
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    info = read_omni_version_file(target_root)
+    recorded = info.get("arbiter") if isinstance(info, dict) else None
+    recorded = recorded if isinstance(recorded, dict) else {}
+    recorded_source = str(recorded.get("source") or "")
+    source = args.source or recorded_source or ARBITER_DEFAULT_SOURCE
+    origin = "given" if args.source else ("recorded at install" if recorded_source else "default")
+    branch = str(getattr(args, "branch", None) or "main")
+    subtree = (target_root / "arbiter" / "pyproject.toml").is_file()
+    dry_run = bool(args.dry_run)
+    omni = _omni_cli_argv()
+
+    steps: list[dict[str, Any]] = []
+    if subtree:
+        git_source = _arbiter_sync_git_source(target_root, source)
+        pull = ["git", "subtree", "pull", "--prefix=arbiter", git_source, branch, "-m", f"Pull Arbiter {branch} into arbiter/"]
+        mode = arbiter_subtree_mode(target_root)
+        if mode == "squash":
+            pull.append("--squash")
+        steps.append({
+            "name": "subtree pull", "argv": pull, "timeout": 600,
+            "advice": "Resolve the conflict in arbiter/ (`git status` lists the files), commit the merge, and rerun `omni arbiter sync`.",
+        })
+        steps.append({
+            "name": "pip install", "argv": [sys.executable, "-m", "pip", "install", "-e", f"./arbiter[{ARBITER_PIP_EXTRAS}]"], "timeout": 1800,
+            "advice": "Fix the install error above (the interpreter running omni must be able to install into its environment), then rerun `omni arbiter sync`.",
+        })
+        # The record names the upstream, never the subtree path, so the next sync knows where to pull from.
+        record_source = source if source.startswith(("git+", "http://", "https://", "ssh://", "git@")) else ARBITER_DEFAULT_SOURCE
+    else:
+        steps.append({
+            "name": "pip upgrade", "argv": _arbiter_pip_command(source) + ["--upgrade"], "timeout": 1800,
+            "advice": "Fix the install error above, or pass --source with the checkout or URL to install from, then rerun `omni arbiter sync`.",
+        })
+        record_source = source
+    steps.append({"name": "record version", "call": lambda: record_arbiter_version(target_root, record_source) or 0,
+                  "describe": f"re-record the installed Arbiter version and its source in {OMNI_VERSION_FILE}"})
+    if getattr(args, "skip_baseline", False):
+        steps.append({"name": "baseline", "skipped": "--skip-baseline"})
+    else:
+        baseline = omni + ["arbiter", "baseline"] + (["--refresh"] if (target_root / ARBITER_BASELINE_PATH).is_file() else [])
+        steps.append({
+            "name": "baseline", "argv": baseline, "timeout": 2400,
+            "advice": "Get the gate green (`omni gate`), then `omni arbiter baseline --refresh` (`--force` accepts the open findings as known), then `omni doctor`.",
+        })
+    steps.append({
+        "name": "doctor", "argv": omni + ["doctor"], "timeout": 600,
+        "advice": "Fix the errors doctor lists above, then rerun `omni doctor`; the other steps are done and need not be repeated.",
+    })
+
+    print(f"Arbiter sync in {target_root} ({'subtree mode: arbiter/pyproject.toml present' if subtree else 'pip mode: no vendored arbiter/'})")
+    print(f"Source: {source} ({origin})" + (f"; subtree pulled from {steps[0]['argv'][4]}" if subtree else ""))
+    if subtree:
+        print(f"Branch: {branch}")
+    print(f"Mode: {'dry-run (commands printed, nothing run or written)' if dry_run else 'apply'}")
+    print("")
+    total = len(steps)
+    for number, step in enumerate(steps, 1):
+        label = f"[{number}/{total}] {step['name']}"
+        if step.get("skipped"):
+            print(f"{label}: skipped ({step['skipped']})")
+            continue
+        if "call" in step:
+            if dry_run:
+                print(f"{label}: would {step['describe']}")
+                continue
+            print(f"{label}: {step['describe']}")
+            step["call"]()
+            continue
+        command = " ".join(shlex.quote(part) for part in step["argv"])
+        if dry_run:
+            print(f"{label}: would run {command}")
+            continue
+        print(f"{label}: {command}")
+        started = time.monotonic()
+        code, tail = _arbiter_run(step["argv"], target_root, step["timeout"])
+        elapsed = time.monotonic() - started
+        if code != 0:
+            print(f"omni arbiter sync: step {number}/{total} ({step['name']}) failed with exit {code} after {elapsed:.1f}s:", file=sys.stderr)
+            for line in tail.splitlines():
+                print(f"    {line}", file=sys.stderr)
+            print(step["advice"], file=sys.stderr)
+            return 1
+        print(f"    done ({elapsed:.1f}s)")
+    print("")
+    print("Arbiter sync complete." if not dry_run else "Dry run complete; rerun without --dry-run to apply.")
+    return 0
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -6644,6 +6826,17 @@ def build_parser() -> argparse.ArgumentParser:
     arbiter_update_parser.add_argument("--force", action="store_true", help="Pull the subtree even when --squash disagrees with how arbiter/ was added.")
     arbiter_update_parser.add_argument("--skip-pip", action="store_true", help="Do not pip install --upgrade.")
     arbiter_update_parser.add_argument("--dry-run", action="store_true", help="Print every command without running or writing anything.")
+    arbiter_sync_parser = arbiter_subparsers.add_parser(
+        "sync",
+        help="Level everything in one go: pull the vendored arbiter/ subtree (or pip --upgrade), reinstall, re-record the version, "
+             "refresh the baseline and run doctor; stops at the first failing step.",
+    )
+    arbiter_sync_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_sync_parser.add_argument("--source", default=None,
+                                     help=f"Git URL or pip source (default: the source recorded at install, else {ARBITER_DEFAULT_SOURCE}).")
+    arbiter_sync_parser.add_argument("--branch", default="main", help="Branch to pull into arbiter/ in subtree mode (default main).")
+    arbiter_sync_parser.add_argument("--skip-baseline", action="store_true", help="Do not run `omni arbiter baseline` after the install.")
+    arbiter_sync_parser.add_argument("--dry-run", action="store_true", help="Print the steps and their commands without running anything.")
 
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
@@ -6774,7 +6967,9 @@ def main(argv: list[str] | None = None) -> int:
             return run_arbiter_baseline(args)
         if args.arbiter_command == "update":
             return run_arbiter_update(args)
-        parser.error("arbiter requires a subcommand (install, baseline, update)")
+        if args.arbiter_command == "sync":
+            return run_arbiter_sync(args)
+        parser.error("arbiter requires a subcommand (install, baseline, update, sync)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

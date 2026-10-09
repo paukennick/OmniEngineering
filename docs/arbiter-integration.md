@@ -228,13 +228,40 @@ analyzers, `omni doctor`, `omni gate` and a self-scan with `--github` and
 
 ## 9. Keeping the two level
 
+One command does it: `./omni arbiter sync` (REQ-049). It runs the steps that
+used to be done by hand, in order, printing each before it runs, and stops at
+the first non-zero exit naming the step and what to do next; `--dry-run`
+prints the commands only.
+
+| Step | Subtree mode (`arbiter/pyproject.toml` present) | Pip mode |
+|---|---|---|
+| 1 | `git subtree pull --prefix=arbiter <source> <branch> -m "Pull Arbiter <branch> into arbiter/"` (`--squash` added when the history was pulled that way) | `python -m pip install --upgrade` from the recorded source |
+| 2 | `python -m pip install -e ./arbiter[mcp]` | |
+| 3 | re-record the installed version and the source under `arbiter` in `.ai/omni-version.json` | the same |
+| 4 | `omni arbiter baseline` (`--refresh` when a baseline exists) unless `--skip-baseline` | the same |
+| 5 | `omni doctor` | the same |
+
+`--source` is the git URL (subtree) or pip source; it defaults to the source
+recorded at install, else `https://github.com/paukennick/arbiter`. A recorded
+local path inside the repository (what `adopt --with-arbiter ./arbiter`
+records) is the subtree itself, so the pull falls back to the upstream URL.
+`--branch` defaults to `main`. A subtree conflict stops the sequence: resolve
+it in `arbiter/`, commit the merge, and rerun `omni arbiter sync`. A baseline
+refresh refuses while the last gate report is red or missing: run `omni
+gate`, then `omni arbiter baseline --refresh` (`--force` accepts the open
+findings as known), then `omni doctor`.
+
+The pieces are still available one at a time:
+
 | Situation | Command | What it does |
 |---|---|---|
 | The workspace template moved | `./omni update --source ../OmniEngineering` | 3-way merge of the template-managed files; warns when the installed `completion.arbiter_gate` rule drifted from the template |
-| Arbiter moved | `./omni arbiter update [--source SRC]` | upgrades the package, rewrites the rule unless `--keep-rule`, pulls a vendored subtree (`--squash` only when the history was pulled that way; refuses to mix modes unless `--force`), re-records the version, suggests a baseline refresh |
-| Doctor warns "recorded X, installed Y" | the same | the recorded and installed Arbiter versions differ |
+| Arbiter moved | `./omni arbiter sync [--source SRC] [--branch B]` | the five steps above |
+| Only the rule or the package | `./omni arbiter update [--source SRC]` | upgrades the package, rewrites the rule unless `--keep-rule`, pulls a vendored subtree (`--squash` only when the history was pulled that way; refuses to mix modes unless `--force`), re-records the version, suggests a baseline refresh |
+| Doctor warns "recorded X, installed Y" | `./omni arbiter sync` | the recorded and installed Arbiter versions differ |
 | The gate is green and old debt was paid down | `./omni arbiter baseline --refresh` | re-baselines from a full scan; refuses when the last gate was red or the scan was partial; prunes ids that vanished so a reintroduced finding counts as new |
 | Doctor warns the baseline predates a fixed ledger entry, or its config hash changed | the same | the baseline no longer describes the policy or the code |
+| Doctor warns "Commit identity: ... omni@local" | `git commit --amend --reset-author` (newest) or `git rebase -i <base>` | a commit since the gate base (or among the last 20 without one) carries an author or committer email that is not `git config user.email`, or a `.local` / `localhost` domain; a warning, never an error, and skipped when no email is configured (REQ-049) |
 
 ## 10. Requirement ids across the two
 

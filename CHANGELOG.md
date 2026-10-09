@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-09
+
+### Completed
+
+- `REQ-031` | Feature | Two improvements ported back from the arbiter adopter's fork of `make_ai.py`.
+  - A requirement can now be `withdrawn`: a terminal status like `completed`, for work that was decided
+    against rather than finished. `omni requirement archive` moves every withdrawn entry along with the
+    completed ones older than `--keep-recent`, and `--id REQ-001,REQ-002` archives exactly the named entries,
+    refusing a pending, blocked or proposed one outright (exit 1, nothing written) instead of silently hiding
+    live work from every session that loads the registry. The schema enum and the ruleset's requirement
+    template name the new status.
+  - `omni doctor` checks `.mcp.json` by starting the servers it registers, not by reading the file: each stdio
+    server is launched with its configured command, args and env, taken through the real `initialize` and
+    `tools/list` handshake over newline-delimited JSON-RPC, and must answer with at least one tool within 30s.
+    A registration that looks right but no longer starts (an SDK whose shape moved, an entry point renamed, a
+    command not on PATH) is exactly the failure a static check cannot see, and the assistant would otherwise
+    fall back to shelling out without saying so. Remote `url` servers are reported as not probed. `.mcp.json`
+    is now an allowed root file. Tests exercise the probe against `omni mcp serve` itself, so the server and
+    the check are verified against each other.
+
 ## 2026-09-22
 
 ### Completed

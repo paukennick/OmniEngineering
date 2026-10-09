@@ -656,6 +656,9 @@ The doctor checks:
 - Workspace file placement.
 - Fallback rule availability.
 - License, notice, and trademark policy presence.
+- Registered MCP servers: every stdio server in `.mcp.json` is launched for real,
+  taken through `initialize` and `tools/list`, and must answer with at least one
+  tool (a registration that no longer starts would otherwise fail silently).
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.
@@ -1060,7 +1063,9 @@ omni requirement show REQ-042
 omni requirement search "login"
 omni requirement update REQ-042 --status blocked --note "waiting on API key"
 omni requirement complete REQ-042
-omni requirement archive --keep-recent 25   # move old completed entries aside
+omni requirement update REQ-043 --status withdrawn --note "superseded by REQ-050"
+omni requirement archive --keep-recent 25   # move old completed and all withdrawn entries aside
+omni requirement archive --id REQ-041,REQ-043  # or name them; live (pending, blocked) work is refused
 ```
 
 Enforce the completion rulepack instead of trusting the assistant to remember it:

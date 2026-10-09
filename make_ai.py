@@ -7,7 +7,10 @@ import re
 import shutil
 import subprocess
 import sys
+import queue
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,7 +38,12 @@ FAILURE_LEDGER_PATH = Path(".ai/failures/failure-ledger.json")
 TEST_SUITES_PATH = Path(".ai/test-suites.json")
 GATE_WAIVERS_PATH = Path(".ai/gate-waivers.jsonl")
 RULESET_PATH = Path(".ai/rules/universal-engineering-ruleset.json")
-REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_review"]
+REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_review", "withdrawn"]
+# Only these leave the live registry: a requirement that is still pending or blocked is live work, and
+# archiving it would hide it from every session that loads the registry.
+TERMINAL_REQUIREMENT_STATUSES = {"completed", "withdrawn"}
+MCP_REGISTRATION_PATH = Path(".mcp.json")
+MCP_PROBE_TIMEOUT_SECONDS = 30.0
 REQUIREMENT_PRIORITIES = ["critical", "high", "medium", "low"]
 REQUIREMENT_STRING_FIELDS = ("id", "category", "title", "description")
 REQUIREMENT_LIST_FIELDS = (
@@ -465,6 +473,7 @@ ALLOWED_ROOT_FILES = {
     "LICENSE",
     "LLM_CONTEXT.md",
     "NOTICE",
+    ".mcp.json",
     "README.md",
     "TRADEMARKS.md",
     "make_ai.py",
@@ -1487,6 +1496,155 @@ def validate_omni_version_present(report: DoctorReport) -> None:
         )
     else:
         report.pass_check(f"{OMNI_VERSION_FILE} is present")
+
+
+def probe_mcp_server(
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None,
+    cwd: Path,
+    timeout: float = MCP_PROBE_TIMEOUT_SECONDS,
+) -> tuple[list[str] | None, str]:
+    """Launch a stdio MCP server the way a client would and ask it for its tools.
+
+    Returns (tool names, server name) on success and (None, reason) on failure. The handshake is the real one
+    (initialize, notifications/initialized, tools/list over newline-delimited JSON-RPC 2.0), not a grep of the
+    registration file: a server whose SDK, entry point or import path has moved fails here, where a static check
+    would have passed. Stdin is only closed after the answers arrive, because SDK-based servers may treat EOF as a
+    shutdown and drop requests still in flight.
+    """
+    executable = shutil.which(command) or (command if Path(command).is_file() else None)
+    if executable is None:
+        return None, f"command not found on PATH: {command}"
+    try:
+        process = subprocess.Popen(
+            [executable, *args],
+            cwd=str(cwd),
+            env={**os.environ, **(env or {})},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+    except OSError as exc:
+        return None, f"could not start {executable}: {exc}"
+    assert process.stdin is not None and process.stdout is not None
+
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + timeout
+
+    def send(message: dict[str, Any]) -> None:
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def wait_for(request_id: int) -> dict[str, Any]:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                line = lines.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise TimeoutError from exc
+            if line is None:
+                raise EOFError
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a log line on stdout; not ours to judge
+            if isinstance(message, dict) and message.get("id") == request_id:
+                return message
+
+    try:
+        send({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "omni doctor", "version": "1"}},
+        })
+        initialized = wait_for(1)
+        if "error" in initialized:
+            return None, f"initialize was rejected: {initialized['error'].get('message', initialized['error'])}"
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        listed = wait_for(2)
+        if "error" in listed:
+            return None, f"tools/list was rejected: {listed['error'].get('message', listed['error'])}"
+        tools = listed.get("result", {}).get("tools", []) if isinstance(listed.get("result"), dict) else []
+        names = [str(tool.get("name")) for tool in tools if isinstance(tool, dict) and tool.get("name")]
+        server_info = initialized.get("result", {}).get("serverInfo", {}) if isinstance(initialized.get("result"), dict) else {}
+        return names, str(server_info.get("name", "unnamed server"))
+    except TimeoutError:
+        return None, f"no answer within {timeout:.0f}s"
+    except (EOFError, BrokenPipeError, OSError):
+        return None, "exited before answering initialize and tools/list"
+    finally:
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+
+
+def validate_mcp_registrations(report: DoctorReport) -> None:
+    """`.mcp.json` tells assistants which MCP servers to start for this repo. A registration that looks right
+    but cannot start is worse than none, because the assistant silently falls back to shelling out, so every
+    stdio server listed is launched for real and must answer with at least one tool. Remote (`url`) servers
+    are not probed: reaching them is a network question, not a workspace one."""
+    if not MCP_REGISTRATION_PATH.is_file():
+        return
+    try:
+        registration = load_json(MCP_REGISTRATION_PATH)
+    except json.JSONDecodeError as exc:
+        report.error(f"Invalid JSON in {MCP_REGISTRATION_PATH}: line {exc.lineno}, column {exc.colno}")
+        return
+    servers = registration.get("mcpServers") if isinstance(registration, dict) else None
+    if not isinstance(servers, dict) or not servers:
+        report.error(f"{MCP_REGISTRATION_PATH} must contain a non-empty mcpServers object")
+        return
+
+    for name, config in servers.items():
+        if not isinstance(config, dict):
+            report.error(f"MCP server {name!r} in {MCP_REGISTRATION_PATH} must be an object")
+            continue
+        if config.get("url") and not config.get("command"):
+            report.pass_check(f"MCP server {name!r} is remote ({config['url']}); not probed")
+            continue
+        command = config.get("command")
+        args = config.get("args", [])
+        env = config.get("env", {})
+        if not isinstance(command, str) or not command.strip():
+            report.error(f"MCP server {name!r} has no command")
+            continue
+        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+            report.error(f"MCP server {name!r} args must be an array of strings")
+            continue
+        if not isinstance(env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
+            report.error(f"MCP server {name!r} env must be an object of string values")
+            continue
+        tools, detail = probe_mcp_server(command, args, env, Path.cwd())
+        rendered = " ".join([command, *args])
+        if tools is None:
+            report.error(f"MCP server {name!r} (`{rendered}`) failed its live check: {detail}")
+        elif not tools:
+            report.error(f"MCP server {name!r} (`{rendered}`) started but lists no tools")
+        else:
+            report.pass_check(f"MCP server {name!r} ({detail}) answers initialize and lists {len(tools)} tool(s)")
 
 
 def find_placeholders(value: Any) -> set[str]:
@@ -2818,6 +2976,7 @@ def build_doctor_report() -> DoctorReport:
     validate_project_graph(report)
     validate_recent_commits_tracked(report)
     validate_cli_entrypoints(report)
+    validate_mcp_registrations(report)
     validate_omni_version_present(report)
     return report
 
@@ -3486,23 +3645,57 @@ def run_requirement_complete(args: argparse.Namespace) -> int:
 
 
 def run_requirement_archive(args: argparse.Namespace) -> int:
+    """Sweep terminal requirements out of the live registry.
+
+    By default every `withdrawn` entry and every `completed` entry older than the `--keep-recent` most recent
+    ones moves to the archive. `--id` picks specific entries instead; a pending, blocked or proposed one is
+    refused rather than silently moved, because archiving live work hides it from every session.
+    """
     active = load_json(REQUIREMENTS_PATH)
     items = active.get("requirements", [])
-    completed_positions = [
-        index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "completed"
-    ]
-    keep_positions = set(completed_positions[-args.keep_recent:]) if args.keep_recent > 0 else set()
-    archive_positions = [index for index in completed_positions if index not in keep_positions]
+    if not isinstance(items, list):
+        print(f"{REQUIREMENTS_PATH} must contain a requirements array", file=sys.stderr)
+        return 1
+
+    wanted = set(split_csv(getattr(args, "id", None)))
+    if wanted:
+        by_id = {str(item.get("id")): item for item in items if isinstance(item, dict)}
+        unknown = sorted(wanted - set(by_id))
+        if unknown:
+            print(f"Not in the active registry: {', '.join(unknown)}", file=sys.stderr)
+            return 1
+        refused = sorted(rid for rid in wanted if by_id[rid].get("status") not in TERMINAL_REQUIREMENT_STATUSES)
+        if refused:
+            for rid in refused:
+                print(
+                    f"Refusing to archive {rid}: status is '{by_id[rid].get('status')}'. "
+                    f"Only {' or '.join(sorted(TERMINAL_REQUIREMENT_STATUSES))} requirements may be archived.",
+                    file=sys.stderr,
+                )
+            return 1
+        archive_positions = [
+            index for index, item in enumerate(items) if isinstance(item, dict) and str(item.get("id")) in wanted
+        ]
+        keep_note = ""
+    else:
+        completed_positions = [
+            index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "completed"
+        ]
+        keep_positions = set(completed_positions[-args.keep_recent:]) if args.keep_recent > 0 else set()
+        archive_positions = [index for index in completed_positions if index not in keep_positions] + [
+            index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "withdrawn"
+        ]
+        archive_positions.sort()
+        keep_note = f" (all non-terminal + the {args.keep_recent} most recent completed)"
     if not archive_positions:
         print("Nothing to archive.")
         return 0
 
     to_archive = [items[index] for index in archive_positions]
     remaining = [item for index, item in enumerate(items) if index not in set(archive_positions)]
-    print(
-        f"Archiving {len(to_archive)} completed requirement(s); "
-        f"{len(remaining)} stay active (all non-completed + the {args.keep_recent} most recent completed)."
-    )
+    print(f"Archiving {len(to_archive)} requirement(s); {len(remaining)} stay active{keep_note}.")
+    for item in to_archive:
+        print(f"  {item.get('id')}  [{item.get('status')}]  {item.get('title', '')}")
     if args.dry_run:
         print("Dry run: no files written.")
         return 0
@@ -4527,8 +4720,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     requirement_archive = requirement_subparsers.add_parser(
         "archive",
-        help="Move older completed requirements into requirements-archive.json to keep the live registry small.",
+        help="Move older completed (and all withdrawn) requirements into requirements-archive.json to keep the live registry small.",
     )
+    requirement_archive.add_argument("--id", help="Comma-separated requirement IDs to archive instead of the default sweep; each must be completed or withdrawn.")
     requirement_archive.add_argument("--keep-recent", type=int, default=25, help="Completed requirements to keep active (default 25).")
     requirement_archive.add_argument("--dry-run", action="store_true", help="Report what would move without writing.")
 

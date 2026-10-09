@@ -1059,6 +1059,43 @@
       "risk_notes": [
         "Follow-up: the first push of this fix broke .github/workflows/ci.yml itself (an unquoted colon in a step name parsed as YAML; FAIL-010). Quoted it and validated locally before pushing again."
       ]
+    },
+    {
+      "id": "REQ-031",
+      "category": "Feature",
+      "title": "Terminal 'withdrawn' status, targeted archiving, and a live check of registered MCP servers",
+      "description": "Ported from the arbiter adopter's fork of make_ai.py, where both had proven useful: (1) a requirement can be withdrawn (terminal, like completed) and archive moves withdrawn entries too; archive --id names specific entries and refuses pending, blocked or proposed work instead of silently hiding it. (2) omni doctor launches every stdio MCP server .mcp.json registers, runs the real initialize + tools/list handshake, and fails if the server does not start or lists no tools -- a static read of the file cannot tell that a server's SDK or entry point has moved. Remote (url) servers are not probed. .mcp.json is an allowed root file.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_doctor_mcp.py",
+        "tests/test_requirement_archive.py",
+        ".ai/schemas/requirements.schema.json",
+        ".ai/rules/universal-engineering-ruleset.json",
+        "README.md",
+        "design/cli-design.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "withdrawn is accepted by requirement update/add and the schema",
+        "archive moves completed-beyond-keep-recent plus withdrawn and --id refuses non-terminal ids",
+        "doctor probes each stdio server in .mcp.json and reports a FAIL when it cannot start or lists no tools",
+        "new tests pass under python3 -m unittest"
+      ],
+      "validation_required": [
+        "python3 -m unittest discover -s tests",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "The live probe starts a subprocess per registered server and waits up to 30s each; a server that needs credentials or a network is better registered as a remote url",
+        "which is not probed."
+      ]
     }
   ]
 }

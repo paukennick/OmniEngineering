@@ -3581,6 +3581,38 @@ def format_posture(posture: dict[str, Any]) -> str:
     return f"Posture: {part} \u00b7 failures open {posture.get('failures_open', 0)} \u00b7 {requirement_text}"
 
 
+# --- Completion needs a fresh, passing report (REQ-037) ------------------------------------------
+
+ARBITER_GATE_COMMAND = "./omni gate"
+
+
+def arbiter_executable() -> str | None:
+    return shutil.which("arbiter")
+
+
+def arbiter_completion_block() -> str | None:
+    """Why `omni requirement complete` must not proceed yet, or None when it may. Nothing blocks a workspace
+    without the Arbiter rule; with it, the first of: `arbiter` not installed, no report under the rule's
+    --out directory, a report that no longer describes HEAD, a report whose gate failed. Every message ends
+    with the command that produces a fresh report, because `omni gate` is what runs the rule."""
+    rule = arbiter_gate_rule()
+    if rule is None:
+        return None
+    if arbiter_executable() is None:
+        return f"arbiter is not installed; `omni arbiter install` puts it on PATH, then run {ARBITER_GATE_COMMAND}"
+    state = arbiter_report_state()
+    if not state["present"]:
+        return f"no Arbiter report under {arbiter_out_dir(rule).as_posix()}; run {ARBITER_GATE_COMMAND}"
+    if not state["fresh"]:
+        return f"the Arbiter report {state['path']} is stale ({state['reason']}); run {ARBITER_GATE_COMMAND}"
+    if state["gate_passed"] is None:
+        return f"the Arbiter report {state['path']} carries no gate result; run {ARBITER_GATE_COMMAND}"
+    if state["gate_passed"] is False:
+        reasons = "; ".join(state["gate_reasons"]) or "no reason recorded"
+        return f"the Arbiter gate failed in {state['path']}: {reasons}. Fix the findings, then run {ARBITER_GATE_COMMAND}"
+    return None
+
+
 def run_update(args: argparse.Namespace) -> int:
     source_root = Path(args.source).resolve()
     target_root = Path(".").resolve()
@@ -4130,6 +4162,18 @@ def run_requirement_complete(args: argparse.Namespace) -> int:
                 )
                 return 1
             args.note = f"No failure-ledger entry: {reason}" + (f" | {args.note}" if getattr(args, "note", None) else "")
+    # REQ-037: a fresh, passing Arbiter report is part of "complete" wherever the rule is wired.
+    block = arbiter_completion_block()
+    if block is not None:
+        skip_reason = (getattr(args, "no_arbiter_check", None) or "").strip()
+        if len(skip_reason) < 10:
+            print(
+                f"Refusing to complete {normalize_requirement_id(args.id)}: {block}\n"
+                f'If Arbiter genuinely cannot run here: --no-arbiter-check "<why, 10+ chars>" (recorded as a risk note).',
+                file=sys.stderr,
+            )
+            return 1
+        args.note = f"arbiter check skipped: {skip_reason}" + (f" | {args.note}" if getattr(args, "note", None) else "")
     args.status = "completed"
     args.title = None
     args.description = None
@@ -5208,6 +5252,10 @@ def build_parser() -> argparse.ArgumentParser:
     requirement_complete.add_argument(
         "--no-failure-entry",
         help="For defect/bug/fix requirements only: why no failure-ledger entry is warranted (10+ characters, recorded as a risk note).",
+    )
+    requirement_complete.add_argument(
+        "--no-arbiter-check",
+        help="Complete without a fresh, passing Arbiter report: why that is safe here (10+ characters, recorded as a risk note).",
     )
 
     test_parser = subparsers.add_parser(

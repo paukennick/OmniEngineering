@@ -605,6 +605,17 @@ Implement REQ-014. Use the minimum access scope from the requirement and follow
 the completion workflow in .ai/rules/completion-workflow.json.
 ```
 
+Where Arbiter is wired in (the `completion.arbiter_gate` rule exists), the order
+at the end of a task is fixed: `./omni gate` first, which runs Arbiter and leaves
+its report under the rule's `--out` directory, then `./omni requirement complete
+<ID>`. Completion reads that report and refuses when `arbiter` is not installed,
+when there is no report, when the report is stale (it names another commit, or a
+changed file is newer than the scan) or when its gate failed, and each refusal
+ends with the command to run (`./omni gate`). The escape hatch is
+`--no-arbiter-check "<why, 10+ chars>"`, which completes anyway and records the
+reason as a risk note on the requirement -- so a skipped check is visible in the
+registry, never silent.
+
 ## Maintenance CLI
 
 `omni` is a small dependency-free maintenance helper. It is not required for

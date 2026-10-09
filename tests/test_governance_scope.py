@@ -23,7 +23,7 @@ from arbiter.incremental import (REQ_SCOPE_COMMITS, REQ_SCOPE_OPEN, cited_ids,
                                  requirement_registry)
 from arbiter.policy import load_config
 from arbiter.report import render_markdown
-from test_arbiter import CLEAN_PY, LEAKY_PY, _git_repo
+from helpers import CLEAN_PY, LEAKY_PY, _git_repo
 from test_governance import _commit
 
 REGISTRY = ".ai/requirements/requirements.json"

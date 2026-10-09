@@ -20,9 +20,9 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 - Exempted Arbiter's own test material from the gate's secret check. The
   first change set to touch `tests/` tripped `data.privacy` on a planted PEM
   header: the check is right in general and wrong for a secret scanner's
-  corpus, so `tests/**`, `fixtures/**`, `examples/**` and the files holding
-  the detector's pattern tables are listed in the rulepack's ignore set.
-  (REQ-031)
+  corpus, so `tests/**`, `fixtures/**` and `examples/**` are listed in the
+  rulepack's ignore set; `src/` and `tools/` hold no literal key shape and
+  stay scanned. (REQ-031)
 - Re-synced the OmniEngineering workspace to its real upstream and adopted
   the tooling that arrived there since June. Arbiter's `omni` was a fork
   assembled from STEP-Migration copies (REQ-001) and closest to an upstream

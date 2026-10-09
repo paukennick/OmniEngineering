@@ -52,10 +52,11 @@ These settings correspond to the `configuration` block in
   `co_changed` rules exempt `training/**` and `.arbiter/**`, because the
   nightly `train.yml` job commits measurement output there with no
   requirement of its own, by design (REQ-023). Its `data.privacy` secret
-  check exempts `tests/**`, `fixtures/**`, `examples/**` and the source files
-  that hold the detector's own pattern tables: Arbiter is a secret scanner,
-  so planted keys and the example AWS key from the AWS documentation are its
-  test material, not leaks (see `NOTICE.md`). Everything else is scanned.
+  check exempts `tests/**`, `fixtures/**` and `examples/**`: Arbiter is a
+  secret scanner, so planted keys and the example AWS key from the AWS
+  documentation are its test material, not leaks (see `NOTICE.md`). No file
+  under `src/` or `tools/` holds a literal key shape, and all of them stay
+  scanned.
 - **Code graph.** `python omni graph build` writes `.ai/project-graph.json`
   (git-ignored; needs `tree-sitter` plus `tree-sitter-python` and
   `tree-sitter-bash`, which the `graph` extra installs). `.ai/graph-config.json`

@@ -1721,7 +1721,7 @@
       "title": "A finding traces to the requirement that introduced its line, through git blame and the history layer",
       "description": "The governance probe tags a finding with every requirement open when the scan ran, so a finding cited all five of a round's requirements. omni graph build now blames each finding's line (git blame -L on the path at the scanned commit), links the finding to that commit with an introduced_by edge, and through the history layer's commit-to-requirement edges to the one requirement whose commit wrote the line. omni graph why f:<id> prints introduced by <commit> (<requirement>); the viewer's finding panel gains an Introduced by row with its own trace button; the cites edges from the req: tags stay and are labelled as context (being worked when the scan ran). A line with no blame (uncommitted, or a path outside git) has no edge and says so.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "omni_graph.py",
         ".ai/graph-viewer/viewer.html",
@@ -1746,7 +1746,8 @@
       ],
       "risk_notes": [
         "git blame on hundreds of findings costs time: one blame per file with all its lines",
-        "not one per finding"
+        "not one per finding",
+        "Blame-based introduced_by edges (one git blame per file at the scanned commit, HEAD and working-tree fallbacks), why/findings print the introducing commit and requirement, viewer Introduced by row and three-step trace proven in headless Chromium; cites relabelled as context. All 33 findings here resolve; the stub finding traces to b49f2eb (REQ-050). Validated: 450 unit tests OK, browser test ran, doctor 0 errors, gate PASS."
       ]
     },
     {
@@ -1755,7 +1756,7 @@
       "title": "Vendored workspaces' ledgers and registries join the graph, namespaced, so a finding traces to the entry that fixed it wherever it lives",
       "description": "A failure recorded in the vendored Arbiter workspace's ledger (arbiter/.ai/failures/failure-ledger.json) was invisible to this repository's graph, so the stub finding from pull request #5 had no recorded_as edge although FAIL-042 fixed it. omni graph build reads every vendored workspace's failure ledger and requirements registry, adds their nodes with a workspace prefix (arbiter/FAIL-042, arbiter/ARB-048) because both ledgers number from FAIL-001, resolves recorded_as edges across workspaces by finding id, and the viewer shows the workspace on the node and in the breadcrumb. omni graph findings and why print the prefixed ids. Entries name the finding id in how_detected for the edge to exist; the handbook states the convention.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "omni_graph.py",
         ".ai/graph-viewer/viewer.html",
@@ -1779,7 +1780,8 @@
       ],
       "risk_notes": [
         "a vendored workspace with hundreds of entries grows the graph; only ledgers and registries are read",
-        "never code"
+        "never code",
+        "Vendored workspaces' registries and ledgers join the graph with a directory prefix (arbiter/ARB-048, arbiter/FAIL-042), recorded_as resolves across workspaces by finding id in how_detected or symptom, viewer and CLI show the workspace; the how_detected convention is in the handbook. 26 requirements and 41 failures of arbiter/ joined here. Validated: 450 unit tests OK, doctor 0 errors, gate PASS."
       ]
     }
   ]

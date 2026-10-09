@@ -2,12 +2,40 @@
 
 ## 2026-10-09
 
-### In progress
-
-- `REQ-051` | Code understanding | (in progress) A finding traces to the requirement that introduced its line, through git blame and the history layer.
-- `REQ-052` | Code understanding | (in progress) Vendored workspaces' ledgers and registries join the graph, namespaced.
-
 ### Completed
+
+- `REQ-051` | Code understanding | A finding traces to the requirement that introduced its line. `omni graph
+  build` blames every finding's line (`git blame --porcelain -L`, one call per distinct file with all of its
+  flagged lines, at the commit the report scanned, falling back to HEAD and then the working tree), records
+  `attrs.introduced_by_commit` and an `introduced_by` edge to the commit node (created with its `delivers`
+  edges when the history layer did not reach it), so the requirement is one hop on. `omni graph why f:<id>`
+  prints `introduced by  <commit> <subject> (<requirement>)` under the finding and `omni graph findings`
+  prints the same line per finding; a line with no blame (an uncommitted edit, an untracked file, a path
+  outside git) reads `introduced by  uncommitted change` and is never an error. The `cites` edges from the
+  `req:` tags stay and are labelled as context (being worked when the scan ran), in `why`, the handbook and
+  the viewer. The viewer's finding panel gains an "Introduced by" row (commit, subject, the requirements it
+  delivers), a "context" row and "Trace to introducing requirement", which draws finding, commit,
+  requirement whatever shorter route exists. The browser test builds a real git repository with one commit
+  per requirement, the second writing the flagged line, and asserts the row and the three-step trace;
+  `tests/test_graph_vendored_and_blame.py` covers blame at the scanned commit, one blame per file, the
+  uncommitted and outside-git cases and the printed output. On this repository all 33 findings resolve: the
+  stub finding `f:3780e4a24676`, tagged with five requirements, is introduced by b49f2eb (REQ-050).
+
+- `REQ-052` | Code understanding | Vendored workspaces' ledgers and registries join the graph, namespaced.
+  Every directory with its own `.ai/omni-version.json` (the `arbiter/` subtree) contributes its
+  `requirements.json` and `failure-ledger.json` with the directory as a prefix (`arbiter/ARB-048`,
+  `arbiter/FAIL-042`, `attrs.workspace`), hung under the workspace's directory node (root, arbiter,
+  failure-ledger.json, arbiter/FAIL-042); the root's ids stay bare, so the two ledgers numbered from FAIL-001
+  never collide. `recorded_as` resolves across workspaces by the finding id in `how_detected` (or
+  `symptom`); `affected` and `regression_tests` resolve relative to the workspace; an entry's `requirement`
+  resolves through the workspace's own registry and `id_aliases`; a commit or `req:` tag that cites a
+  vendored id reaches the prefixed node, the root's ids first. `omni graph why arbiter/FAIL-042` and `omni
+  graph findings` print the prefixed ids; the viewer shows the workspace on the node, in the tooltip, the
+  panel and the breadcrumb, and a search for `FAIL-042` or `arbiter/FAIL-042` finds it. Only the ledger and
+  the registry are read, never the workspace's code; doctor stays at 0 errors. The handbook states the
+  convention: a ledger entry names the finding id (`f:...`) in `how_detected`. On this repository 26
+  requirements and 41 failures of `arbiter/` joined the graph and 8 subtree commits now deliver their
+  `arbiter/ARB-###`.
 
 - `REQ-047` | Developer tooling | `completion.tests` is `required`: `omni gate` runs `omni test run --impacted`,
   so the registered suites the change reaches must pass (nothing to run, and a pass, when no suite is

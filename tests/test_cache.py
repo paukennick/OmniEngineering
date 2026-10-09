@@ -381,16 +381,17 @@ def test_every_cacheable_probe_is_file_scoped_and_attributes_every_finding(name)
 
 def test_a_same_size_edit_within_one_mtime_tick_changes_the_key(tmp_path):
     """FAIL-041: the digest is of the bytes, never of (path, mtime, size). Two
-    same-size writes with the timestamp pinned must still key differently."""
+    same-size writes with the timestamp pinned must still key differently.
+    Bytes, not text: text mode writes CRLF on Windows and the sizes would differ."""
     f = tmp_path / "b.py"
-    f.write_text("y = 2\n", encoding="utf-8")
+    f.write_bytes(b"y = 2\n")
     pinned = f.stat().st_mtime
     before = C.key(str(f), "rules", "b.py", "root")
-    f.write_text("y = 3\n", encoding="utf-8")
+    f.write_bytes(b"y = 3\n")
     os.utime(f, (pinned, pinned))                      # same size, same mtime
-    assert f.stat().st_size == len("y = 2\n")
+    assert f.stat().st_size == len(b"y = 2\n")
     assert C.key(str(f), "rules", "b.py", "root") != before
     # Control: writing the original bytes back restores the original key.
-    f.write_text("y = 2\n", encoding="utf-8")
+    f.write_bytes(b"y = 2\n")
     os.utime(f, (pinned, pinned))
     assert C.key(str(f), "rules", "b.py", "root") == before

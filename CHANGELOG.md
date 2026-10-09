@@ -9,6 +9,8 @@
   comment (`actions/checkout` fbc6f399 v5, `actions/setup-python` a26af69b v5, `actions/cache` 0057852b
   v4, `github/codeql-action/upload-sarif` 9f759ee6 v3), so the workflow runs what was reviewed
   (FAIL-016). The planted defect's suppressions are the sub-bullet under REQ-045 below.
+  Found on the way: the history-layer tests' teardown raced git's detached auto-gc on macOS CI
+  (FAIL-017); every temporary repository they create now sets `gc.auto 0`.
 
 - `REQ-051` | Code understanding | A finding traces to the requirement that introduced its line. `omni graph
   build` blames every finding's line (`git blame --porcelain -L`, one call per distinct file with all of its

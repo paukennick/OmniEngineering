@@ -2,6 +2,11 @@
 
 ## 2026-10-09
 
+### In progress
+
+- `REQ-051` | Code understanding | (in progress) A finding traces to the requirement that introduced its line, through git blame and the history layer.
+- `REQ-052` | Code understanding | (in progress) Vendored workspaces' ledgers and registries join the graph, namespaced.
+
 ### Completed
 
 - `REQ-047` | Developer tooling | `completion.tests` is `required`: `omni gate` runs `omni test run --impacted`,

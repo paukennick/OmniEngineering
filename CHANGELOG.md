@@ -8,7 +8,19 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
-- ARB-052 | (in progress) The governance probe tags a finding with the requirements its file's recent commits cite, not every open one.
+- ARB-052 | A finding in a `--changed` gate is tagged `req:<ID>` for the requirements
+  cited by the commits since the base that touched its own file, marked
+  `req-scope:commits`. Before, every finding in the change carried every id the
+  round's commits cited, so a five-requirement gate could not say which one
+  introduced a finding and OmniEngineering's graph attributed it to all of them.
+  A file no citing commit touched falls back to the round's ids marked
+  `req-scope:open` (context, not attribution); a full scan carries only that
+  marker; old ids resolve through the registry's `id_aliases`; one
+  `git log --name-only` runs per repository however many files changed; and the
+  By requirement table says under it which scope each count came from. The
+  attribution lives in `incremental.attribute_requirements`, called by the
+  engine after every probe has run, since a tag on every finding cannot be
+  applied by one probe.
 - ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
 - ARB-046 | The suite runs in a fast and a slow tier and CI shards them.
   `tests/test_arbiter.py` (5,516 lines, 438 collected ids) is fourteen files by

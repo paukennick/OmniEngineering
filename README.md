@@ -519,6 +519,31 @@ nothing to compare against). Fix that once, from the adopted project:
 This merges nothing -- it just records today as the starting point. Every
 `omni update` after that works normally.
 
+**Keeping Arbiter level.** `omni arbiter install` records the installed Arbiter
+version and its source under `arbiter` in `.ai/omni-version.json`, next to the
+template ref (`omni update` keeps that key). `omni doctor` warns when the
+installed `arbiter` no longer matches the record, and `omni update` warns when
+your `completion.arbiter_gate` rule runs a different command than the current
+template; the rule is yours, so update never rewrites it. One command brings
+all of it level:
+
+```bash
+./omni arbiter update --dry-run     # prints every command, writes nothing
+./omni arbiter update               # pip --upgrade, the rule, a vendored subtree, the record
+```
+
+It upgrades the package from the recorded source (or `--source`, with
+`--skip-pip` to leave pip alone), rewrites the rule's `validation` to the
+template unless `--keep-rule`, and, when `arbiter/` is a vendored subtree (it
+carries `pyproject.toml` and `.ai/omni-version.json`), runs
+`git subtree pull --prefix arbiter <source> main` in the mode the subtree was
+added with: it reads the newest commit carrying `git-subtree-dir: arbiter`,
+treats a `git-subtree-mainline` trailer as unsquashed history and its absence
+(a "Squashed 'arbiter/' ..." commit) as squashed, and refuses to mix the two
+unless `--force` (`--squash` asks for a squashed pull). It re-records the
+version last. Afterwards run `omni arbiter baseline --refresh` once the gate is
+green, so the baseline matches what the upgraded Arbiter reports.
+
 Optional presentation assets:
 
 ```text
@@ -685,11 +710,14 @@ omni validate
 omni map
 omni context review
 omni arbiter baseline
+omni arbiter update
 ```
 
 `arbiter baseline` cuts (or, with `--refresh`, re-cuts on a green gate) the
-`.arbiter/baseline.json` the gate rule compares against. See
-[Arbiter alongside the workspace](#arbiter-alongside-the-workspace).
+`.arbiter/baseline.json` the gate rule compares against; `arbiter update`
+upgrades Arbiter, its gate rule and a vendored subtree, and re-records the
+version. See [Arbiter alongside the workspace](#arbiter-alongside-the-workspace)
+and [Updating an adopted workspace](#updating-an-adopted-workspace).
 
 `sync` verifies that the required `.ai/` source-of-truth files exist, then
 refreshes `.ai/entrypoints/`, the root shim files, and synced ignore files.
@@ -740,6 +768,8 @@ The doctor checks:
   must exist, be no older than the newest fixed failure-ledger entry, and match
   the current `arbiter.yaml` (`config_hash`); each gap names
   `omni arbiter baseline`.
+- Arbiter version: the installed `arbiter` must match the version recorded in
+  `.ai/omni-version.json`; drift names `omni arbiter update`.
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.

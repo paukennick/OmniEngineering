@@ -435,5 +435,279 @@ class TestRealBaseline(unittest.TestCase):
             self.assertIn("commit .arbiter/baseline.json", out.getvalue())
 
 
+# ---------------------------------------------------------------------------
+# REQ-042: version tracking and `omni arbiter update`.
+# ---------------------------------------------------------------------------
+
+class TestInstalledVersion(unittest.TestCase):
+    def test_parses_the_last_version_token_of_arbiter_version(self) -> None:
+        def run(command, **kwargs):
+            self.assertEqual(list(command), ["arbiter", "--version"])
+            return FakeCompleted(stdout="arbiter 0.1.0\n")
+        with mock.patch.object(ma.shutil, "which", side_effect=arbiter_on_path), mock.patch.object(ma.subprocess, "run", side_effect=run):
+            self.assertEqual(ma.installed_arbiter_version(), "0.1.0")
+
+    def test_falls_back_to_distribution_metadata(self) -> None:
+        import importlib.metadata as metadata
+        with mock.patch.object(ma.shutil, "which", side_effect=lambda name: None), \
+                mock.patch.object(metadata, "version", return_value="0.2.0") as version:
+            self.assertEqual(ma.installed_arbiter_version(), "0.2.0")
+        version.assert_called_once_with("arbiter-eval")
+
+    def test_none_when_neither_works(self) -> None:
+        import importlib.metadata as metadata
+        with mock.patch.object(ma.shutil, "which", side_effect=lambda name: None), \
+                mock.patch.object(metadata, "version", side_effect=metadata.PackageNotFoundError("arbiter-eval")):
+            self.assertIsNone(ma.installed_arbiter_version())
+
+
+class VersionFileFixture(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        (self.root / ".ai" / "rules").mkdir(parents=True)
+        self.version_file = self.root / ma.OMNI_VERSION_FILE
+
+    def write_version(self, **extra) -> None:
+        payload = {"source": "/src/OmniEngineering", "ref": "deadbeef", "last_synced_at": "2026-10-01T00:00:00+00:00"}
+        payload.update(extra)
+        self.version_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    def read_version(self) -> dict:
+        return json.loads(self.version_file.read_text(encoding="utf-8"))
+
+
+class TestRecordVersion(VersionFileFixture):
+    def test_merges_the_arbiter_block_and_keeps_the_rest(self) -> None:
+        self.write_version()
+        with mock.patch.object(ma, "installed_arbiter_version", return_value="0.1.0"), redirect_stdout(io.StringIO()):
+            ma.record_arbiter_version(self.root, "../arbiter")
+        payload = self.read_version()
+        self.assertEqual(payload["ref"], "deadbeef")
+        self.assertEqual(payload["arbiter"]["source"], "../arbiter")
+        self.assertEqual(payload["arbiter"]["version"], "0.1.0")
+        self.assertIn("recorded_at", payload["arbiter"])
+
+    def test_records_unknown_when_no_version_is_found(self) -> None:
+        self.write_version()
+        with mock.patch.object(ma, "installed_arbiter_version", return_value=None), redirect_stdout(io.StringIO()):
+            ma.record_arbiter_version(self.root, "x")
+        self.assertEqual(self.read_version()["arbiter"]["version"], "unknown")
+
+    def test_skips_with_a_note_when_the_file_is_absent(self) -> None:
+        out = io.StringIO()
+        with mock.patch.object(ma, "installed_arbiter_version", return_value="0.1.0"), redirect_stdout(out):
+            ma.record_arbiter_version(self.root, "x")
+        self.assertFalse(self.version_file.exists())
+        self.assertIn("not recorded", out.getvalue())
+
+    def test_install_records_the_version_even_with_skip_pip(self) -> None:
+        self.write_version()
+        (self.root / ".ai" / "rules" / "completion-workflow.json").write_text(json.dumps({"rules": []}), encoding="utf-8")
+        with mock.patch.object(ma, "installed_arbiter_version", return_value="0.1.0"), \
+                mock.patch.object(ma.shutil, "which", side_effect=lambda name: None), redirect_stdout(io.StringIO()):
+            ma.arbiter_install(self.root, "../arbiter", skip_pip=True)
+        recorded = self.read_version()["arbiter"]
+        self.assertEqual((recorded["source"], recorded["version"]), ("../arbiter", "0.1.0"))
+
+    def test_write_omni_version_file_preserves_the_arbiter_key(self) -> None:
+        self.write_version(arbiter={"source": "s", "version": "0.1.0", "recorded_at": "t"})
+        with mock.patch.object(ma, "git_current_ref", return_value="cafebabe"):
+            ma.write_omni_version_file(Path("/src/Omni"), self.root)
+        payload = self.read_version()
+        self.assertEqual(payload["ref"], "cafebabe")
+        self.assertEqual(payload["source"], "/src/Omni")
+        self.assertEqual(payload["arbiter"], {"source": "s", "version": "0.1.0", "recorded_at": "t"})
+
+
+class TestDoctorVersion(DoctorFixture):
+    def check(self, installed) -> ma.DoctorReport:
+        report = ma.DoctorReport()
+        with mock.patch.object(ma.shutil, "which", side_effect=arbiter_on_path), \
+                mock.patch.object(ma, "installed_arbiter_version", return_value=installed):
+            ma.validate_arbiter_version(report)
+        return report
+
+    def write_version(self, **extra) -> None:
+        payload = {"source": "s", "ref": "r"}
+        payload.update(extra)
+        (self.root / ma.OMNI_VERSION_FILE).write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_warns_on_a_mismatch(self) -> None:
+        self.write_version(arbiter={"source": "s", "version": "0.1.0"})
+        report = self.check("0.2.0")
+        self.assertEqual(len(report.warnings), 1)
+        self.assertIn("recorded 0.1.0, installed 0.2.0", report.warnings[0])
+        self.assertIn("omni arbiter update", report.warnings[0])
+
+    def test_silent_when_equal(self) -> None:
+        self.write_version(arbiter={"source": "s", "version": "0.1.0"})
+        self.assertEqual(self.check("0.1.0").warnings, [])
+
+    def test_silent_without_a_record_or_an_install(self) -> None:
+        self.write_version()
+        report = self.check("0.1.0")
+        self.assertEqual((report.warnings, report.passed), ([], []))
+        self.write_version(arbiter={"source": "s", "version": "0.1.0"})
+        report = ma.DoctorReport()
+        with mock.patch.object(ma.shutil, "which", side_effect=lambda name: None):
+            ma.validate_arbiter_version(report)
+        self.assertEqual((report.warnings, report.passed), ([], []))
+
+    def test_build_doctor_report_calls_it(self) -> None:
+        source = Path(ma.__file__).read_text(encoding="utf-8")
+        body = source.split("def build_doctor_report(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("validate_arbiter_version(report)", body)
+
+
+RECORDED_SOURCE = "https://example.invalid/arbiter"  # a URL, so `git subtree pull` gets it verbatim
+SUBTREE_UNSQUASHED = "Add 'arbiter/' from commit 'd10b'\n\ngit-subtree-dir: arbiter\ngit-subtree-mainline: 1d93\ngit-subtree-split: d10b\n"
+SUBTREE_SQUASHED = "Squashed 'arbiter/' changes from 5c21..033b\n\n033b lib4\n\ngit-subtree-dir: arbiter\ngit-subtree-split: 033b\n"
+
+
+class TestArbiterUpdate(VersionFileFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        self.rulepack = self.root / ".ai" / "rules" / "completion-workflow.json"
+        stale = json.loads(json.dumps(ma.ARBITER_GATE_RULE))
+        stale["validation"]["run"] = "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json"
+        self.rulepack.write_text(json.dumps({"rulepack_id": "completion", "rules": [stale]}), encoding="utf-8")
+        self.write_version(arbiter={"source": RECORDED_SOURCE, "version": "0.1.0", "recorded_at": "t"})
+
+    def vendor(self) -> None:
+        (self.root / "arbiter" / ".ai").mkdir(parents=True)
+        (self.root / "arbiter" / "pyproject.toml").write_text("[project]\nname='arbiter-eval'\n", encoding="utf-8")
+        (self.root / "arbiter" / ".ai" / "omni-version.json").write_text("{}", encoding="utf-8")
+
+    def update(self, *flags: str, subtree_log: str = "") -> tuple[int, str, list[list[str]]]:
+        calls: list[list[str]] = []
+
+        def run(command, **kwargs):
+            command = list(command)
+            calls.append(command)
+            if command[:1] == ["git"] and "log" in command:
+                return FakeCompleted(stdout=subtree_log)
+            return FakeCompleted()
+
+        args = ma.build_parser().parse_args(["arbiter", "update", "--target", str(self.root), *flags])
+        out = io.StringIO()
+        with redirect_stdout(out), mock.patch.object(ma.subprocess, "run", side_effect=run), \
+                mock.patch.object(ma, "installed_arbiter_version", return_value="0.3.0"), \
+                mock.patch.object(ma.shutil, "which", side_effect=arbiter_on_path):
+            code = ma.run_arbiter_update(args)
+        return code, out.getvalue(), calls
+
+    def rule_run(self) -> str:
+        rules = json.loads(self.rulepack.read_text(encoding="utf-8"))["rules"]
+        return rules[0]["validation"]["run"]
+
+    def test_pip_upgrades_from_the_recorded_source_and_the_version_is_re_recorded(self) -> None:
+        code, output, calls = self.update()
+        self.assertEqual(code, 0)
+        self.assertIn(ma._arbiter_pip_command(RECORDED_SOURCE) + ["--upgrade"], calls)
+        self.assertEqual(self.read_version()["arbiter"]["version"], "0.3.0")
+        self.assertEqual(self.read_version()["ref"], "deadbeef")
+        self.assertIn("omni arbiter baseline --refresh", output)
+        self.assertNotIn("subtree pull", " ".join(" ".join(c) for c in calls))
+
+    def test_source_flag_wins_and_skip_pip_runs_no_pip(self) -> None:
+        code, _, calls = self.update("--source", "git+https://example.invalid/other", "--skip-pip")
+        self.assertEqual(code, 0)
+        self.assertFalse(any("pip" in c for c in calls))
+        self.assertEqual(self.read_version()["arbiter"]["source"], "git+https://example.invalid/other")
+
+    def test_the_rule_is_rewritten_unless_kept(self) -> None:
+        self.update("--skip-pip")
+        self.assertEqual(self.rule_run(), ma.ARBITER_GATE_RULE["validation"]["run"])
+        rules = json.loads(self.rulepack.read_text(encoding="utf-8"))["rules"]
+        self.assertEqual(rules[0]["validation"], ma.ARBITER_GATE_RULE["validation"])
+
+    def test_keep_rule_leaves_it(self) -> None:
+        before = self.rule_run()
+        code, output, _ = self.update("--skip-pip", "--keep-rule")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.rule_run(), before)
+        self.assertIn("--keep-rule", output)
+
+    def test_subtree_pull_runs_in_the_mode_the_history_was_added_with(self) -> None:
+        self.vendor()
+        code, _, calls = self.update("--skip-pip", subtree_log=SUBTREE_UNSQUASHED)
+        self.assertEqual(code, 0)
+        self.assertIn(["git", "subtree", "pull", "--prefix", "arbiter", RECORDED_SOURCE, "main"], calls)
+        code, _, calls = self.update("--skip-pip", "--squash", subtree_log=SUBTREE_SQUASHED)
+        self.assertEqual(code, 0)
+        self.assertIn(["git", "subtree", "pull", "--prefix", "arbiter", RECORDED_SOURCE, "main", "--squash"], calls)
+
+    def test_git_plus_sources_are_stripped_and_checkouts_resolved_for_git(self) -> None:
+        self.vendor()
+        _, _, calls = self.update("--skip-pip", "--source", "git+https://example.invalid/other", subtree_log=SUBTREE_UNSQUASHED)
+        self.assertIn(["git", "subtree", "pull", "--prefix", "arbiter", "https://example.invalid/other", "main"], calls)
+        with tempfile.TemporaryDirectory() as checkout:
+            self.assertEqual(ma._arbiter_git_source(checkout), str(Path(checkout).resolve()))
+        self.assertEqual(ma._arbiter_git_source("arbiter-eval"), "arbiter-eval")
+
+    def test_a_mode_mismatch_is_refused_unless_forced(self) -> None:
+        self.vendor()
+        code, output, calls = self.update("--skip-pip", "--squash", subtree_log=SUBTREE_UNSQUASHED)
+        self.assertEqual(code, 1)
+        self.assertIn("history is unsquashed", output)
+        self.assertIn(f"git subtree pull --prefix arbiter {RECORDED_SOURCE} main --squash", output)
+        self.assertFalse(any("subtree" in c for c in calls))
+        code, output, calls = self.update("--skip-pip", subtree_log=SUBTREE_SQUASHED)
+        self.assertEqual(code, 1)
+        self.assertIn("history is squash", output)
+        code, _, calls = self.update("--skip-pip", "--squash", "--force", subtree_log=SUBTREE_UNSQUASHED)
+        self.assertEqual(code, 0)
+        self.assertIn(["git", "subtree", "pull", "--prefix", "arbiter", RECORDED_SOURCE, "main", "--squash"], calls)
+
+    def test_subtree_mode_reads_the_marker_commit(self) -> None:
+        for log, expected in ((SUBTREE_UNSQUASHED, "unsquashed"), (SUBTREE_SQUASHED, "squash"), ("", None), ("Merge commit 'x'\n", None)):
+            with mock.patch.object(ma.subprocess, "run", return_value=FakeCompleted(stdout=log)) as run:
+                self.assertEqual(ma.arbiter_subtree_mode(self.root), expected)
+            self.assertEqual(run.call_args[0][0][-3:], ["-1", "--grep=^git-subtree-dir: arbiter$", "--format=%B"])
+
+    def test_dry_run_runs_and_writes_nothing(self) -> None:
+        self.vendor()
+        before_rule = self.rule_run()
+        before_version = self.read_version()
+        code, output, calls = self.update("--dry-run", subtree_log=SUBTREE_UNSQUASHED)
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in calls if "log" not in c], [], "only the read-only subtree mode probe ran")
+        self.assertIn("would run", output)
+        self.assertIn("pip install", output)
+        self.assertIn("git subtree pull --prefix arbiter", output)
+        self.assertEqual(self.rule_run(), before_rule)
+        self.assertEqual(self.read_version(), before_version)
+
+    def test_the_cli_subcommand_parses(self) -> None:
+        args = ma.build_parser().parse_args(["arbiter", "update", "--keep-rule", "--squash", "--force", "--skip-pip", "--dry-run"])
+        self.assertEqual(args.arbiter_command, "update")
+        self.assertTrue(args.keep_rule and args.squash and args.force and args.skip_pip and args.dry_run)
+        self.assertIsNone(args.source)
+
+
+class TestUpdateWarnsOnRuleDrift(VersionFileFixture):
+    def test_warns_only_when_the_run_text_differs(self) -> None:
+        rulepack = self.root / ".ai" / "rules" / "completion-workflow.json"
+        current = json.loads(json.dumps(ma.ARBITER_GATE_RULE))
+        rulepack.write_text(json.dumps({"rules": [current]}), encoding="utf-8")
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(ma.warn_arbiter_rule_drift(self.root))
+        self.assertEqual(out.getvalue(), "")
+        current["validation"]["run"] = "arbiter gate . --changed {base}"
+        rulepack.write_text(json.dumps({"rules": [current]}), encoding="utf-8")
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertTrue(ma.warn_arbiter_rule_drift(self.root))
+        self.assertIn("omni arbiter update", out.getvalue())
+        self.assertIn("left alone", out.getvalue())
+        self.assertEqual(ma.ARBITER_GATE_RULE["validation"]["run"].count("--baseline"), 1, "the constant is untouched")
+
+    def test_run_update_calls_it(self) -> None:
+        source = Path(ma.__file__).read_text(encoding="utf-8")
+        body = source.split("def run_update(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("warn_arbiter_rule_drift(target_root)", body)
+
+
 if __name__ == "__main__":
     unittest.main()

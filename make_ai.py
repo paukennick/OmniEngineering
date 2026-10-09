@@ -581,7 +581,8 @@ gate:
 # The completion rule `omni arbiter install` writes. `--baseline` makes the
 # gate label findings new/existing against .arbiter/baseline.json (REQ-038);
 # json is what omni reads back, sarif feeds code-scanning upload, pr-comment
-# is the markdown a CI job posts.
+# is the markdown a CI job posts. `omni arbiter update` rewrites an adopter's
+# copy of `validation` to this when asked; `omni update` only warns.
 ARBITER_GATE_RULE: dict[str, Any] = {
     "id": ARBITER_GATE_RULE_ID,
     "severity": "required",
@@ -840,12 +841,23 @@ def three_way_merge(ours: str, base: str, theirs: str) -> tuple[str, bool]:
 
 
 def write_omni_version_file(source_root: Path, target_root: Path) -> None:
-    payload = {
+    """Record the template source and ref. Keys this function does not own (such as
+    the `arbiter` block `record_arbiter_version` writes) are read back and kept."""
+    path = target_root / OMNI_VERSION_FILE
+    payload: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            existing = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            existing = None
+        if isinstance(existing, dict):
+            payload = existing
+    payload.update({
         "source": str(source_root),
         "ref": git_current_ref(source_root),
         "last_synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
-    write_json(target_root / OMNI_VERSION_FILE, payload)
+    })
+    write_json(path, payload)
 
 
 def read_omni_version_file(target_root: Path = Path(".")) -> dict[str, Any] | None:
@@ -3330,6 +3342,7 @@ def build_doctor_report() -> DoctorReport:
     validate_mcp_registrations(report)
     validate_vendored_workspaces(report)
     validate_arbiter_baseline(report)
+    validate_arbiter_version(report)
     validate_omni_version_present(report)
     report.posture = compute_posture()
     return report
@@ -3515,7 +3528,8 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
     rerun: the package (pip), the `arbiter` entry in `.mcp.json`, the
     `completion.arbiter_gate` command rule in the completion rulepack, and a
     starter `arbiter.yaml`. Nothing is overwritten; a project that tuned any
-    of them keeps its version. With `arbiter` on PATH a baseline is then cut
+    of them keeps its version. The installed version is then recorded in
+    `.ai/omni-version.json` and, with `arbiter` on PATH, a baseline is cut
     (`arbiter_write_baseline`), itself a no-op when one exists.
     """
     verb = "would " if dry_run else ""
@@ -3534,6 +3548,11 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
                 status = 1
             elif shutil.which("arbiter") is None:
                 print("  installed, but `arbiter` is not on PATH in this shell; open a new one or check pip's script directory")
+
+    if dry_run:
+        print(f"- {OMNI_VERSION_FILE}: would record the installed Arbiter version and its source")
+    else:
+        record_arbiter_version(target_root, source)
 
     mcp_path = target_root / MCP_REGISTRATION_PATH
     registration: dict[str, Any] = {"mcpServers": {}}
@@ -4131,6 +4150,246 @@ def validate_arbiter_baseline(report: DoctorReport) -> None:
         report.pass_check(f"{ARBITER_BASELINE_PATH} is present and current ({len(ids)} known finding ids)")
 
 
+# ---------------------------------------------------------------------------
+# REQ-042: Arbiter version tracking and `omni arbiter update`. The installed
+# version and its source are recorded beside the template ref in
+# .ai/omni-version.json; doctor warns when the installed package drifts from
+# the record, `omni update` warns when the adopter's gate rule drifts from the
+# template, and `omni arbiter update` brings all of it level in one go.
+# ---------------------------------------------------------------------------
+
+_VERSION_TOKEN = re.compile(r"\d+(?:\.\d+)+[0-9A-Za-z.+-]*")
+
+
+def installed_arbiter_version() -> str | None:
+    """The installed Arbiter's version: the last version-shaped token `arbiter --version`
+    prints, else the `arbiter-eval` distribution's metadata, else None."""
+    if shutil.which("arbiter") is not None:
+        try:
+            completed = subprocess.run(
+                ["arbiter", "--version"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            completed = None
+        if completed is not None and completed.returncode == 0:
+            for token in reversed(((completed.stdout or "") + " " + (completed.stderr or "")).split()):
+                if _VERSION_TOKEN.fullmatch(token):
+                    return token
+    # Imported here so the module's import block stays as it is; stdlib either way.
+    from importlib import metadata
+    try:
+        return metadata.version("arbiter-eval")
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def record_arbiter_version(target_root: Path, source: str) -> None:
+    """Merge `{"arbiter": {source, version, recorded_at}}` into .ai/omni-version.json.
+    The file is only written when it exists: `omni update` refuses one without a
+    template `ref`, so creating it here would leave the adopter worse off."""
+    path = target_root / OMNI_VERSION_FILE
+    if not path.is_file():
+        print(f"- {OMNI_VERSION_FILE}: absent, Arbiter version not recorded (`omni adopt` writes the file)")
+        return
+    try:
+        payload = load_json(path)
+    except json.JSONDecodeError:
+        print(f"- {OMNI_VERSION_FILE}: not valid JSON, Arbiter version not recorded")
+        return
+    if not isinstance(payload, dict):
+        print(f"- {OMNI_VERSION_FILE}: not a JSON object, Arbiter version not recorded")
+        return
+    version = installed_arbiter_version() or "unknown"
+    payload["arbiter"] = {
+        "source": source,
+        "version": version,
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    write_json(path, payload)
+    print(f"- {OMNI_VERSION_FILE}: recorded arbiter {version} from {source}")
+
+
+def validate_arbiter_version(report: DoctorReport) -> None:
+    """When the version file records an Arbiter and one is installed, the two must agree."""
+    info = read_omni_version_file()
+    recorded = info.get("arbiter") if isinstance(info, dict) else None
+    if not isinstance(recorded, dict) or shutil.which("arbiter") is None:
+        return
+    installed = installed_arbiter_version()
+    if installed is None:
+        return
+    wanted = str(recorded.get("version") or "unknown")
+    if wanted != installed:
+        report.warning(
+            f"Arbiter drift: {OMNI_VERSION_FILE} recorded {wanted}, installed {installed}: "
+            "run `omni arbiter update` (upgrades, refreshes the gate rule and re-records the version)"
+        )
+    else:
+        report.pass_check(f"Installed Arbiter {installed} matches {OMNI_VERSION_FILE}")
+
+
+def warn_arbiter_rule_drift(target_root: Path) -> bool:
+    """Print a note when the adopter's `completion.arbiter_gate` runs a different command
+    than the current template. Warn only: the rule is adopter-owned, `omni update` never
+    rewrites it; `omni arbiter update` does on request. Returns True when it warned."""
+    rule = _arbiter_gate_rule(target_root)
+    if rule is None:
+        return False
+    validation = rule.get("validation")
+    current = validation.get("run") if isinstance(validation, dict) else None
+    template = ARBITER_GATE_RULE["validation"]["run"]
+    if current == template:
+        return False
+    print("")
+    print(
+        f"Note: `{ARBITER_GATE_RULE_ID}` in .ai/rules/completion-workflow.json runs a different "
+        "command than the current template; the rule is yours, so it was left alone. "
+        "`omni arbiter update` rewrites it to the template (`--keep-rule` keeps yours):"
+    )
+    print(f"  yours:    {current}")
+    print(f"  template: {template}")
+    return True
+
+
+def _arbiter_git_source(source: str) -> str:
+    """What `git subtree pull` fetches from: a pip `git+URL` minus the prefix, a local
+    checkout as its absolute path, anything else as given."""
+    if source.startswith("git+"):
+        return source[4:]
+    local = Path(source).expanduser()
+    if local.is_dir():
+        return str(local.resolve())
+    return source
+
+
+def arbiter_subtree_mode(target_root: Path, prefix: str = "arbiter") -> str | None:
+    """How `<prefix>/` was brought in: "unsquashed", "squash", or None without a subtree.
+
+    `git subtree` (contrib/subtree/git-subtree.sh) marks commits with a
+    `git-subtree-dir: <prefix>` trailer in two shapes. An unsquashed `add` (and
+    `split --rejoin`) writes a merge commit carrying `git-subtree-mainline: <sha>`
+    beside `git-subtree-split: <sha>`; a later unsquashed `pull` is a plain
+    `git merge -Xsubtree` with no trailers at all, so the newest marker commit stays
+    that add. `--squash` instead writes a synthetic commit titled
+    "Squashed '<prefix>/' content from commit X" (add) or
+    "Squashed '<prefix>/' changes from X..Y" (pull) that carries `git-subtree-dir`
+    and `git-subtree-split` but never `git-subtree-mainline`. So the newest commit
+    whose message holds the exact `git-subtree-dir: <prefix>` line decides: with a
+    mainline trailer the history is unsquashed, without one it is squashed. Mixing
+    the two modes makes later pulls replay or conflict on the whole subtree history,
+    which is why `omni arbiter update` refuses a mismatch without --force.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(target_root), "log", "-1", f"--grep=^git-subtree-dir: {prefix}$", "--format=%B"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    lines = [line.strip() for line in (completed.stdout or "").splitlines()]
+    if f"git-subtree-dir: {prefix}" not in lines:
+        return None
+    if any(line.startswith("git-subtree-mainline:") for line in lines):
+        return "unsquashed"
+    if any(line.startswith("git-subtree-split:") for line in lines):
+        return "squash"
+    return None
+
+
+def run_arbiter_update(args: argparse.Namespace) -> int:
+    """Bring an adopted workspace's Arbiter level: pip --upgrade from the recorded source,
+    the gate rule's `validation` to the template, a vendored arbiter/ subtree pulled in
+    the mode it was added with, and the version re-recorded. --dry-run prints every
+    command and writes nothing."""
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    info = read_omni_version_file(target_root)
+    recorded = info.get("arbiter") if isinstance(info, dict) else None
+    recorded = recorded if isinstance(recorded, dict) else {}
+    source = args.source or str(recorded.get("source") or "") or ARBITER_DEFAULT_SOURCE
+    dry_run = args.dry_run
+    verb = "would " if dry_run else ""
+    status = 0
+
+    print(f"Arbiter update in {target_root}")
+    print(f"Source: {source}{' (recorded at install)' if not args.source and recorded.get('source') else ''}")
+    print(f"Recorded version: {recorded.get('version') or 'none'}")
+    print(f"Mode: {'dry-run' if dry_run else 'apply'}")
+    print("")
+
+    if args.skip_pip:
+        print("- pip: skipped (--skip-pip)")
+    else:
+        command = _arbiter_pip_command(source) + ["--upgrade"]
+        print(f"- pip: {verb}run {' '.join(command)}")
+        if not dry_run:
+            code, tail = _arbiter_run(command, target_root, 1800)
+            if code != 0:
+                print(f"  pip failed (exit {code}):\n{tail}", file=sys.stderr)
+                status = 1
+
+    rulepack_path = target_root / ".ai" / "rules" / "completion-workflow.json"
+    if args.keep_rule:
+        print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` kept as it is (--keep-rule)")
+    elif not rulepack_path.is_file():
+        print(f"- {rulepack_path.relative_to(target_root).as_posix()}: missing; adopt the workspace first")
+        status = 1
+    else:
+        rulepack = load_json(rulepack_path)
+        rules = rulepack.setdefault("rules", []) if isinstance(rulepack, dict) else []
+        rule = next((r for r in rules if isinstance(r, dict) and r.get("id") == ARBITER_GATE_RULE_ID), None)
+        if rule is None:
+            print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` is not wired; run `omni arbiter install`")
+        elif rule.get("validation") == ARBITER_GATE_RULE["validation"]:
+            print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` already runs the template command")
+        else:
+            rule["validation"] = json.loads(json.dumps(ARBITER_GATE_RULE["validation"]))
+            print(f"- completion rulepack: {verb}rewrite `{ARBITER_GATE_RULE_ID}` validation to the template (--keep-rule keeps yours)")
+            if not dry_run:
+                write_json(rulepack_path, rulepack)
+
+    vendored = target_root / "arbiter"
+    if (vendored / "pyproject.toml").is_file() and (vendored / ".ai" / "omni-version.json").is_file():
+        mode = arbiter_subtree_mode(target_root)
+        wanted = "squash" if args.squash else "unsquashed"
+        command = ["git", "subtree", "pull", "--prefix", "arbiter", _arbiter_git_source(source), "main"]
+        if args.squash:
+            command.append("--squash")
+        if mode is not None and mode != wanted and not args.force:
+            fix = "add --squash" if mode == "squash" else "drop --squash"
+            print(
+                f"- subtree arbiter/: refusing to pull, its history is {mode} but this run asks for {wanted}; "
+                f"mixing the two replays the whole subtree history. {fix[0].upper()}{fix[1:]}, or --force to run anyway:"
+            )
+            print(f"    {' '.join(command)}")
+            status = 1
+        else:
+            note = f" (history is {mode})" if mode else " (no subtree marker commit found)"
+            print(f"- subtree arbiter/: {verb}run {' '.join(command)}{note}")
+            if not dry_run:
+                code, tail = _arbiter_run(command, target_root, 600)
+                if code != 0:
+                    print(f"  git subtree pull failed (exit {code}):\n{tail}", file=sys.stderr)
+                    status = 1
+    else:
+        print("- subtree arbiter/: not vendored here, skipped")
+
+    if dry_run:
+        print(f"- {OMNI_VERSION_FILE}: would re-record the installed Arbiter version and its source")
+    else:
+        record_arbiter_version(target_root, source)
+
+    print("")
+    print("Next: run `omni arbiter baseline --refresh` after the gate is green, so the baseline")
+    print("matches what the upgraded Arbiter reports; `omni doctor` confirms the versions agree.")
+    return status
+
+
 def run_update(args: argparse.Namespace) -> int:
     source_root = Path(args.source).resolve()
     target_root = Path(".").resolve()
@@ -4242,6 +4501,7 @@ def run_update(args: argparse.Namespace) -> int:
         return 1 if conflicts else 0
 
     write_omni_version_file(source_root, target_root)
+    warn_arbiter_rule_drift(target_root)
 
     make_ai_path = target_root / "make_ai.py"
     if make_ai_changed and make_ai_path.is_file():
@@ -5929,6 +6189,18 @@ def build_parser() -> argparse.ArgumentParser:
     arbiter_baseline_parser.add_argument("--refresh", action="store_true",
                                          help="Re-cut an existing baseline (prunes ids the fresh scan no longer finds); needs the last gate report green.")
     arbiter_baseline_parser.add_argument("--force", action="store_true", help="With --refresh: proceed even when the last gate report failed or is missing.")
+    arbiter_update_parser = arbiter_subparsers.add_parser(
+        "update",
+        help="Upgrade Arbiter: pip --upgrade, the completion.arbiter_gate rule to the current template, a vendored arbiter/ subtree pull, and re-record the version.",
+    )
+    arbiter_update_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_update_parser.add_argument("--source", default=None,
+                                       help=f"Local checkout, git+https URL or pip spec (default: the source recorded at install, else {ARBITER_DEFAULT_SOURCE}).")
+    arbiter_update_parser.add_argument("--keep-rule", action="store_true", help="Leave the completion.arbiter_gate rule as it is.")
+    arbiter_update_parser.add_argument("--squash", action="store_true", help="Pull the vendored arbiter/ subtree with --squash (only for a history that was squashed).")
+    arbiter_update_parser.add_argument("--force", action="store_true", help="Pull the subtree even when --squash disagrees with how arbiter/ was added.")
+    arbiter_update_parser.add_argument("--skip-pip", action="store_true", help="Do not pip install --upgrade.")
+    arbiter_update_parser.add_argument("--dry-run", action="store_true", help="Print every command without running or writing anything.")
 
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
@@ -6056,7 +6328,9 @@ def main(argv: list[str] | None = None) -> int:
             return run_arbiter_install(args)
         if args.arbiter_command == "baseline":
             return run_arbiter_baseline(args)
-        parser.error("arbiter requires a subcommand (install, baseline)")
+        if args.arbiter_command == "update":
+            return run_arbiter_update(args)
+        parser.error("arbiter requires a subcommand (install, baseline, update)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

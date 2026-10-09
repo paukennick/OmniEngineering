@@ -169,7 +169,7 @@ Widening found defects that repetition could not:
 | A credential inside documentation counted as production | A key in a manual illustrates where the key goes. `role == "docs"` now downgrades the same way a test path does. |
 
 All three were criticals on well-maintained code. All three are now regression
-tests naming the repository they came from, in `tests/test_arbiter.py`.
+tests naming the repository they came from, in `tests/test_probes_security.py`.
 
 ## Severity earned by measurement
 

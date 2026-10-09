@@ -1057,3 +1057,49 @@ criterion, making the check required, is a repository setting. The control
 packs' identifiers were transcribed, not reproduced, and must be verified
 against the licensed PCI DSS and TSC texts before an audit package cites them.
 
+
+## 2026-10-09 — The suite runs in two tiers (ARB-046)
+
+**The problem.** `tests/test_arbiter.py` had grown to 5,516 lines and 438
+collected ids, and the whole suite took about eleven minutes on an idle
+machine and twenty-seven under load, which is too long for a check that runs
+on every commit. Almost all of that time was a few dozen tests that run a
+real analyzer through the adapters or scan more than the fixtures, and none
+of those tells the Windows matrix anything.
+
+**The split.** The file is fourteen files by area (`test_probes_security`,
+`test_probes_quality`, `test_probes_drift`, `test_probes_iac`,
+`test_policy_gate`, `test_report_output`, `test_review_learn`,
+`test_graph_system`, `test_adapters`, `test_incremental_scan`,
+`test_tools_training`, `test_service_api`, `test_api_app`, `test_mcp_api`),
+every one under `arbiter.yaml`'s 900-line limit, moved by a script that
+carried whole top-level functions with their decorators, section comments
+and the imports each file needs. Helpers two files share live in
+`tests/helpers.py`; test files never import from each other. The tfplan
+fixtures joined `legacy_report` and `system_report` in `conftest.py` at
+session scope. The proof is `pytest --collect-only`: 557 ids before, 557
+after, the same set modulo the path. One test,
+`test_inferred_findings_do_not_gate_by_default`, had been defined twice and
+only the second was ever collected; the shadowed copy is gone rather than
+revived. The failure ledger's regression-test references follow the tests to
+their new files, because `omni doctor` checks they exist.
+
+**The tiers.** `slow` is a registered marker. It goes on a test when the
+test invokes a real external analyzer through the adapters or scans
+something larger than the fixtures, confirmed against `--durations`; it
+never goes on a test because it is merely unhurried. Eight tests carry it today: three service and API scans that spawn a
+fresh `arbiter` process, each of which re-probes the analyzers' versions;
+one end-to-end client scan through every analyzer; the corpus check; and
+three full scans that ask for `use_adapters=False` and get the adapters
+anyway, because the flag only skips registering them and an earlier test in
+the same process has registered them already. That last one is an engine
+quirk worth its own fix; the marker works around it in the suite without
+touching `src/`. Measured here under load: the fast tier in under two
+minutes and the slow tier in about five, against eleven minutes for the
+whole suite before the split.
+`pr-check.yml` runs `-m "not slow"` on every matrix cell and `-m slow` once
+in a parallel Linux `slow-tier` job with the analyzers installed, so the
+pull request waits for the slower of the two rather than their sum.
+`.ai/test-suites.json` names the fast tier as the gate's suite and the slow
+tier as an integration suite the gate does not run. `train.yml` still runs
+everything nightly.

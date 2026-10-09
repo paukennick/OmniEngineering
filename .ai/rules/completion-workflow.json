@@ -214,8 +214,8 @@
     },
     {
       "id": "completion.tests",
-      "severity": "recommended",
-      "statement": "Run the registered test suites the change set reaches before reporting completion: `omni test run --impacted` picks them through `omni graph impact` (every suite when no graph exists) and exits non-zero on any failure or timeout. Recommended here as the example an adopter promotes to `required` once the suite registry is complete; `omni gate` executes only required rules, so the pre-commit hook stays fast until then.",
+      "severity": "required",
+      "statement": "The registered test suites the change set reaches must pass before completion is reported. `omni gate` runs `omni test run --impacted`, which picks the suites through `omni graph impact` (every suite when no graph exists; nothing to run, and a pass, when no suite is registered) and exits non-zero on any failure or timeout. A rule that passed is memoised on its scoped change set, so the hook does not re-run it until a file the rule watches changes; `omni gate --no-memo` forces it. Waive for one change with `omni waive completion.tests --reason \"...\"`.",
       "scope": [
         "testing",
         "validation",

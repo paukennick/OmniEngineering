@@ -12,9 +12,14 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, client
+from . import __version__, client, history
 from .ab import (
-    Arm, arm_from_dict, load_ab_spec, render_ab_console, render_ab_html, run_ab,
+    Arm,
+    arm_from_dict,
+    load_ab_spec,
+    render_ab_console,
+    render_ab_html,
+    run_ab,
 )
 from .adapters import register_adapters
 from .core import SEVERITIES, Report
@@ -22,7 +27,6 @@ from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
 from .report import render_annotations, render_console, write_all
-from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
 
@@ -53,7 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"arbiter {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
+    _add_scan_commands(sub)
+    _add_report_commands(sub)
+    _add_service_commands(sub)
+    return p
 
+
+def _add_scan_commands(sub) -> None:
+    """`scan` and `gate`: the local analyzers, sharing one argument set."""
     def common(sp):
         sp.add_argument("targets", nargs="*", help="paths or git URLs")
         sp.add_argument("--system", help="arbiter-system.yaml describing several repos")
@@ -86,8 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="drop findings below this severity from report.sarif (the code-scanning upload); "
                              "the other formats always carry every active finding")
         sp.add_argument("--no-cache", action="store_true",
-                        help="neither read nor write the per-file result cache "
-                             "(.arbiter/cache.json); every probe runs over every file")
+                        help="neither read nor write the result cache (.arbiter/cache.json): "
+                             "every probe runs over every file and every adapter runs")
         sp.add_argument("--cache-path", default=None, metavar="FILE",
                         help="where the result cache lives (default: "
                              ".arbiter/cache.json under the first target)")
@@ -107,13 +118,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="never open the HTML report automatically")
     sc.add_argument("--verify-cache", action="store_true",
                      help="re-run each cacheable probe on a random 5%% sample of its "
-                          "cache hits and report any entry that no longer matches")
+                          "cache hits, and one memoised adapter, and report any entry "
+                          "that no longer matches")
 
     gt = common(sub.add_parser("gate", help="analyze and exit non-zero on policy failure"))
     gt.add_argument("--out", default="arbiter-out")
     gt.add_argument("--format", default="json,console",
                     help="json,sarif,html,markdown,console,pr-comment,annotations")
 
+
+def _add_report_commands(sub) -> None:
+    """Everything that reads a report or the knowledge file rather than scanning."""
     db = sub.add_parser("dashboard",
                         help="render the run history as a self-contained trend page")
     db.add_argument("--history", default="arbiter-out/history.jsonl",
@@ -212,6 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("finding_id")
     ex.add_argument("--report", default="arbiter-out/report.json")
 
+
+def _add_service_commands(sub) -> None:
+    """The hosted surfaces -- api, mcp, bundle -- and the remote client."""
     ap = sub.add_parser("api",
                         help="serve the hosted API, and issue the keys that reach it")
     ap.add_argument("--keys", help="key file (default ~/.arbiter/keys.json, or $ARBITER_KEYS)")
@@ -228,6 +246,10 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--no-audit", action="store_true",
                     help="keep no record of who called; you will not be able to "
                          "answer what ran for whom")
+    sv.add_argument("--limiter", choices=("memory", "file"), default="memory",
+                    help="where the per-key caps are counted: in this process "
+                         "(default, one process only) or in limiter.db beside the "
+                         "key file, shared by every process serving the same keys")
     ky = api_sub.add_parser("key", help="issue, list and revoke access by hand")
     key_sub = ky.add_subparsers(dest="key_cmd", required=True)
     ka = key_sub.add_parser("add", help="mint a key for one user")
@@ -269,6 +291,28 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--no-audit", action="store_true",
                     help="keep no record of who called; you will not be able to "
                          "answer what ran for whom")
+    mp.add_argument("--limiter", choices=("memory", "file"), default="memory",
+                    help="where the per-key caps are counted: in this process "
+                         "(default, one process only) or in limiter.db beside the "
+                         "key file, shared by every process serving the same keys")
+
+    bd = sub.add_parser("bundle",
+                        help="build and verify an air-gapped install bundle: "
+                             "Arbiter and its dependencies as wheels, no analyzers")
+    bundle_sub = bd.add_subparsers(dest="bundle_cmd", required=True)
+    bb = bundle_sub.add_parser("build", help="write a bundle into a new directory")
+    bb.add_argument("--out", required=True, help="directory to create; must be empty")
+    bb.add_argument("--source",
+                    help="the Arbiter checkout to build from (default: the one "
+                         "this command was imported from)")
+    bb.add_argument("--no-deps-download", action="store_true",
+                    help="skip downloading the dependency wheels, the one step "
+                         "that needs an index; the target must then already "
+                         "hold PyYAML")
+    bv = bundle_sub.add_parser("verify",
+                               help="recompute every hash; fail on a missing, "
+                                    "altered or extra file")
+    bv.add_argument("bundle_dir")
 
     # The client half. Everything above runs the scanner here; this runs it
     # somewhere else and renders the answer with the same code, so a person who
@@ -316,7 +360,6 @@ def build_parser() -> argparse.ArgumentParser:
         "health", help="what the server is, and what it will allow"))
     rh.set_defaults(needs_key=False)
 
-    return p
 
 
 def _resolve_reviewer(explicit: str) -> str:
@@ -457,7 +500,7 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
     if open_report and "html" in written:
         try:
             webbrowser.open(Path(written["html"]).resolve().as_uri())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a browser that will not open must never fail the scan
             print(f"  (could not open the report automatically: {exc})")
 
     if gate_mode and not (report.gate or {}).get("passed"):
@@ -524,10 +567,11 @@ def cmd_ab(args) -> int:
 
 def cmd_probes(args) -> int:
     _load_adapters(args.no_adapters)
+    import shutil as _sh
+
     from .engine import resolve_targets
     from .graph import build_graph
     from .inventory import build_inventory
-    import shutil as _sh
 
     name, repos, tmps, manifest = resolve_targets([args.target], None)
     try:
@@ -621,7 +665,7 @@ def cmd_feedback(args) -> int:
 
 
 def cmd_learn(args) -> int:
-    from .claims import nines, observations_needed
+    from .claims import observations_needed
     from .learn import MIN_OBSERVATIONS, Knowledge, calibrated_confidence
     knowledge = Knowledge.load(args.knowledge)
     print()
@@ -681,8 +725,9 @@ def cmd_verify(args) -> int:
 
 
 def cmd_review(args) -> int:
-    from .learn import Knowledge, MIN_OBSERVATIONS
-    from .review import apply as apply_marks, newly_proven, render, select
+    from .learn import MIN_OBSERVATIONS, Knowledge
+    from .review import apply as apply_marks
+    from .review import newly_proven, render, select
 
     path = Path(args.report)
     if not path.is_file():
@@ -749,8 +794,8 @@ def cmd_review(args) -> int:
         repo_paths[rid or "root"] = path or rid
 
     if args.interactive:
-        from .review_ui import run_terminal
         from .learn import record
+        from .review_ui import run_terminal
         reviewer = _reviewer_or_refuse(args.reviewer)
         if reviewer is None:
             return EXIT_ERROR
@@ -813,9 +858,16 @@ def cmd_controls(args) -> int:
     a reader most needs to know and the thing every other compliance report
     buries. Satisfied comes last.
     """
-    from .controls import (NOT_ASSESSED, NOT_AUTOMATABLE, NO_COVERAGE, SATISFIED,
-                           STATES, STATE_MEANING, VIOLATED, evaluate_all,
-                           load_frameworks)
+    from .controls import (
+        NO_COVERAGE,
+        NOT_ASSESSED,
+        SATISFIED,
+        STATE_MEANING,
+        STATES,
+        VIOLATED,
+        evaluate_all,
+        load_frameworks,
+    )
     from .core import Finding
 
     if args.list:
@@ -928,7 +980,8 @@ def cmd_api(args) -> int:
     if args.api_cmd == "serve":
         return api.serve(host=args.host, port=args.port, key_path=path,
                          certfile=args.cert, keyfile=args.tls_key,
-                         audit_path=args.audit, audit=not args.no_audit)
+                         audit_path=args.audit, audit=not args.no_audit,
+                         limiter=args.limiter)
 
     if args.key_cmd == "add":
         raw, record = api.mint_key(args.user, path,
@@ -966,6 +1019,36 @@ def cmd_api(args) -> int:
         print(f"arbiter: no active key {args.id}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_ERROR
+
+
+def cmd_bundle(args) -> int:
+    """Build or verify an air-gapped bundle.
+
+    The bundle carries Arbiter and its runtime dependencies and nothing else:
+    the analyzers stay out until the redistribution review (ARB-005) is done,
+    and the manifest says so in words. See `bundle.py`.
+    """
+    from . import bundle
+
+    try:
+        if args.bundle_cmd == "build":
+            manifest = bundle.build(args.out, include_deps=not args.no_deps_download,
+                                    source=args.source)
+            print(f"bundle written to {Path(args.out).expanduser().resolve()}: "
+                  f"arbiter {manifest['arbiter_version']}, "
+                  f"{len(manifest['files'])} file(s)")
+            if not manifest["dependencies_included"]:
+                print("dependency wheels were not downloaded (--no-deps-download); "
+                      "the target needs PyYAML already")
+            print(f"analyzers: {manifest['analyzers']}")
+            return EXIT_OK
+        result = bundle.verify(args.bundle_dir)
+        for line in result.lines():
+            print(line)
+        return EXIT_OK if result.ok else EXIT_GATE_FAIL
+    except bundle.BundleError as exc:
+        print(f"arbiter: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 def cmd_remote(args) -> int:
@@ -1094,12 +1177,15 @@ def main(argv: list[str] | None = None) -> int:
                 key_path=_Path(args.keys).expanduser() if args.keys else None,
                 root=args.root, certfile=args.cert, keyfile=args.tls_key,
                 audit_path=args.audit, audit=not args.no_audit,
-                path=args.path, allowed_hosts=args.allowed_hosts)
+                path=args.path, allowed_hosts=args.allowed_hosts,
+                limiter=args.limiter)
+        if args.cmd == "bundle":
+            return cmd_bundle(args)
         if args.cmd == "remote":
             return cmd_remote(args)
     except KeyboardInterrupt:
         return EXIT_ERROR
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the top-level handler: one line on stderr instead of a traceback
         print(f"arbiter: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_ERROR

@@ -12,12 +12,13 @@ from __future__ import annotations
 import json
 import subprocess
 
+from helpers import CLEAN_PY, LEAKY_PY, _git_repo
+
 from arbiter.core import Finding, Location, ProbeOutcome, Report
 from arbiter.diff import render_pr_comment
 from arbiter.engine import run_scan
 from arbiter.policy import load_config
 from arbiter.report import render_console, render_markdown
-from test_arbiter import CLEAN_PY, LEAKY_PY, _git_repo
 
 LEDGER = ".ai/failures/failure-ledger.json"
 OPEN_RULE = "arbiter/governance.open-failure-untested"

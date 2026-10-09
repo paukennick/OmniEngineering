@@ -13,7 +13,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from .core import sev_at_least, SARIF_LEVEL, Finding, Report
+from .core import SARIF_LEVEL, Finding, Report, sev_at_least
 
 SEV_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -80,6 +80,11 @@ def counts_by_severity(findings: list[Finding]) -> dict[str, int]:
 
 REQ_TAG = "req:"
 UNATTRIBUTED = "unattributed"
+# How the `req:` tags were chosen, from incremental.attribute_requirements
+# (ARB-052): spelled out under the table so a reader never mistakes the
+# round's open requirements for the one that introduced a finding.
+REQ_SCOPE_COMMITS = "req-scope:commits"
+REQ_SCOPE_OPEN = "req-scope:open"
 
 
 def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int], list[str]]]:
@@ -114,8 +119,40 @@ def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int],
     return rows
 
 
-def requirement_block(findings: list[Finding], heading: str = "## By requirement") -> list[str]:
-    """The Markdown rendering of `requirement_rows`, or nothing."""
+def requirement_scope_note(findings: list[Finding], base: str | None = None) -> str:
+    """Which scope the `req:` tags came from, in one line, or nothing.
+
+    Counts the tagged findings by their `req-scope:` marker. `commits` means
+    the ids came from the commits since the base that touched the file:
+    attribution. `open` means no such commit cited one, so the ids are the
+    requirements open when the scan ran: context. Both can appear in one
+    report, and the reader is told which rows are which kind of claim.
+    """
+    tagged = [f for f in findings if any(t.startswith(REQ_TAG) for t in f.tags)]
+    from_commits = sum(1 for f in tagged if REQ_SCOPE_COMMITS in f.tags)
+    from_open = sum(1 for f in tagged if REQ_SCOPE_OPEN in f.tags)
+    since = f"since `{base}`" if base else "since the base"
+    parts = []
+    if from_commits:
+        parts.append(f"{from_commits} from the commits {since} that touched the file "
+                     f"(`{REQ_SCOPE_COMMITS}`)")
+    if from_open:
+        parts.append(f"{from_open} from the requirements open when the scan ran, because no "
+                     f"commit {since} touching the file cited one -- context, not attribution "
+                     f"(`{REQ_SCOPE_OPEN}`)")
+    if not parts:
+        return ""
+    return "Scope of the `req:` tags: " + "; ".join(parts) + "."
+
+
+def requirement_block(findings: list[Finding], heading: str = "## By requirement",
+                      base: str | None = None) -> list[str]:
+    """The Markdown rendering of `requirement_rows`, or nothing.
+
+    `base` is the ref the scan was changed-since, named in the scope note
+    under the table so the reader knows which commits the tags were read
+    from.
+    """
     rows = requirement_rows(findings)
     if not rows:
         return []
@@ -125,6 +162,9 @@ def requirement_block(findings: list[Finding], heading: str = "## By requirement
         shown = "; ".join(t.replace("|", "\\|") for t in titles)
         L.append(f"| `{key}` | " + " | ".join(str(counts[s]) for s in SEV_ORDER) + f" | {shown} |")
     L.append("")
+    note = requirement_scope_note(findings, base)
+    if note:
+        L.extend([note, ""])
     return L
 
 
@@ -417,7 +457,7 @@ def render_markdown(report: Report) -> str:
     L.append("|" + "---|" * len(SEV_ORDER))
     L.append("| " + " | ".join(str(counts[s]) for s in SEV_ORDER) + " |")
     L.append("")
-    L.extend(requirement_block(active))
+    L.extend(requirement_block(active, base=(report.scan_scope or {}).get("changed_since")))
 
     if sc.dimensions:
         gaps: dict[str, list[str]] = defaultdict(list)
@@ -533,6 +573,100 @@ a.muted{color:var(--mut)}
 """
 
 
+def _html_rows_findings(active: list[Finding], loc_cell) -> str:
+    """One row per finding, or per (severity, rule) group; loc_cell renders a location."""
+    e = html.escape
+    out = []
+    for members in _grouped(active, lambda f: (f.severity, f.rule_id)):
+        f = members[0]
+        if len(members) == 1:
+            related = ""
+            if f.related:
+                related = "<br><span class='muted mono'>also: " + e(
+                    ", ".join(r.short() for r in f.related)
+                ) + "</span>"
+            fix = f"<br><span class='muted'>Fix: {e(_remediation_text(f))}</span>"
+            scope = f"<br><span class='muted'>&#9888; {e(f.scope_note)}</span>" if f.scope_note else ""
+            out.append(
+                f"<tr><td><span class='pill s-{f.severity}'>{f.severity}</span></td>"
+                f"<td>{e(f.title)}<br><span class='muted mono'>{e(f.rule_id)} · {e(f.id)}"
+                f"{'' if f.confidence == 'high' else ' · ' + f.confidence + ' confidence'}</span>{fix}{scope}</td>"
+                f"<td class='mono'>{e(f.repo_id)}</td>"
+                f"<td class='mono'>{loc_cell(f)}{related}</td>"
+                f"<td class='mono'>{e(f.dimension)}</td></tr>"
+            )
+            continue
+
+        files = {m.location.path for m in members}
+        repo_ids = dict.fromkeys(m.repo_id for m in members)
+        remediations = dict.fromkeys(_remediation_text(m) for m in members)
+        fix = f"<br><span class='muted'>Fix: {e(' / '.join(remediations))}</span>"
+        scope_notes = dict.fromkeys(m.scope_note for m in members if m.scope_note)
+        scope = f"<br><span class='muted'>&#9888; {e(' / '.join(scope_notes))}</span>" if scope_notes else ""
+        locs = [f"{loc_cell(m)} <span class='muted'>({e(m.repo_id)})</span>" for m in members]
+        loc_html = "<br>".join(locs[:GROUP_LOCATION_CAP])
+        if len(locs) > GROUP_LOCATION_CAP:
+            loc_html += f"<br><span class='muted'>… {len(locs) - GROUP_LOCATION_CAP} more</span>"
+        out.append(
+            f"<tr><td><span class='pill s-{f.severity}'>{f.severity}</span></td>"
+            f"<td>{e(f.title)} <span class='muted'>(×{len(members)} across {len(files)} file(s))</span>"
+            f"<br><span class='muted mono'>{e(f.rule_id)}</span>{fix}{scope}</td>"
+            f"<td class='mono'>{e(', '.join(repo_ids))}</td>"
+            f"<td class='mono'>{loc_html}</td>"
+            f"<td class='mono'>{e(f.dimension)}</td></tr>"
+        )
+    return "\n".join(out) or "<tr><td colspan='5' class='muted'>No active findings.</td></tr>"
+
+
+def _html_rows_dims(report: Report) -> str:
+    e = html.escape
+    sc = report.scorecard
+    # Checks_run/checks_applicable is a gap with no reason attached to
+    # it in the row itself -- "compliance 28/148" doesn't say why the
+    # other 120 didn't run. The probes that declared this dimension and
+    # didn't run (skipped or errored) are why; show them right here
+    # instead of making the reader hunt for the Probe outcomes table.
+    gaps: dict[str, list[str]] = defaultdict(list)
+    for p in report.probes:
+        if p.status == "ran":
+            continue
+        for d_name in p.dimensions:
+            gaps[d_name].append(f"{p.name}: {p.reason}" if p.reason else p.name)
+
+    out = []
+    for name, d in sorted(sc.dimensions.items()):
+        desc = DIMENSION_DESC.get(name, "")
+        why = gaps.get(name) or []
+        why_html = (
+            "<br><span class='muted' style='font-size:11px'>" + e("; ".join(why)) + "</span>"
+            if why else ""
+        )
+        out.append(
+            f"<tr><td title='{e(desc)}'>{e(name)}</td><td class='mono'>{d.score}</td>"
+            f"<td><div class='bar'><i style='width:{d.coverage*100:.0f}%'></i></div>"
+            f"<span class='mono muted'>{d.coverage:.0%}</span></td>"
+            f"<td class='mono'>{d.checks_run}/{d.checks_applicable}{why_html}</td>"
+            f"<td class='mono'>{d.findings}</td></tr>"
+        )
+    return "\n".join(out)
+
+
+def _html_rows_probes(report: Report) -> str:
+    e = html.escape
+    out = []
+    for p in report.probes:
+        mark = {"ran": "ran", "skipped": "skipped", "error": "error"}[p.status]
+        cls = "s-low" if p.status == "ran" else ("s-high" if p.status == "error" else "s-info")
+        out.append(
+            f"<tr><td><span class='pill {cls}'>{mark}</span></td>"
+            f"<td class='mono'>{e(p.name)}</td>"
+            f"<td class='mono'>{p.finding_count if p.status == 'ran' else '—'}</td>"
+            f"<td class='mono'>{p.duration_s:.2f}s</td>"
+            f"<td class='muted'>{e(p.reason)}</td></tr>"
+        )
+    return "\n".join(out)
+
+
 def render_html(report: Report) -> str:
     sc = report.scorecard
     active = report.active()
@@ -559,98 +693,12 @@ def render_html(report: Report) -> str:
             f" <a class='muted' href='{file_href}' title='Open the file'>&#8599;</a>"
         )
 
-    def rows_findings() -> str:
-        out = []
-        for members in _grouped(active, lambda f: (f.severity, f.rule_id)):
-            f = members[0]
-            if len(members) == 1:
-                related = ""
-                if f.related:
-                    related = "<br><span class='muted mono'>also: " + e(
-                        ", ".join(r.short() for r in f.related)
-                    ) + "</span>"
-                fix = f"<br><span class='muted'>Fix: {e(_remediation_text(f))}</span>"
-                scope = f"<br><span class='muted'>&#9888; {e(f.scope_note)}</span>" if f.scope_note else ""
-                out.append(
-                    f"<tr><td><span class='pill s-{f.severity}'>{f.severity}</span></td>"
-                    f"<td>{e(f.title)}<br><span class='muted mono'>{e(f.rule_id)} · {e(f.id)}"
-                    f"{'' if f.confidence == 'high' else ' · ' + f.confidence + ' confidence'}</span>{fix}{scope}</td>"
-                    f"<td class='mono'>{e(f.repo_id)}</td>"
-                    f"<td class='mono'>{loc_cell(f)}{related}</td>"
-                    f"<td class='mono'>{e(f.dimension)}</td></tr>"
-                )
-                continue
-
-            files = {m.location.path for m in members}
-            repo_ids = dict.fromkeys(m.repo_id for m in members)
-            remediations = dict.fromkeys(_remediation_text(m) for m in members)
-            fix = f"<br><span class='muted'>Fix: {e(' / '.join(remediations))}</span>"
-            scope_notes = dict.fromkeys(m.scope_note for m in members if m.scope_note)
-            scope = f"<br><span class='muted'>&#9888; {e(' / '.join(scope_notes))}</span>" if scope_notes else ""
-            locs = [f"{loc_cell(m)} <span class='muted'>({e(m.repo_id)})</span>" for m in members]
-            loc_html = "<br>".join(locs[:GROUP_LOCATION_CAP])
-            if len(locs) > GROUP_LOCATION_CAP:
-                loc_html += f"<br><span class='muted'>… {len(locs) - GROUP_LOCATION_CAP} more</span>"
-            out.append(
-                f"<tr><td><span class='pill s-{f.severity}'>{f.severity}</span></td>"
-                f"<td>{e(f.title)} <span class='muted'>(×{len(members)} across {len(files)} file(s))</span>"
-                f"<br><span class='muted mono'>{e(f.rule_id)}</span>{fix}{scope}</td>"
-                f"<td class='mono'>{e(', '.join(repo_ids))}</td>"
-                f"<td class='mono'>{loc_html}</td>"
-                f"<td class='mono'>{e(f.dimension)}</td></tr>"
-            )
-        return "\n".join(out) or "<tr><td colspan='5' class='muted'>No active findings.</td></tr>"
-
-    def rows_dims() -> str:
-        # Checks_run/checks_applicable is a gap with no reason attached to
-        # it in the row itself -- "compliance 28/148" doesn't say why the
-        # other 120 didn't run. The probes that declared this dimension and
-        # didn't run (skipped or errored) are why; show them right here
-        # instead of making the reader hunt for the Probe outcomes table.
-        gaps: dict[str, list[str]] = defaultdict(list)
-        for p in report.probes:
-            if p.status == "ran":
-                continue
-            for d_name in p.dimensions:
-                gaps[d_name].append(f"{p.name}: {p.reason}" if p.reason else p.name)
-
-        out = []
-        for name, d in sorted(sc.dimensions.items()):
-            desc = DIMENSION_DESC.get(name, "")
-            why = gaps.get(name) or []
-            why_html = (
-                "<br><span class='muted' style='font-size:11px'>" + e("; ".join(why)) + "</span>"
-                if why else ""
-            )
-            out.append(
-                f"<tr><td title='{e(desc)}'>{e(name)}</td><td class='mono'>{d.score}</td>"
-                f"<td><div class='bar'><i style='width:{d.coverage*100:.0f}%'></i></div>"
-                f"<span class='mono muted'>{d.coverage:.0%}</span></td>"
-                f"<td class='mono'>{d.checks_run}/{d.checks_applicable}{why_html}</td>"
-                f"<td class='mono'>{d.findings}</td></tr>"
-            )
-        return "\n".join(out)
-
     def dims_legend() -> str:
         parts = [
             f"<b>{e(name)}</b> {e(DIMENSION_DESC[name])}"
             for name in sorted(sc.dimensions) if name in DIMENSION_DESC
         ]
         return " · ".join(parts)
-
-    def rows_probes() -> str:
-        out = []
-        for p in report.probes:
-            mark = {"ran": "ran", "skipped": "skipped", "error": "error"}[p.status]
-            cls = "s-low" if p.status == "ran" else ("s-high" if p.status == "error" else "s-info")
-            out.append(
-                f"<tr><td><span class='pill {cls}'>{mark}</span></td>"
-                f"<td class='mono'>{e(p.name)}</td>"
-                f"<td class='mono'>{p.finding_count if p.status == 'ran' else '—'}</td>"
-                f"<td class='mono'>{p.duration_s:.2f}s</td>"
-                f"<td class='muted'>{e(p.reason)}</td></tr>"
-            )
-        return "\n".join(out)
 
     gate = report.gate or {}
     gate_cls = "pass" if gate.get("passed") else "fail"
@@ -681,17 +729,18 @@ def render_html(report: Report) -> str:
  · stacks: {e(', '.join(report.stacks) or 'none detected')} · {report.duration_s:.1f}s · {e(report.started_at)}</p>
 <div class="banner {gate_cls}"><b>{gate_txt}</b></div>
 {grade}
+{bluf_html}
 <div class="cards">{cards}</div>
 <h2>Dimensions</h2><div class="tw"><table>
 <thead><tr><th>Dimension</th><th>Score</th><th>Coverage</th><th>Checks</th><th>Findings</th></tr></thead>
-<tbody>{rows_dims()}</tbody></table></div>
+<tbody>{_html_rows_dims(report)}</tbody></table></div>
 <p class="sub" style="margin-top:6px">{dims_legend()}</p>
 <h2>Findings ({len(active)})</h2><div class="tw"><table>
 <thead><tr><th>Severity</th><th>Finding</th><th>Repo</th><th>Location</th><th>Dimension</th></tr></thead>
-<tbody>{rows_findings()}</tbody></table></div>
+<tbody>{_html_rows_findings(active, loc_cell)}</tbody></table></div>
 <h2>Probe outcomes</h2><div class="tw"><table>
 <thead><tr><th>Status</th><th>Probe</th><th>Findings</th><th>Time</th><th>Reason</th></tr></thead>
-<tbody>{rows_probes()}</tbody></table></div>
+<tbody>{_html_rows_probes(report)}</tbody></table></div>
 <p class="sub" style="margin-top:28px">Absence of findings from a skipped probe is not a pass.
 Coverage above counts only checks that actually ran.</p>
 </div></body></html>"""

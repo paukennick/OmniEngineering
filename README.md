@@ -79,6 +79,47 @@ That's the whole loop: adopt once, `doctor` to check health, `update` to stay
 current. Everything below explains *why* it's built this way and covers less
 common setups (bare `.ai/` copy, symlinks, CI wiring, multi-tool projects).
 
+## Arbiter: the evaluator this workspace runs with
+
+OmniEngineering governs a change (requirement, changelog, ledger, rules).
+[Arbiter](https://github.com/paukennick/arbiter) evaluates the code (probes,
+analyzers, a scorecard that refuses to grade what it did not inspect). Since
+2026-10-09 the two run as one loop:
+
+- **`omni gate` runs `arbiter gate`.** A required rule, `completion.arbiter_gate`,
+  runs Arbiter on the change set with the committed baseline, so a commit is
+  blocked by a new high finding exactly as it is blocked by a missing changelog
+  entry. The pre-commit hook, the Claude Stop hook and CI all go through it.
+- **Arbiter reads the workspace.** Its `governance` probe reads the failure
+  ledger (a changed file named by an open failure, without its regression test,
+  is a finding) and tags every finding with the requirement the commits cite,
+  so reports group by `REQ-###`.
+- **Doctor and completion see the result.** `omni doctor` ends with a
+  `Posture:` line (Arbiter score, coverage, new highs, gate result, fresh or
+  stale; open failures; open requirements), and `omni requirement complete`
+  refuses while the branch's Arbiter report is missing, stale or red.
+- **Findings become ledger entries and graph nodes.** `arbiter review --ledger`
+  turns adjudicated findings into `FAIL-###` entries; `omni graph build` adds
+  every finding as a node linked to its file, symbol, requirement and failure;
+  `omni graph findings`, `omni graph why f:<id>` and the viewer's Findings tab
+  trace one by id, category, severity, depth and directory, down to `path:line`.
+- **Pull requests see it too.** Inline annotations, the PR comment in the job
+  summary and SARIF in code scanning, with the gate's exit code as the verdict.
+
+Three ways to have it: installed beside an adopted workspace
+(`./omni adopt --with-arbiter` or `./omni arbiter install`), vendored as a
+subtree (this repository's `arbiter` branch keeps the whole Arbiter checkout
+under `arbiter/` with its own workspace, recognised by the gate, doctor and
+CI), or Arbiter governing itself with this workspace at its own root. Keep the
+two level with `./omni update` and `./omni arbiter update`; refresh the baseline
+on a green gate with `./omni arbiter baseline --refresh`.
+
+The full mechanics, the CI jobs and what each proves, the off switches and a
+finding-tracing walkthrough are in
+[docs/arbiter-integration.md](docs/arbiter-integration.md); the dated list of
+every change on both sides is in
+[docs/release-notes-2026-10-09.md](docs/release-notes-2026-10-09.md).
+
 ## Design Documents
 
 The project design source lives in `design/`. It includes product design,
@@ -87,6 +128,10 @@ and operations, decision records, and supporting diagrams.
 
 Start with:
 
+- [Arbiter and OmniEngineering: how the two run as one loop](docs/arbiter-integration.md)
+  -- the integration handbook: the wiring, the edit-to-adjudication loop, tracing a
+  finding through the graph, CI, keeping both level, the off switches
+- [Release notes, 2026-10-09](docs/release-notes-2026-10-09.md)
 - [Design overview](design/README.md)
 - [System architecture](design/system-architecture.md)
 - [Context routing diagram](design/diagrams/context-routing.svg)
@@ -429,8 +474,9 @@ diffs against later.
 
 [Arbiter](https://github.com/paukennick/arbiter) is the repository evaluator
 this workspace pairs with: it scans the code and refuses to grade what it did
-not inspect, and its gate is the product-side half of `omni gate`. Bring it in
-with the adoption, or add it to a repository adopted earlier:
+not inspect, and its gate is the product-side half of `omni gate`. The whole
+loop is written up in [docs/arbiter-integration.md](docs/arbiter-integration.md).
+Bring it in with the adoption, or add it to a repository adopted earlier:
 
 ```bash
 ./omni adopt --target ../your-project --include-cli --with-arbiter ../arbiter   # a checkout
@@ -451,6 +497,34 @@ wired by hand needs that ignore entry before its first run. `--skip-pip`
 writes the wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
 server for real. Arbiter is a separate, proprietary product; this command
 installs and wires it, it does not vendor it.
+
+Installation also cuts the **baseline**: a full offline scan of the project
+(`arbiter scan . --profile offline`), written by `arbiter baseline` to
+`.arbiter/baseline.json` as the list of finding ids the project accepts as
+known, stamped with the commit it was cut at and a sha256 of `arbiter.yaml`.
+The gate rule runs `arbiter gate . --changed <base> --baseline
+.arbiter/baseline.json --format json,sarif,pr-comment` (json is what omni
+reads back, sarif feeds code-scanning upload, pr-comment is the markdown a CI
+job posts), so a finding in the baseline is `existing` and only what is new
+since it can fail the gate. Without the file the gate treats every finding as
+new. Commit `.arbiter/baseline.json`; only `arbiter-out/` and
+`.arbiter/cache.json` are ignored. When `arbiter` was not on PATH at install
+time, or to re-cut the baseline later:
+
+```bash
+./omni arbiter baseline              # first cut; a no-op when the file exists
+./omni arbiter baseline --refresh    # re-cut on a green gate; --force overrides
+```
+
+A refresh is only allowed once the newest gate report under
+`arbiter-out/omni-gate/` passed, because it absorbs every open finding as
+known. It prunes: the new file holds only ids the fresh full scan still
+reports, so a baseline never carries fixed findings forward. A `--changed`
+(partial) report is refused as a baseline. `omni doctor` warns when the gate
+rule is wired but the baseline is missing, when the baseline predates the
+newest `fixed` failure-ledger entry (it may list findings that no longer
+exist), and when `arbiter.yaml` changed since it was cut (`config_hash`); all
+three clear with `omni arbiter baseline --refresh`.
 
 ### The `arbiter` branch
 
@@ -518,6 +592,31 @@ nothing to compare against). Fix that once, from the adopted project:
 
 This merges nothing -- it just records today as the starting point. Every
 `omni update` after that works normally.
+
+**Keeping Arbiter level.** `omni arbiter install` records the installed Arbiter
+version and its source under `arbiter` in `.ai/omni-version.json`, next to the
+template ref (`omni update` keeps that key). `omni doctor` warns when the
+installed `arbiter` no longer matches the record, and `omni update` warns when
+your `completion.arbiter_gate` rule runs a different command than the current
+template; the rule is yours, so update never rewrites it. One command brings
+all of it level:
+
+```bash
+./omni arbiter update --dry-run     # prints every command, writes nothing
+./omni arbiter update               # pip --upgrade, the rule, a vendored subtree, the record
+```
+
+It upgrades the package from the recorded source (or `--source`, with
+`--skip-pip` to leave pip alone), rewrites the rule's `validation` to the
+template unless `--keep-rule`, and, when `arbiter/` is a vendored subtree (it
+carries `pyproject.toml` and `.ai/omni-version.json`), runs
+`git subtree pull --prefix arbiter <source> main` in the mode the subtree was
+added with: it reads the newest commit carrying `git-subtree-dir: arbiter`,
+treats a `git-subtree-mainline` trailer as unsquashed history and its absence
+(a "Squashed 'arbiter/' ..." commit) as squashed, and refuses to mix the two
+unless `--force` (`--squash` asks for a squashed pull). It re-records the
+version last. Afterwards run `omni arbiter baseline --refresh` once the gate is
+green, so the baseline matches what the upgraded Arbiter reports.
 
 Optional presentation assets:
 
@@ -633,6 +732,17 @@ Implement REQ-014. Use the minimum access scope from the requirement and follow
 the completion workflow in .ai/rules/completion-workflow.json.
 ```
 
+Where Arbiter is wired in (the `completion.arbiter_gate` rule exists), the order
+at the end of a task is fixed: `./omni gate` first, which runs Arbiter and leaves
+its report under the rule's `--out` directory, then `./omni requirement complete
+<ID>`. Completion reads that report and refuses when `arbiter` is not installed,
+when there is no report, when the report is stale (it names another commit, or a
+changed file is newer than the scan) or when its gate failed, and each refusal
+ends with the command to run (`./omni gate`). The escape hatch is
+`--no-arbiter-check "<why, 10+ chars>"`, which completes anyway and records the
+reason as a risk note on the requirement -- so a skipped check is visible in the
+registry, never silent.
+
 ## Maintenance CLI
 
 `omni` is a small dependency-free maintenance helper. It is not required for
@@ -673,7 +783,15 @@ omni sync
 omni validate
 omni map
 omni context review
+omni arbiter baseline
+omni arbiter update
 ```
+
+`arbiter baseline` cuts (or, with `--refresh`, re-cuts on a green gate) the
+`.arbiter/baseline.json` the gate rule compares against; `arbiter update`
+upgrades Arbiter, its gate rule and a vendored subtree, and re-records the
+version. See [Arbiter alongside the workspace](#arbiter-alongside-the-workspace)
+and [Updating an adopted workspace](#updating-an-adopted-workspace).
 
 `sync` verifies that the required `.ai/` source-of-truth files exist, then
 refreshes `.ai/entrypoints/`, the root shim files, and synced ignore files.
@@ -704,7 +822,9 @@ The doctor checks:
 - JSON parse validity.
 - Universal ruleset structure.
 - Structured rulepack IDs, required keys, rule IDs, severities, and statements.
-- Requirement registry structure and duplicate IDs.
+- Requirement registry structure and duplicate IDs, including an id that the root
+  registry (or its archive) shares with a vendored workspace's registry: that is an
+  error naming both files, since one id must name one requirement.
 - Assistant pointer drift.
 - Assistant entrypoint source drift.
 - Synced ignore file drift.
@@ -718,6 +838,12 @@ The doctor checks:
 - Registered MCP servers: every stdio server in `.mcp.json` is launched for real,
   taken through `initialize` and `tools/list`, and must answer with at least one
   tool (a registration that no longer starts would otherwise fail silently).
+- Arbiter baseline: once `completion.arbiter_gate` is wired, `.arbiter/baseline.json`
+  must exist, be no older than the newest fixed failure-ledger entry, and match
+  the current `arbiter.yaml` (`config_hash`); each gap names
+  `omni arbiter baseline`.
+- Arbiter version: the installed `arbiter` must match the version recorded in
+  `.ai/omni-version.json`; drift names `omni arbiter update`.
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.
@@ -727,6 +853,29 @@ The doctor checks:
 ```bash
 omni validate
 ```
+
+After the `Result:` line the doctor prints one `Posture:` line, the state of the
+workspace in a glance:
+
+```text
+Posture: arbiter score 96.7 (coverage 97%, new high+ 0, gate passed, fresh) · failures open 1 · requirements open 3 (pending 2, proposed 1)
+```
+
+The Arbiter part reads the newest `report.json` under the `--out` directory of the
+`completion.arbiter_gate` rule and says whether it still describes HEAD: `arbiter
+not wired` when no such rule exists, `arbiter no report (run ./omni gate)` when the
+rule exists but nothing has been scanned, `arbiter stale: <reason>` when the report
+names another commit or a changed file is newer than the scan (an unreadable report
+counts as stale, with the reason), and otherwise the score (or `grade withheld` for a
+partial scan), coverage, unsuppressed new high-or-critical findings and the gate
+result. Then the open (or mitigated) failure-ledger entries and the open
+requirements by status.
+
+`omni doctor --json` (and `validate --json`) print the same report as JSON instead:
+`{"schema_version": 1, "ok", "passed", "warnings", "errors", "posture"}`.
+`schema_version` 1 is the stable contract -- keys are only ever added, never renamed
+or removed -- so a script or a CI step can read `ok`, `errors` and `posture.arbiter`
+without parsing the text.
 
 ## Code Graph (omni graph)
 
@@ -903,7 +1052,7 @@ git log, ask the graph what is tied to the thing you are about to touch.
 | **code** | modules, classes, functions, tables | `calls`, `imports`, `defines`, `inherits`, ... | your source (tree-sitter, SQL migrations) |
 | **governance** | `requirement`, `changelog` | `touches`, `records`, `mentions` | requirement files, changelog |
 | **history** | `commit` | `delivers`, `modifies`, `logged_in`, `follows` | the git log |
-| **assurance** | test files, `suite`, `failure` | `verifies`, `contains`, `covers`, `affects`, `arose_in`, `guards`, `fixed_by`, `recurs` | tests, the suite registry, the failure ledger |
+| **assurance** | test files, `suite`, `failure`, `finding` | `verifies`, `contains`, `covers`, `affects`, `arose_in`, `guards`, `fixed_by`, `recurs`, `flags`, `cites`, `recorded_as` | tests, the suite registry, the failure ledger, the newest Arbiter report |
 | **workspace** | `rulepack`, `rule`, `playbook`, `checklist`, and OmniEngineering's own code | `defines`, `prevented_by` | `.ai/rules`, `.ai/playbooks`, `.ai/checklists`, `make_ai.py`, `omni_graph.py` |
 
 - A requirement `touches` the files in its declared scope (EXTRACTED) and the
@@ -924,6 +1073,13 @@ git log, ask the graph what is tied to the thing you are about to touch.
   cause, linked to the code it affected, the requirement, the tests or suite that
   `guard` it, the rule or playbook that prevents a repeat (`prevented_by`, into the
   workspace layer), and any earlier failure it repeats.
+- Every unsuppressed finding in the newest Arbiter report (`arbiter-out/**/report.json`, the
+  `--out` of the `completion.arbiter_gate` rule) is a `finding` node named by its id (`f:17a59c37fc20`)
+  that `flags` the file it was raised on and the function, class or method whose span holds the
+  line, `cites` the requirement named by a `req:<ID>` tag, and is `recorded_as` the ledger entry
+  whose `how_detected` quotes the finding id. Only the id, location, rule, category, severity,
+  status and tags are copied -- never the evidence. Directory nodes `contain` their files and
+  subdirectories, so the hierarchy root > directory > file > symbol > finding is explicit.
 
 Traverse across the layers:
 
@@ -933,13 +1089,28 @@ omni graph why REQ-021              # files touched, changelog entries, commits,
 omni graph why FAIL-003             # affected code, regression tests, prevention, fix commits
 omni graph why a1b2c3d              # a commit: requirements, changelog entry, files, previous/next commit
 omni graph why backend-junit        # a suite: its test files, what it covers
+omni graph why f:17a59c37fc20       # an Arbiter finding: rule, severity, category, flagged code, requirement, ledger entry
+omni graph findings --tree --severity high   # findings by directory, with what each is tied to (--under, --dimension, --json, --view)
 omni graph lineage REQ-021          # everything upstream and downstream of it, no second endpoint needed
 omni graph lineage a1b2c3d --up     # a commit: the requirement and previous commit that led to it
 omni graph lineage FAIL-003 --depth 3 --json   # a failure: cause above it, tests, rules and fixes below it
 omni graph timeline REQ-021         # everything dated that is tied to it, oldest first
+omni graph impact                   # what the pending change set reaches: requirements, failures, suites, tests, rules, commits
+omni graph impact --changed main --depth 3 --json   # a different base commit, a wider walk, machine-readable
 omni graph show --all --layer history --kind commit
 omni graph build --layers code,governance      # skip layers; --max-commits N bounds the git scan
 ```
+
+`omni graph impact` starts from the files `omni gate` would check (the working tree
+plus the commits since the merge-base, or since `--changed BASE`), resolves each the
+way `why` does, and walks the cross-layer edges in both directions, two hops by
+default, never a code edge: the result is bucketed by kind, each entry carrying the
+hop count and the edge it was reached by, with the paths the graph does not know
+listed as `unresolved`. When `.ai/project-graph.json` exists, `omni gate` prints the
+same walk as one line beside the changed set (`impact: 2 requirement(s), 1 failure(s),
+1 suite(s), 3 test file(s), 2 rule(s); 1 path unresolved`) -- advice, never a verdict:
+a stale or broken graph prints nothing and changes nothing. `omni test run --impacted`
+uses the same walk to pick the suites worth running.
 
 Measure the token-savings claim instead of just asserting it, on your own project's own graph, right now:
 
@@ -987,7 +1158,38 @@ both were real results the first time this ran).
 - **Comfort.** Every menu section collapses (remembered), every option has a tooltip, filter groups have
   All / None, and there is a soft-grey light theme (not pure white) as well as the dark one.
 
-`omni graph render` draws the code layer only unless you pass `--all-layers`.
+- **Findings.** When the graph holds Arbiter findings, a *Findings* tab lays them out as a tree under the
+  directory, file and symbol they were raised on (`root › dir › file › Class › method › finding`), with the
+  requirements they cite and the failures they were recorded as. Two more colour modes, *finding category*
+  (Arbiter dimension) and *finding severity*, colour the findings and leave everything else in its layer
+  colour; a *Filter: findings* section has severity and category rows; the search accepts `severity:high`,
+  `dim:security` and `rule:secrets`, and matches finding ids and rule ids. A finding's panel shows
+  `path:line` with a Copy button and an editor link, the rule, severity, category and status, *Trace to
+  requirement* / *Trace to failure* buttons, and a copyable `arbiter review <report> --rule <rule_id>`
+  line. `omni graph findings --view` opens the viewer on that tab.
+
+`omni graph render` draws the code layer only unless you pass `--all-layers`; findings are coloured by
+category, sized by severity, and a `new` finding wears a ring (see the "findings by category" legend).
+
+### Trace an Arbiter finding
+
+The gate produces findings; the graph makes each one a node you can walk from the line of code to
+the requirement it belongs to and the ledger entry that closes it:
+
+```bash
+omni gate                                     # runs `arbiter gate` through completion.arbiter_gate; writes arbiter-out/omni-gate/report.json
+omni graph build                              # the newest report's unsuppressed findings become `finding` nodes
+omni graph why f:17a59c37fc20                 # rule, severity, category, the flagged file and symbol, the requirement, the failure
+omni graph findings --tree --severity high    # every high finding by directory, with the requirements, failures and suites it reaches
+omni graph view --focus f:17a59c37fc20 --open # the same finding in the viewer, its chain lit up: dir > file > symbol > finding
+arbiter review arbiter-out/omni-gate/report.json --rule arbiter/secrets.aws-access-key   # adjudicate it
+omni failure add --requirement REQ-012 --title "..." --symptom "..." --detected "arbiter finding f:17a59c37fc20"
+omni graph build                              # the finding is now `recorded_as` that ledger entry
+```
+
+`omni graph sources` names the report the build would read, or says `findings: no Arbiter report
+found (run ./omni gate)`. Set `findings_report` in `.ai/graph-config.json` to read a specific report,
+or to `null` to leave the findings out.
 
 ### Using it in your own project
 
@@ -1012,6 +1214,7 @@ Only the settings that differ from the defaults belong in `.ai/graph-config.json
 | `ci_files` | GitHub, GitLab, Cloud Build, Azure, Jenkins, Makefile | extra CI files hold your test commands |
 | `rules_dir`, `playbook_dirs`, `checklist_dirs` | `.ai/...` | your rules and playbooks live elsewhere |
 | `max_commits` | 400 | you want more or less history |
+| `findings_report` | newest `report.json` under the `completion.arbiter_gate` rule's `--out` (default `arbiter-out`) | you want the finding nodes read from one specific Arbiter report, or `null` to leave them out |
 | `tooling_paths` | `make_ai.py`, `omni_graph.py`, `omni`, `.ai/*` | set to `[]` if OmniEngineering itself is your project |
 
 A project with no `.ai/`, no git, no requirements, or no tests still builds: each
@@ -1023,7 +1226,33 @@ doctor` validates the config. The suite registry is managed with `omni test`:
 omni test detect [--write]   # find suites from file contents and CI commands; register them
 omni test add --name "Backend JUnit" --paths backend/src/test --framework junit --command "cd backend && mvn test" --covers backend/src/main
 omni test list | check | remove <id>
+omni test run                # run every registered suite's command, one line per suite, exit 1 on any failure
+omni test run backend-junit  # by id or name
+omni test run --impacted     # only the suites `omni graph impact` ties to the pending change set
 ```
+
+`omni test run` runs each suite's registered command through the shell from the
+project root and reports `PASS`, `FAIL`, `SKIP` (no command registered) or `TIMEOUT`
+(`--timeout`, default 900 s) with the last five lines of output for anything that did
+not pass; `--json` gives the same as data. `--impacted` resolves the change set
+(`--changed BASE`, else the merge-base `omni gate` uses) through the graph and picks
+the suites whose files, paths or declared coverage meet a changed file or a test
+file the walk reached, directory prefixes included; without a graph it says so and
+runs every suite. The completion rulepack ships a `completion.tests` rule as the
+worked example of wiring it into the gate:
+
+```json
+{
+  "id": "completion.tests",
+  "severity": "recommended",
+  "validation": {"type": "command", "run": "omni test run --impacted", "when_changed": ["**"],
+                 "ignore": [".ai/**", "*.md", "docs/**"], "timeout": 900}
+}
+```
+
+It is `recommended`, and `omni gate` executes only `required` rules, so the
+pre-commit hook stays fast by default; an adopter whose suite registry is complete
+promotes it to `required` and every commit then runs the tests its change reaches.
 
 ### MCP server: the graph as tools for any assistant
 
@@ -1043,7 +1272,7 @@ omni mcp serve          # serve them over stdio (JSON-RPC 2.0, one JSON object p
 
 Point an MCP client's command at `omni mcp serve` (working directory: your project
 root). Every tool is read-only -- `graph_lineage`, `graph_why`, `graph_trace`,
-`graph_timeline`, `graph_show`, `graph_sources`, `requirement_show`,
+`graph_timeline`, `graph_impact`, `graph_show`, `graph_sources`, `graph_findings`, `requirement_show`,
 `requirement_list`, `requirement_search`, `failure_show`, `gate_status` -- so a
 client can call them with no confirmation step; nothing here writes a requirement,
 a changelog entry or a waiver. `omni requirement draft`, `omni requirement add` and
@@ -1127,6 +1356,27 @@ omni requirement update REQ-043 --status withdrawn --note "superseded by REQ-050
 omni requirement archive --keep-recent 25   # move old completed and all withdrawn entries aside
 omni requirement archive --id REQ-041,REQ-043  # or name them; live (pending, blocked) work is refused
 ```
+
+**Renaming the prefix.** A project that vendors several workspaces, or that adopted the
+template under the default `REQ` and later wants ids that say which registry they belong
+to, can change the prefix in one step:
+
+```bash
+omni requirement renumber --prefix ARB --dry-run   # per-file change counts, nothing written
+omni requirement renumber --prefix ARB             # REQ-012 -> ARB-012, keeping the number
+```
+
+It rewrites every id in the registry and the archive, sets `requirement_id_prefix`,
+rewrites the `requirement` fields of the failure ledger and the gate waivers, and
+replaces `REQ-###` with `ARB-###` in governance text only: `.ai/**/*.md`,
+`.ai/**/*.json`, the root `*.md` files (`CHANGELOG.md`, `README.md`), `docs/**/*.md`,
+`.claude/**/*.md` and `.claude/skills/**` (`--paths GLOB ...` replaces that list). Code,
+tests, `.git`, vendored workspaces and `arbiter-out` are never touched, so git history
+keeps citing the old ids. That history stays valid because the command records
+`id_aliases` (`{"REQ-012": "ARB-012"}`) in the registry: the gate, `omni requirement
+show|update|complete|archive` and `omni failure check` resolve an old id to its current
+one, and `omni doctor` fails on an alias that points at nothing or that is still a live
+id. Running the command again with the same prefix is a no-op.
 
 Enforce the completion rulepack instead of trusting the assistant to remember it:
 

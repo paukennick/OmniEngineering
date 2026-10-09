@@ -187,6 +187,29 @@
       ]
     },
     {
+      "id": "completion.tests",
+      "severity": "recommended",
+      "statement": "Run the registered test suites the change set reaches before reporting completion: `omni test run --impacted` picks them through `omni graph impact` (every suite when no graph exists) and exits non-zero on any failure or timeout. Recommended here as the example an adopter promotes to `required` once the suite registry is complete; `omni gate` executes only required rules, so the pre-commit hook stays fast until then.",
+      "scope": [
+        "testing",
+        "validation",
+        "completion"
+      ],
+      "validation": {
+        "type": "command",
+        "run": "omni test run --impacted",
+        "when_changed": [
+          "**"
+        ],
+        "ignore": [
+          ".ai/**",
+          "*.md",
+          "docs/**"
+        ],
+        "timeout": 900
+      }
+    },
+    {
       "id": "completion.arbiter_gate",
       "severity": "required",
       "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
@@ -196,7 +219,7 @@
       ],
       "validation": {
         "type": "command",
-        "run": "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
+        "run": "arbiter gate . --changed {base} --profile offline --baseline .arbiter/baseline.json --out arbiter-out/omni-gate --format json,sarif,pr-comment",
         "when_changed": [
           "**"
         ],

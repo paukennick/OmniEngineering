@@ -3545,10 +3545,21 @@ def run_adopt(args: argparse.Namespace) -> int:
     print(f"Force: {str(args.force).lower()}")
     print("")
 
-    results = [
-        copy_adoption_path(source_root, target_root, relative_path, args.force, args.dry_run)
-        for relative_path in files
-    ]
+    # A path inside a directory this same run just copied whole (the graph-viewer files --include-cli
+    # lists live under `.ai`) is already in place: it is reported with its directory rather than as
+    # "skip existing", which used to make every --include-cli adoption into an empty target exit 1.
+    results: list[str] = []
+    copied_dirs: dict[str, str] = {}  # relative directory path -> the verb its own result line used
+    for relative_path in files:
+        parent = next((d for d in copied_dirs if relative_path.startswith(d + "/")), None)
+        if parent is not None:
+            results.append(f"{copied_dirs[parent]}: {relative_path} (with {parent})")
+            continue
+        result = copy_adoption_path(source_root, target_root, relative_path, args.force, args.dry_run)
+        results.append(result)
+        verb = result.split(":", 1)[0]
+        if verb in {"copied", "copy", "replace"} and (source_root / relative_path).is_dir():
+            copied_dirs[relative_path] = verb
     for result in results:
         print(f"- {result}")
 

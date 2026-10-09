@@ -10,6 +10,9 @@ on:
 jobs:
   test:
     name: Tests, doctor & gate (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    permissions:
+      contents: read
+      security-events: write # the SARIF upload below
     strategy:
       fail-fast: false
       matrix:
@@ -29,16 +32,18 @@ jobs:
 
       # A vendored Arbiter (the `arbiter` branch) registers `arbiter mcp` in .mcp.json and a command rule
       # that runs `arbiter gate`; doctor starts that server for real and the gate runs that command, so
-      # the package has to be installed wherever the subtree is present. Arbiter needs Python 3.11+, so
-      # on an older interpreter the subtree cannot be installed: the unit tests still run there, and the
-      # doctor and gate steps (which would fail only on the missing `arbiter` executable) are skipped
-      # with a note instead; both still run on every 3.12 cell. No-op on branches without the subtree.
+      # the package has to be installed wherever the subtree is present. Arbiter's interpreter floor is
+      # read from its own pyproject (`requires-python`, >=3.11 today), so this stays right when the
+      # subtree lowers it to 3.10; 3.11 is assumed when the file or the key is missing. On an older
+      # interpreter the subtree cannot be installed: the unit tests still run there, and the doctor and
+      # gate steps (which would fail only on the missing `arbiter` executable) are skipped with a note
+      # instead; both still run on every 3.12 cell. No-op on branches without the subtree.
       - name: Is a vendored Arbiter present, and can this Python run it?
         id: vendored
         shell: bash
         run: |
           if [ -f arbiter/pyproject.toml ]; then present=true; else present=false; fi
-          supported=$(python -c "import sys; print('true' if sys.version_info >= (3, 11) else 'false')")
+          supported=$(python -c 'import re, sys, pathlib; p = pathlib.Path("arbiter/pyproject.toml"); m = re.search(r"^requires-python\s*=\s*\"?[^\d]*(\d+)\.(\d+)", p.read_text(encoding="utf-8"), re.M) if p.is_file() else None; floor = (int(m.group(1)), int(m.group(2))) if m else (3, 11); print("true" if sys.version_info[:2] >= floor else "false")')
           echo "present=$present" >> "$GITHUB_OUTPUT"
           echo "supported=$supported" >> "$GITHUB_OUTPUT"
           echo "vendored arbiter present=$present, interpreter supported=$supported"
@@ -62,6 +67,18 @@ jobs:
       - name: Run omni gate
         if: steps.vendored.outputs.present != 'true' || steps.vendored.outputs.supported == 'true'
         run: python omni gate
+
+      # The completion.arbiter_gate rule writes arbiter-out/omni-gate/report.sarif (its --format names sarif);
+      # uploading it puts Arbiter's findings in the repository's code-scanning alerts beside everything else.
+      # The gate's exit code above stays the verdict: this step runs even after a failed gate (that is when
+      # the SARIF matters most), never fails the job itself, and only exists when a vendored Arbiter
+      # actually produced the file.
+      - name: Upload the gate's SARIF to code scanning
+        if: always() && steps.vendored.outputs.present == 'true' && steps.vendored.outputs.supported == 'true' && hashFiles('arbiter-out/omni-gate/report.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: arbiter-out/omni-gate/report.sarif
+        continue-on-error: true
 
       - name: Doctor and gate skipped on this interpreter
         if: steps.vendored.outputs.present == 'true' && steps.vendored.outputs.supported != 'true'
@@ -137,3 +154,76 @@ jobs:
         if: steps.vendored.outputs.present == 'true'
         run: python omni doctor
 
+  # The adopt loop proven end to end, not by unit tests of its parts: a fresh directory adopts the
+  # workspace with Arbiter wired in, becomes a git repository, gets a real defect planted, `omni gate`
+  # has to fail on completion.arbiter_gate alone, the defect is fixed, and the same gate has to pass.
+  # tests/test_adopt_loop.py mirrors this script. Like vendored-arbiter, this exists only when the
+  # subtree does; on branches without it (main) it is skipped, not failed.
+  adopt-loop:
+    name: "Adopt loop: adopt with Arbiter, plant a defect, gate fails, fix, gate passes (ubuntu-latest, Python 3.12)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Is Arbiter vendored here?
+        id: vendored
+        run: |
+          if [ -f arbiter/pyproject.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Set up Python
+        if: steps.vendored.outputs.present == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the vendored Arbiter with its MCP extra
+        if: steps.vendored.outputs.present == 'true'
+        run: python -m pip install -e "./arbiter[mcp]"
+
+      - name: Adopt, plant verify=False, gate fails, fix it, gate passes
+        if: steps.vendored.outputs.present == 'true'
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          # --tools all and --include-legal because every `omni gate` runs doctor first, and doctor requires
+          # the assistant pointer files the context manifest names plus LICENSE, NOTICE and TRADEMARKS.md;
+          # README.md is the adopter's own. The adopt also cuts the Arbiter baseline (a full offline scan).
+          python omni adopt --target "$TMP" --tools all --include-cli --include-legal --with-arbiter ./arbiter --skip-pip
+          cd "$TMP"
+          echo "# Adopt loop" > README.md
+          echo "# Changelog" > CHANGELOG.md
+          git init -q -b main
+          git config user.email ci@example.invalid
+          git config user.name ci
+          git add -A
+          git commit -qm "Adopt the workspace with Arbiter (REQ-001)"
+          # The adopted registry is a copy of this repository's (REQ-001 already exists there), so the seed
+          # requirement gets an id of its own. It is added in the same uncommitted change as the code, and
+          # CHANGELOG.md changes alongside, so the requirements_registry and changelog_gate co_changed rules
+          # are satisfied and the Arbiter rule is the only one that can fail.
+          python omni requirement add --id REQ-900 --title "Adopt loop seed" --description "Seed requirement for the adopt loop" --category Feature
+          mkdir -p src
+          printf 'import requests\n\n\ndef fetch(url):\n    return requests.get(url, verify=False)\n' > src/app.py
+          echo "- REQ-900: src/app.py fetches a url" >> CHANGELOG.md
+          set +e
+          out=$(python omni gate 2>&1); code=$?
+          set -e
+          echo "$out"
+          if [ "$code" -ne 1 ]; then
+            echo "::error::expected omni gate to exit 1 on the planted verify=False, got exit $code (output above)"; exit 1
+          fi
+          if ! grep -q "completion.arbiter_gate" <<<"$out"; then
+            echo "::error::omni gate failed, but not on completion.arbiter_gate (output above)"; exit 1
+          fi
+          if grep "^  - " <<<"$out" | grep -qv "^  - completion.arbiter_gate"; then
+            echo "::error::rules other than completion.arbiter_gate failed, so the Arbiter verdict is masked (output above)"; exit 1
+          fi
+          sed -i 's/verify=False/verify=True/' src/app.py
+          python omni gate
+          echo "adopt loop OK: the planted verify=False failed completion.arbiter_gate alone, and the fix passed the gate"

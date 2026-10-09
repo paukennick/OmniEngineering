@@ -11,6 +11,8 @@
   (FAIL-016). The planted defect's suppressions are the sub-bullet under REQ-045 below.
   Found on the way: the history-layer tests' teardown raced git's detached auto-gc on macOS CI
   (FAIL-017); every temporary repository they create now sets `gc.auto 0`.
+  With Arbiter's own fix for that false positive (FAIL-050) pulled into the subtree, the
+  `omni_graph.py` credential suppression is retired and the baseline re-cut (230 ids).
 
 - `REQ-051` | Code understanding | A finding traces to the requirement that introduced its line. `omni graph
   build` blames every finding's line (`git blame --porcelain -L`, one call per distinct file with all of its

@@ -34,9 +34,3 @@ suppress:
     path: "tests/test_adopt_loop.py"
     reason: "the adopt-loop test plants a TLS-verification-off request as text to prove the gate catches it; the test makes no request"
     expires: 2099-01-01
-  # SEMANTIC_API_KEY_ENV holds the *name* of the environment variable the
-  # semantic layer reads its key from, never a key.
-  - rule: "arbiter/secrets.assigned-credential"
-    path: "omni_graph.py"
-    reason: "the constant names the environment variable (OMNI_GRAPH_SEMANTIC_API_KEY); the value is read from the environment at run time"
-    expires: 2099-01-01

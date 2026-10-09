@@ -54,7 +54,7 @@ class TestWiring(ArbiterInstallFixture):
         gate = [r for r in self.rules() if r["id"] == ma.ARBITER_GATE_RULE_ID]
         self.assertEqual(len(gate), 1)
         self.assertEqual(gate[0]["validation"]["type"], "command")
-        self.assertIn("arbiter gate --changed {base}", gate[0]["validation"]["run"])
+        self.assertIn("arbiter gate . --changed {base}", gate[0]["validation"]["run"])
         self.assertTrue((self.root / "arbiter.yaml").is_file())
         self.assertIn("arbiter-out/", (self.root / ".gitignore").read_text(encoding="utf-8"))
 

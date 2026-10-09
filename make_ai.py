@@ -3230,11 +3230,11 @@ def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_
             rules.append({
                 "id": ARBITER_GATE_RULE_ID,
                 "severity": "required",
-                "statement": "A change passes Arbiter's own gate (`arbiter gate --changed <base>` under arbiter.yaml) before it is reported complete.",
+                "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
                 "scope": ["completion", "validation"],
                 "validation": {
                     "type": "command",
-                    "run": "arbiter gate --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
+                    "run": "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
                     "when_changed": ["**"],
                     "ignore": [".ai/**", "CHANGELOG.md", "*.md", "docs/**"],
                     "timeout": 600,

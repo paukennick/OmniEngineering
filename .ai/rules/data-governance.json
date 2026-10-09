@@ -91,7 +91,10 @@
           "**"
         ],
         "ignore": [
-          ".ai/failures/failure-ledger.json"
+          ".ai/failures/failure-ledger.json",
+          "tests/**",
+          "fixtures/**",
+          "examples/**"
         ],
         "patterns": [
           {

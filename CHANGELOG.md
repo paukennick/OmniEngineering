@@ -8,6 +8,21 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- Made the three setup-script tests run the bash that `PATH` resolves rather
+  than the bare name `bash`. The first run of the Windows half of `pr-check`
+  (it had never run: this was the workflow's first pull request) failed all
+  three, because `CreateProcess` searches `System32` before `PATH` and
+  `System32\bash.exe` is the WSL launcher, which prints an install prompt in
+  UTF-16 and exits 1 whether or not Git Bash is installed. The one test that
+  already went through `shutil.which("bash")` passed on the same runner,
+  which is the whole diagnosis; the other three now do the same and skip, as
+  it does, only when no bash exists at all. (REQ-024)
+- Exempted Arbiter's own test material from the gate's secret check. The
+  first change set to touch `tests/` tripped `data.privacy` on a planted PEM
+  header: the check is right in general and wrong for a secret scanner's
+  corpus, so `tests/**`, `fixtures/**`, `examples/**` and the files holding
+  the detector's pattern tables are listed in the rulepack's ignore set.
+  (REQ-031)
 - Re-synced the OmniEngineering workspace to its real upstream and adopted
   the tooling that arrived there since June. Arbiter's `omni` was a fork
   assembled from STEP-Migration copies (REQ-001) and closest to an upstream

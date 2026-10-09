@@ -3113,14 +3113,29 @@ def test_the_read_cache_never_serves_one_scans_bytes_for_another(tmp_path):
 # and creating the GitHub repository. Both are tested here for the properties
 # that matter — the installer must never fail a build, and the bootstrap must
 # never destroy history.
+#
+# The scripts are run through the bash that PATH resolves, never the bare name
+# "bash": on Windows, CreateProcess searches System32 before PATH, and
+# System32\bash.exe is the WSL launcher, which prints an install prompt in
+# UTF-16 and exits 1 whether or not Git Bash is installed. shutil.which walks
+# PATH only, where the runner puts Git's bin directory, so it finds the real
+# shell. The first run of the Windows matrix (REQ-024) failed exactly this way.
 # ---------------------------------------------------------------------------
+
+def _bash():
+    import shutil
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+    return bash
+
 
 def test_install_script_never_fails_a_build(tmp_path):
     """A missing analyzer is a coverage fact, not an error: Arbiter records it
     as not assessed and the coverage figure drops. Exiting non-zero here would
     turn an honest gap into a broken pipeline."""
     import subprocess
-    r = subprocess.run(["bash", str(ROOT / "tools" / "install_tools.sh"), "nosuchtool"],
+    r = subprocess.run([_bash(), str(ROOT / "tools" / "install_tools.sh"), "nosuchtool"],
                        capture_output=True, text=True, cwd=str(ROOT), timeout=180)
     assert r.returncode == 0, r.stderr[-400:]
 
@@ -3135,7 +3150,7 @@ def test_bootstrap_refuses_when_it_is_not_a_repository(tmp_path):
     import subprocess, shutil
     (tmp_path / "tools").mkdir()
     shutil.copy(ROOT / "tools" / "bootstrap_repo.sh", tmp_path / "tools")
-    r = subprocess.run(["bash", "tools/bootstrap_repo.sh", "--dry-run"],
+    r = subprocess.run([_bash(), "tools/bootstrap_repo.sh", "--dry-run"],
                        capture_output=True, text=True, cwd=str(tmp_path), timeout=60)
     assert r.returncode == 1 and "No .git" in r.stdout
 
@@ -3160,7 +3175,7 @@ def test_bootstrap_is_idempotent_about_an_existing_remote(tmp_path):
                  "commit", "-q", "-m", "init"],
                 ["git", "remote", "add", "origin", "https://example.com/pre.git"]):
         subprocess.run(cmd, cwd=str(tmp_path), check=True)
-    r = subprocess.run(["bash", "tools/bootstrap_repo.sh", "--dry-run"],
+    r = subprocess.run([_bash(), "tools/bootstrap_repo.sh", "--dry-run"],
                        capture_output=True, text=True, cwd=str(tmp_path), timeout=60)
     assert "Leaving it alone" in r.stdout
     url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=str(tmp_path),

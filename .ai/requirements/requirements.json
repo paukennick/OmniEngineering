@@ -174,7 +174,8 @@
         "docs/ci.md"
       ],
       "risk_notes": [
-        "Adding a matrix to the nightly training workflow would double a two-hour job so the test run belongs in a separate fast workflow/Windows runners are slower and some adapter binaries are unavailable there so expect new legitimate skips"
+        "Adding a matrix to the nightly training workflow would double a two-hour job so the test run belongs in a separate fast workflow/Windows runners are slower and some adapter binaries are unavailable there so expect new legitimate skips",
+        "2026-10-09: the first Windows run of pr-check (PR #3) failed three setup-script tests that spawned bare 'bash' and got the WSL launcher; fixed by resolving bash through PATH as the writeback test already did (FAIL-035). The workflow itself had never run before."
       ]
     },
     {

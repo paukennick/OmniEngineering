@@ -924,6 +924,33 @@
       ],
       "prevention_notes": "Introduced and fixed within REQ-030; it never reached main. tools/mutate_tests.py ('crlf-not-normalized') exists because the first test for this defect did not fail with the defect present: a test that has never failed is not evidence.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-035",
+      "date": "2026-10-09",
+      "title": "Tests spawning bare 'bash' ran the WSL launcher on the Windows runner",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "pr-check (windows-latest), first run: test_install_script_never_fails_a_build, test_bootstrap_refuses_when_it_is_not_a_repository and test_bootstrap_is_idempotent_about_an_existing_remote failed with exit 1 and a UTF-16 stdout reading 'Windows Subsystem for Linux has no installed distributions'.",
+      "how_detected": "CI, the first pull request to run the Windows matrix added in REQ-024",
+      "root_cause": "subprocess.run(['bash', ...]) hands the bare name to CreateProcess, which searches the System32 directory before PATH; System32\\bash.exe is the WSL launcher, so Git Bash (on PATH) was never reached. shutil.which searches PATH only, which is why the writeback test that resolved bash that way passed on the same runner.",
+      "requirement": "REQ-024",
+      "affected": [
+        "tests/test_arbiter.py"
+      ],
+      "fix_summary": "A _bash() helper resolves the shell with shutil.which and skips only when none exists; the three tests use it.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter.py::test_install_script_never_fails_a_build",
+        "tests/test_arbiter.py::test_bootstrap_refuses_when_it_is_not_a_repository",
+        "tests/test_arbiter.py::test_bootstrap_is_idempotent_about_an_existing_remote"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Never spawn a shell or tool by bare name from a test or from src/: resolve it with shutil.which first. The same CreateProcess ordering bit REQ-006's taskkill path.",
+      "recurrence_of": ""
     }
   ]
 }

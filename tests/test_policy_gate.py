@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from helpers import ROOT
 
 from arbiter.core import Finding, Location

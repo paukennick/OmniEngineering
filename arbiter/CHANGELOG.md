@@ -1,0 +1,855 @@
+# Changelog
+
+All notable changes to Arbiter are recorded here. Entries are grouped by date
+under `[Unreleased]` (there are no release tags yet) and reference the
+`REQ-###` they serve. Rationale belongs in `.ai/project-context.md`.
+
+## [Unreleased]
+
+### 2026-10-09
+
+- Arbiter now gates its own pull requests. `pr-check` installs the five
+  external analyzers and the `api` extra on Linux, then runs `arbiter gate .`
+  under this repository's `arbiter.yaml` after the suite, the integrity and
+  mutation checks and the workspace gate; with no baseline every finding is
+  new, so the policy is "no critical, no high". The first run was red for
+  three reasons that were all Arbiter's: the `authored` probe reported the
+  TLS-off patterns listed in its own module docstring as three high findings
+  (`_blank_comments` blanked `#` comments but not Python docstrings; it now
+  blanks both, as the import scanner always did), gitleaks reported fixture
+  token shapes it found in a git-ignored graph file and in `__pycache__` as
+  four critical secrets (adapter output is now held to the inventory's scope
+  on the way in, `in_scope`, instead of teaching each tool its own exclusion
+  flags), and semgrep's Python 3.6 compatibility rules fired on a project that
+  requires 3.11 (suppressed by name, with the reason). The same job runs the
+  sixteen hosted-API tests that had skipped on every pull request, and
+  `omni gate` now runs `arbiter gate --changed` through OmniEngineering's new
+  `command` validation type whenever `src/`, `tests/`, `tools/` or
+  `arbiter.yaml` change. FAIL-036, FAIL-038. (REQ-032, REQ-034)
+- Arbiter now installs alongside the OmniEngineering workspace. Upstream's
+  `omni adopt --with-arbiter` and `omni arbiter install` (OmniEngineering
+  REQ-033) pip-install `arbiter-eval[mcp]` from a checkout or the GitHub URL
+  and write the wiring this repository had assembled by hand: the `arbiter`
+  MCP server in `.mcp.json`, the `completion.arbiter_gate` command rule, a
+  starter `arbiter.yaml`, and `arbiter-out/` in `.gitignore`. Rerunning it
+  here reports every piece as already present, which is the check that the
+  hand-made wiring and the generated one agree. `SETUP.md` and
+  `RUNNING-ON-YOUR-OWN-CODE.md` document the path. (REQ-032)
+- Cut the self-scan's noise at its five sources. `drift.doc-references-
+  missing-file` asks git whether a path named in prose was ever tracked and
+  reports a removed one at `info` as removed, which a changelog is right to
+  mention, while a path that never existed stays `low` (24 findings, most in
+  append-only history files). `assurance.blanket-suppression` no longer reads
+  documentation, so a README explaining `# noqa` is not a blanket suppression.
+  The `no-bare-except` house rule matched every `except` clause because its
+  query had no predicate (89 findings, `except OSError:` among them); it now
+  matches `Exception` and `BaseException` and leaves bare `except:` to ruff
+  E722 (FAIL-037). OmniEngineering's `make_ai.py`, `omni_graph.py` and
+  `omni_mcp.py` were scored as Arbiter's code (44 of 90 complexity findings);
+  their quality and semgrep findings are suppressed with the reason recorded,
+  so they stay in the report attributed to the tooling. And a probe that
+  declares itself not applicable (the `interface` probe on a single
+  repository) now leaves the coverage denominator and prints as `n/a`, while a
+  probe that was prevented from running stays in it; claim invariant CI-12
+  refuses a report that marks a prevented probe as not applicable, and
+  `tools/integrity.py` proves it does. Coverage on this repository went from
+  22% (grade withheld) to 99% with the analyzers installed. The Windows job,
+  which has no tree-sitter, then showed the rule's one hole: a missing python
+  package also read as not applicable, so the two AST probes left the
+  denominator instead of lowering coverage. `Probe.prevented()` now reports a
+  missing dependency separately and the engine records it as a prevented
+  skip, like a missing binary; `applicable()` keeps only the cases where
+  there is nothing to assess, and CI-12 names the new wording (FAIL-039).
+  (REQ-033)
+- `arbiter review --apply --ledger FILE` drafts an open OmniEngineering
+  failure-ledger entry for every verdict recorded as a true positive: title,
+  severity, rule, location and the finding id, nothing the scanner cannot
+  know. Applying the same marks twice adds nothing, and the file passes
+  `omni failure check`. The adjudication ledger and the failure ledger were
+  parallel records of the same defects; now one feeds the other. (REQ-035)
+- Added the Claude Code skill (`.claude/skills/arbiter/SKILL.md`): which
+  surface to use for what, how to read a withheld grade and a not-assessed
+  probe, how to adjudicate, and what the self-gate requires of a change.
+  (REQ-036)
+- Added the four commercial control packs README had listed as unbuilt: PCI
+  DSS v4.0 (32 of 63 requirement sections), the HIPAA Security Rule (32 of
+  59 standards and implementation specifications), SOC 2 TSC 2017 (29 of 61
+  criteria) and CIS Controls v8 (41 of 153 safeguards). Each follows the
+  government packs' convention of declaring the framework's full size and
+  enumerating the scanner-relevant subset, names the human work that remains
+  on every control, cites only rule ids that exist, and says that PCI DSS and
+  the TSC are licensed documents whose identifiers must be verified against
+  the licensed text before an audit package cites them. (REQ-037)
+- Made the three setup-script tests run the bash that `PATH` resolves rather
+  than the bare name `bash`. The first run of the Windows half of `pr-check`
+  (it had never run: this was the workflow's first pull request) failed all
+  three, because `CreateProcess` searches `System32` before `PATH` and
+  `System32\bash.exe` is the WSL launcher, which prints an install prompt in
+  UTF-16 and exits 1 whether or not Git Bash is installed. The one test that
+  already went through `shutil.which("bash")` passed on the same runner,
+  which is the whole diagnosis; the other three now do the same and skip, as
+  it does, only when no bash exists at all. (REQ-024)
+- Exempted Arbiter's own test material from the gate's secret check. The
+  first change set to touch `tests/` tripped `data.privacy` on a planted PEM
+  header: the check is right in general and wrong for a secret scanner's
+  corpus, so `tests/**`, `fixtures/**` and `examples/**` are listed in the
+  rulepack's ignore set; `src/` and `tools/` hold no literal key shape and
+  stay scanned. (REQ-031)
+- Re-synced the OmniEngineering workspace to its real upstream and adopted
+  the tooling that arrived there since June. Arbiter's `omni` was a fork
+  assembled from STEP-Migration copies (REQ-001) and closest to an upstream
+  commit from 2026-06-23; `python omni update` now 3-way-merges against the
+  ref recorded in `.ai/omni-version.json`, so later template changes are a
+  command rather than a re-copy. What changed in the repository: the
+  requirements registry and its archive moved to the upstream flat shape
+  (`requirements-archive.json`; the categories-keyed form was arbiter-only
+  and every new upstream command reads the flat one) and are now queried and
+  changed only through `python omni requirement` -- never read or edited
+  whole; the five non-Claude assistant shims, `.cursorignore` and the
+  OmniEngineering `NOTICE`, `TRADEMARKS.md` and `LICENSES/` are installed,
+  which closes the eight `omni doctor` errors this repo had carried as an
+  accepted gap since REQ-001 (arbiter's own `NOTICE.md` and `LICENSE` are
+  unchanged); `python omni gate` is enforced by `.githooks/pre-commit`, by the
+  Claude Code Stop hook in `.claude/settings.json` (now tracked; the
+  machine-specific Headroom wiring stays in `settings.local.json`) and by
+  `pr-check.yml`, with `training/**` and `.arbiter/**` exempt so the nightly
+  job's measurement commits are not blocked; `.ai/test-suites.json` registers
+  the pytest suite and `tools/check_writeback.sh`; `.ai/graph-config.json`
+  builds the code graph with `fixtures/`, `examples/`, `training/`,
+  `.arbiter/` and the scan output directories kept out of the code layer, so
+  a planted defect's symbols are never attributed to arbiter; `.mcp.json`
+  registers `python omni mcp serve` beside `arbiter mcp`, and doctor now
+  starts both servers for real. Three stale playbooks (`planning`, `testing`,
+  `release`, `implementation`, `pre-implementation`) still carried
+  STEP-Migration text -- `python3 app.py`, `validate_stacks.py`, "`omni map`
+  is never run here" -- that contradicted this repo's own configuration;
+  they are upstream's versions now. The adapters, `public-release.md`,
+  `fallback-llm-rules.json` and `hci-ui-rules.json` authored for arbiter in
+  REQ-028 were kept and merged. (REQ-031)
+- Backfilled the failure ledger. `.ai/failures/failure-ledger.json` now
+  records the 34 shipped defects that `CHANGELOG.md`, `.ai/project-context.md`
+  and the requirement records already describe, FAIL-001 (the read cache
+  serving stale bytes, REQ-007) through FAIL-034 (CRLF dropped when file
+  reading moved to bytes, REQ-030), each with its root cause, the regression
+  test that now catches it, and the rule that prevents a repeat. Six have no
+  regression test and say so (`no_test_reason`); twelve have no fix commit
+  because the clone is shallow and the 2026-09-12 history is not in it.
+  `python omni graph why <path>` and `python omni failure search` read this
+  ledger, and `python omni failure add` is how the next defect is recorded.
+  (REQ-031)
+- Ported three arbiter-only improvements upstream instead of keeping them as
+  a fork, as OmniEngineering REQ-031: the `withdrawn` terminal status with
+  `requirement archive --id` refusing live work; doctor's live check of every
+  MCP server `.mcp.json` registers (it replaces the arbiter-specific
+  `validate_mcp_server` from REQ-025 and checks both servers here);
+  `exclude_code_globs` for the graph; and dated `###` sections under an
+  `[Unreleased]` heading -- this file's format -- parsed as separate
+  changelog entries. (REQ-031)
+
+### 2026-09-16
+
+- Stopped vendored and generated content from being scanned as first-party
+  source, found by running Arbiter as a system over two real repositories
+  (STEP-Migration + STEP_App) rather than the fixture corpus. Three
+  compounding gaps together reported a third-party library's own source as a
+  leaked private key and buried real findings under noise: `_pem_has_key_material`
+  judged a PEM block real if any text after a `BEGIN` marker contained a colon
+  anywhere in the next ~4000 characters — a check meant to allow encrypted-key
+  preambles (`Proc-Type: 4,ENCRYPTED`) but satisfied by ordinary code and
+  prose, so `ecdsa`'s own PEM-parsing source and packaging metadata were
+  reported as committed keys; it now walks forward line by line and stops at
+  the first line that is not base64 or a `Key: value` header, so surrounding
+  text cannot manufacture a body. `inventory.classify()` hardcoded the literal
+  name `cdk.out`, so a project using `CDK_OUTDIR` to redirect synth output to
+  a renamed directory (`cdk.out.chk`, seen on the real system) fell through to
+  `role=source`, and a branch-ordering bug meant even the unrenamed case would
+  have classified a CDK stack's own synthesized `*.template.json` as
+  `generated` rather than the `iac` role that exempts nothing — losing the
+  ground-truth scanning `SKIP_DIRS` already says is deliberate; `IAC_HINTS` is
+  now checked first, and both hint patterns accept a `cdk.out*` suffix.
+  Bandit and checkov each walk `{workdir}` with their own traversal,
+  independent of `SKIP_DIRS`, so both walked into a full vendored `.venv` and
+  a Lambda asset bundle's dependencies regardless of role — bandit alone
+  produced 129,379 raw findings and consumed 669s of its 900s budget on one
+  such tree; both are now invoked with exclusions mirroring `SKIP_DIRS`, plus
+  a CDK asset-bundle pattern for bandit (which gets no value from a synthesized
+  template — it only reads Python) and a narrower one for checkov (which
+  still needs the templates). A real system scan went from 3 critical / 6,011
+  total findings to 0 critical / 1,121, with bandit's runtime dropping from
+  669s to 4s. (REQ-026)
+- Fixed two MCP tests reading pydantic alias names instead of the field
+  names the installed SDK actually exposes (`.serverInfo`, `.isError`,
+  `.inputSchema`) — those models take the camelCase alias on construction
+  but expose the field back out as the snake_case Python attribute via an
+  alias generator, confirmed directly from the installed SDK's own
+  `model_fields`. Pre-existing on `main`, unrelated to REQ-026; found while
+  running the full suite during that work and confirmed by reproducing it
+  against plain `main` with REQ-026's changes stashed. (REQ-027)
+- Registered Arbiter's own MCP server for this repo and made OmniEngineering
+  verify it rather than take it on faith. `.mcp.json` now names an "arbiter"
+  server that runs `arbiter mcp` (stdio), so an assistant working here can
+  call `arbiter_scan`, `arbiter_gate` and `arbiter_review_queue` directly
+  instead of shelling out to the CLI — the CLI stays the only way to run
+  `arbiter review --apply`, since no MCP tool records a verdict. `omni
+  doctor` gained `validate_mcp_server`, which imports `arbiter.mcp` and
+  builds the server for real rather than grepping `.mcp.json`'s text for the
+  right command, because the `mcp` SDK's own shape has moved under this
+  project before (`23bc43e`, same day) and a static check would not have
+  caught that. (REQ-025)
+
+### 2026-09-17
+
+- Started testing the scanner against reformulations of its own input, and
+  started testing the code that measures the rules. An audit of every testing
+  parameter and of the whole bug history found nineteen shipped defects
+  collapsing into five recurring causes -- platform and path assumptions,
+  encoding defaults, attribution propagation, heuristic proxies with edges
+  nobody had hit yet, and bugs in the measurement code itself. Each had been
+  fixed with a fixture for the one case that failed, which is why the missing
+  `repo_id` had to be found three separate times. The new tests state the
+  property instead: no finding anywhere may carry a backslash, an absolute or
+  an escaping path; every finding in a multi-repo scan must name a repository
+  that exists; every text read and write under `src/` must name its encoding;
+  a credential must be found under every encoding and every syntactic carrier
+  while placeholders are not reported; and calibrated confidence must not move
+  when synthetic volume does. `tests/test_properties.py` generates inputs for
+  the hand-rolled HCL reader rather than listing them, since every bug those
+  functions have had was an edge of the grammar nobody thought to write down.
+  (REQ-030)
+- Fixed a fingerprint that was not stable across platforms. `Finding.fingerprint()`
+  hashed `location.path` as written, so the same path with backslashes
+  and with forward slashes were two identities for one finding.
+  Adjudications are permanent and keyed by that
+  fingerprint and `record()` refuses to re-adjudicate, so a verdict recorded on
+  one platform could never match the same finding on another, and a baseline
+  built on one reported every finding as new on the other. Normalization now
+  happens at the `Location` boundary that all ~54 construction sites pass
+  through, rather than at each of them -- which is the form that was tried and
+  missed in REQ-014, REQ-015, REQ-016 and again in REQ-029. (REQ-030)
+- Connected the nightly external-severity measurement to the scanner.
+  `tools/calibrate_external.py` wrote its measured severities to
+  `.arbiter/external-severity.json` while `learn.apply()` read a flat map
+  inside `knowledge.json`, and no code path moved a value from one to the
+  other -- so every nightly run since the tool was written had measured 818
+  external checks and changed nothing, and the 178 severities in the live
+  ledger came from a one-off step that no longer exists. Merging the current
+  report yields 288 entries, 110 of them checks that had no measured severity
+  at all. (REQ-030)
+- Stopped reading every UTF-16 file as a binary blob. `inventory._is_binary`
+  treated any NUL byte as binary, and UTF-16 puts one between every ASCII
+  character, so a file an editor saved as "Unicode" was classified as data and
+  never read -- a credential in one was invisible. A declared byte-order mark
+  now means text. Headerless UTF-16 is still left as data on purpose: telling
+  it from a real binary means guessing, and guessing wrong turns a binary into
+  mojibake to scan. (REQ-030)
+- Gave seven configuration reads an explicit encoding. `policy.py`, `ab.py`,
+  `controls.py`, `probes.py` and `adapters.py` read YAML and TOML under the
+  platform default codec, which on Windows is cp1252 and mis-decodes silently
+  rather than raising. This is the same defect as REQ-009 and REQ-012, in
+  seven call sites those fixes did not touch; the new test checks the property
+  across `src/` rather than the two sites that were known. (REQ-030)
+- Kept line endings translated when file reading moved to bytes. Reading a
+  file as bytes rather than as text is what made the byte-order-mark check
+  possible, and it silently dropped Python's newline translation with it: six
+  secret formats stopped being detected on any CRLF file, because the rule
+  that reads `name = value` ends at the end of the line and was seeing a
+  trailing carriage return. The existing suite caught it. The first test
+  written to cover it did not -- it used an AWS key, which is recognised by
+  its own shape wherever it appears and so was found with or without the
+  carriage return; `tools/mutate_tests.py` reported that test as passing with
+  the defect present, which is the whole reason that tool exists. (REQ-030)
+- Added `tools/mutate_tests.py`, which puts each of those defects back and
+  requires the test named after it to fail. A test that has never failed is
+  not evidence, and this is the same discipline `tools/integrity.py` already
+  applies to the claim invariants. It runs in the pull-request check, so a
+  regression test that stops testing anything fails the build. (REQ-030)
+- Wrote `docs/testing-parameters.md`: every constant that governs a verdict,
+  what it decides, and how firmly it is held -- derived, reasoned or
+  arbitrary. Most are arbitrary, which is the honest grade for a number
+  nobody has tested an alternative against. It also records two constants
+  sharing the name `MIN_OBSERVATIONS` while meaning unrelated things, and
+  three unreconciled ratio thresholds deciding closely related questions.
+  Nothing was retuned: changing any of them changes published evidence.
+  (REQ-030)
+
+
+- Fixed four related gaps in how adapters read tool output and what they
+  scan, found while continuing REQ-026's cross-repo scanning work. gitleaks
+  has no write-JSON-to-stdout mode; `--report-path` took the conventional
+  `-` literally, creating a file named `-` inside the repo being scanned (the
+  adapter never set `cwd`, so `{workdir}` was the default) full of gitleaks'
+  own JSON output for the next scan of any repo to read as content ---
+  `Adapter.invoke()` now substitutes a private temp path for a
+  `{report_file}` placeholder, reads it back once the process exits, and
+  deletes it in a `finally` block. checkov and bandit hand back
+  backslash-separated relative paths on Windows --- checkov's own output even
+  starts with a bare leading backslash --- but every suppress-rule glob and
+  `Location.path` in this codebase assumes `/`, so path-based rules silently
+  matched zero Windows findings from either tool; adapter output is now
+  normalized to forward slashes before that matching. REQ-026's own risk
+  notes flagged that its bandit/checkov exclusions, mirroring
+  `inventory.SKIP_DIRS`, left semgrep uncovered even though it walks
+  `{workdir}` with the same independent traversal; semgrep now carries the
+  same exclusion list plus a `cdk.out*` pattern, since none of its configured
+  rulesets understand CloudFormation templates either. Finally, `SKIP_DIRS`
+  is a fixed name list that can never cover a fresh `arbiter-out/` (or any
+  other untracked, `.gitignore`-matched directory) left over from a previous
+  run under whatever `--out` name was given that time; `walk_repo` now also
+  excludes whatever `git ls-files --others --ignored --exclude-standard
+  --directory` reports, the same plumbing `incremental.py` already uses for
+  changed-file detection. (REQ-029)
+
+### 2026-09-14
+
+- Ran the test suite on Windows in CI, and made the Windows-only code paths
+  testable everywhere. No automation had ever run on Windows: `pr-check.yml`
+  was ubuntu-only and `train.yml` is a single ubuntu job. That is how REQ-006
+  survived to be found by hand — a crash on *every* adapter timeout on Windows,
+  because `os.killpg` does not exist there and the process-group path raised
+  `AttributeError` while the analyzer ran on past the timeout meant to stop it.
+  The pull-request check is now a matrix over ubuntu-latest and windows-latest
+  with `fail-fast: false`, so a Linux failure cannot cancel the Windows job and
+  hide the result the matrix was added for, and both jobs run `pytest -rs` so
+  each platform's skips appear in the log with reasons rather than silently
+  absent. The matrix went on the one-minute pull-request workflow rather than
+  the two-hour nightly one, which would have cost four hours to learn the same
+  thing. Separately, `_kill_tree` is unreachable on a machine that has process
+  groups, so four of the seven new tests take the platform away instead of
+  waiting for one: they delete `os.killpg` and assert the fallback kills a real
+  process, uses `taskkill /T` rather than killing only the direct child and
+  leaving the fanned-out workers alive, and still kills the process when
+  `taskkill` is absent or refuses. `tools/integrity.py` was verified on Windows
+  before CI was made to depend on it — 354,294 reports enumerated, 0 integrity
+  failures. 410 tests to 417. (REQ-024)
+
+- Gave the nightly training job an owned contract and a preflight. The job
+  produces the project's only accumulating evidence and had never been covered
+  by a requirement; four defects were repaired in it on 2026-09-13 as unplanned
+  work, including one where `git add -A .arbiter training` matched a gitignore
+  entry, exited 1, and failed the job two seconds after a fifty-five-minute
+  cycle had finished — so run 1 measured everything and committed nothing. The
+  five accumulating files (`.arbiter/knowledge.json`,
+  `.arbiter/external-severity.json`, `training/WORKLIST.md`,
+  `training/fix-pairs.json`, `training/disagreements.json`) are now named in one
+  place, `tools/check_writeback.sh` asserts none is ignored and dry-runs the
+  exact `git add` the job ends with, and both CI and a laptop run it *before*
+  the cycle rather than discovering the problem after the work. The push now
+  rebases first, because losing a race to another commit is the same lost night
+  by a different route. Four tests cover it, including one that reproduces the
+  original gitignore arrangement in a temporary repository and asserts the check
+  refuses it. (REQ-023)
+
+- Made adjudication require a terminal. `arbiter feedback` and
+  `arbiter review --interactive` now check `stdin.isatty()` and refuse when
+  nothing is typing, so a piped script, a CI step or an agent shelling out
+  cannot write a permanent verdict by accident into a ledger that refuses to
+  re-adjudicate it. A deliberate batch import stays possible: `feedback --batch`
+  records the entry point `feedback-batch`, and `review --apply` already
+  recorded `review-apply`. Both join `import` in a new
+  `NON_INTERACTIVE_ENTRY_POINTS`, which is the set worth filtering on later.
+  `review --interactive` has no override, because a keypress interface driven
+  by something that is not a keyboard is a batch import under another name and
+  `--apply` already is one. This is a guard against accident and not proof of
+  personhood — anything determined allocates a pseudo-terminal — and
+  `docs/calibration.md` says so in those words. (REQ-021)
+
+- Made adapter scope a declaration instead of an inheritance, and said out loud
+  what a partial scan does not run. All five external analyzers (ruff, bandit,
+  checkov, semgrep, gitleaks) were constructed without a `scope` argument, so
+  they took `Probe`'s `repo` default. The value was right; nobody had chosen
+  it. Each manifest now carries `scope = "repo"` with the reason, `load_adapter`
+  refuses a scope that is neither `file` nor `repo`, and a test fails if a
+  manifest omits the key or claims `file` — which would assert a subset-exactness
+  nobody has measured. The skip reason was also wrong: every repo-scoped probe
+  printed "this check reads relationships between files", true of the native
+  probes and false of an external analyzer, which is held back only because it
+  is unmeasured. `Probe.scope_reason` now carries the real one. `docs/ci.md` and
+  `RUNNING-ON-YOUR-OWN-CODE.md` state plainly that a pull-request gate runs
+  Arbiter's own probes and no third-party analyzer at all. Nothing about what
+  runs changed. (REQ-022)
+
+- Gave every adjudication verdict a name. `learn.record()` stored a bare string
+  — `"true_positive"` or `"false_positive:note"` — with no reviewer, no
+  per-verdict timestamp and no record of which command it arrived through; only
+  the rule carried `first_seen`/`last_seen`. Because the ledger refuses to
+  re-adjudicate a fingerprint, a wrong mark was permanent *and* anonymous, so
+  there was no way to work out whose marks to distrust. Verdicts are now a
+  `Verdict` record carrying verdict, reviewer, timestamp and entry point.
+  `reviewer` is keyword-only with no default, so no caller can record a verdict
+  without saying who is answerable for it, and the CLI resolves it from
+  `--reviewer` or `git config user.email` and refuses when it has neither
+  rather than inventing one. This is attribution, not authentication — it makes
+  a bad batch findable and is not evidence that a person produced the mark.
+  Schema 1 ledgers migrate with the reviewer `unattributed`; the verdicts and
+  counts survive and no plausible name is invented for them. `KNOWLEDGE_VERSION`
+  is now 2, and `Knowledge.from_dict` returns a current-schema object rather
+  than carrying the file's old version number forward — a migrated ledger was
+  otherwise saved still declaring schema 1. The committed
+  `.arbiter/knowledge.json` moved from `k:0f258c4ce717` to `k:a37f38560140`
+  with no evidence change, so any scan pinning the old hash must be re-pinned.
+  Merging alongside training run 2 moved it again, to `k:2e88d7a07351`; that
+  second move carries the run's evidence and this one does not. (REQ-020)
+
+### 2026-09-13
+
+- Retired the stale one-session instructions in `HANDOFF.md`. It now routes a
+  fresh session to the maintained context and requirements registry, records
+  REQ-018 as the dependency root for REQ-019 and REQ-010, and leaves REQ-005
+  explicitly with counsel instead of claiming adjudication is the project's
+  only blocker. After the rebased implementation passed all 399 Linux tests
+  with the `api` and `mcp` extras installed (396 passed, 3 skipped), the three
+  requirements were archived in dependency order. (REQ-010, REQ-018, REQ-019)
+- Removed the plaintext listener entirely. `--behind-proxy` bound a bare socket
+  on loopback and treated `X-Forwarded-Proto: https` as proof the request had
+  been secure earlier in its life; that is a header any client can invent and,
+  more to the point, a socket carrying API keys and somebody's source in clear.
+  Both surfaces now require `--cert` and `--key` — there is no arrangement in
+  which a proxy removes that, because the hop from the proxy is a socket too.
+  `require_tls` takes only the scheme the socket actually spoke, nothing reads
+  the forwarded header, and a test tokenizes `api.py` and `mcp.py` to fail if
+  either name comes back. `deploy/` follows: a one-shot `certs` service issues
+  the backend a self-signed certificate for `arbiter.internal`, Caddy dials
+  `https://127.0.0.1:8443` and verifies against exactly that certificate rather
+  than skipping the check, and the container health check does the same instead
+  of faking a forwarded header. (REQ-010, REQ-018)
+- Fixed the nightly training job, which had never once written its results back.
+  `git add -A .arbiter training` matched `.gitignore`'s `training/`, git exited 1,
+  and the step's `bash -e` failed the job two seconds after a 55-minute cycle
+  finished successfully — so run 1 measured everything and committed nothing.
+  `training/` now ignores its contents rather than itself, and the three files
+  that accumulate (`WORKLIST.md`, `fix-pairs.json`, `disagreements.json`) are
+  tracked while the per-run stamped logs stay out. (No requirement covers the
+  nightly training job — the four entries below are unplanned repair, and the
+  gap is itself worth a requirement.)
+- Fixed the same job silently degrading the handoff it exists to produce. Its
+  final step read `/tmp/corpus-out/summary.json` and `/tmp/discriminate.json`,
+  which nothing writes, so every night it overwrote the complete `WORKLIST.md`
+  that `train_cycle.sh` had just written with one headed "Incomplete: no results
+  found for corpus, discrimination". It now reads the newest stamped files under
+  `training/`, and still runs on failure so a cycle that dies early leaves a
+  handoff from what did finish.
+- Clone the practice repositories 300 commits deep instead of 1, and deepen the
+  ones already on disk. `fixpairs.py` skips a shallow clone, so fix-pair mining
+  had been reporting "0 candidate fix pairs from 41 repositories in 0s" — every
+  repository skipped, every night. Those pairs are the only ground truth in the
+  system Arbiter did not generate itself, so the cost in clone size is worth
+  paying. `train_cycle.sh` now runs `fetch_corpus.sh` every cycle rather than
+  only when the corpus is missing, because that is what catches up a cached
+  clone; the script is idempotent and records the depth it reached.
+- Restored `.arbiter/knowledge.json` from the artifact of the failed run: 27
+  rules with measurements where the committed copy had 15, 55,075 planted faults
+  against 44,000, and the 12 additional rules all previously unmeasured. Human
+  adjudications are 0 in both copies, so nothing a person decided was touched.
+  `training/disagreements.json` came back with it — 317 contested findings where
+  exactly one of two analyzers is wrong.
+- Installed the `api` extra and put the assembled application under test for the
+  first time: thirteen tests now go through a real request, twelve of them new —
+  missing, unknown and revoked keys, the plaintext refusal and the forwarded
+  header that cannot override it, the HSTS header on refusals as well as successes, an oversized upload, a networked
+  profile, the hourly cap and its `Retry-After`, an end-to-end scan, and the
+  audit line for a served request and a refused one. The client dependency
+  (`httpx2`, which starlette's `TestClient` now requires) is recorded in the
+  `dev` extra so these run rather than skip. (REQ-018)
+- Fixed two defects those tests found, both of which would have met the first
+  tester. `from __future__ import annotations` makes every annotation in
+  `api.py` a string, and FastAPI resolves them against the module's globals —
+  where neither `UploadFile` nor the `ReviewRequest` body model could be found,
+  because both are local to `create_app` by design. Every upload request failed
+  inside body validation, and `/v1/review-queue` read its body as a query
+  parameter and rejected all JSON. Both names are now published to the module
+  when the app is built. (REQ-018)
+- A report with nothing left to review now comes back as an empty queue instead
+  of an error. `arbiter review` exits 0 and writes no file when a report holds
+  no findings or every finding has already been adjudicated; `service.review_queue`
+  treated the missing file as a failure, so a caller with a clean report — the
+  good outcome — got a 400 naming a server temporary directory. (REQ-018)
+- Gave the hosted API a client, in `src/arbiter/client.py` and the new `arbiter
+  remote` command group. Until now the service had no caller half: every CLI
+  command either ran the scanner locally or ran it on the server, and the
+  documented way to reach a hosted instance was to assemble multipart uploads by
+  hand. `arbiter remote scan .` packs the directory, sends it, and renders the
+  answer through the same functions `arbiter scan` uses, so `--out`, `--format`
+  and `--limit` mean what they always meant — with none of the five analyzers,
+  the grammar pack or the rule engine installed on the caller's machine.
+  `remote gate` exits non-zero on a failed gate and deliberately takes no
+  `--out`, because `/v1/gate` answers with the verdict and the claim ledger
+  rather than a report. `remote health` needs no key, so somebody can see what a
+  server offers before asking for access to it. Settings resolve flags first,
+  then `ARBITER_SERVER` and `ARBITER_API_KEY`, then `~/.arbiter/client.json`, so
+  a one-off `--server` cannot lose to a stale file. The transport is `urllib`
+  from the standard library rather than `requests` or `httpx`: a plain install
+  still depends on PyYAML alone. (REQ-019)
+- Three of the client's refusals happen before anything leaves the machine. An
+  `http://` address is rejected outright — the server refuses plaintext too, but
+  its refusal arrives after the key has already crossed the network in the
+  clear. Certificate verification cannot be switched off: `--cacert` adds a root
+  to trust, nothing subtracts one, and a test asserts `CERT_NONE`,
+  `check_hostname = False` and `_create_unverified` appear nowhere in the module.
+  An oversized target is refused against the cap `/v1/health` publishes, instead
+  of uploading for two minutes to earn a 413. The archive also skips
+  `inventory.SKIP_DIRS`, so `.git`, `node_modules` and `.venv` never leave the
+  caller's disk — source that never left is source nobody has to be trusted
+  with. No client call records an adjudication verdict, because no endpoint
+  does. 11 tests cover this, and the end-to-end ones route the client's own
+  `urllib` through the real application, so the multipart field name, the query
+  string and the `X-API-Key` header are proven against the endpoints rather than
+  assumed to match. Suite: 381 passed, 3 skipped. (REQ-019)
+- Amended REQ-010 and added REQ-019. REQ-010 had justified the MCP server as
+  having been "chosen over a hosted API"; that rationale is withdrawn, since
+  both now exist, and the requirement gains a multi-user obligation — an HTTP
+  transport that authenticates every call against the same key store as the
+  hosted API, with the resolved caller reaching `dispatch` so the rate limiter
+  and the audit line apply per key, while stdio keeps working unauthenticated
+  for the single-user local case. REQ-019 is the client: a CLI that reaches a
+  hosted Arbiter, adding no runtime dependency beyond PyYAML. (REQ-010, REQ-019)
+- Built the MCP server's second transport, so more than one person can use it:
+  `arbiter mcp --http` serves the same three tools over HTTPS, where `arbiter
+  mcp` still serves one local agent over stdio. Every HTTP call carries a key
+  from the same file `arbiter api key add` writes and `/v1/scan` reads —
+  `Authorization: Bearer` or `X-API-Key`, both accepted — so access is granted
+  and revoked in one place for both front doors, and a revoked key stops working
+  on the next request to either. The resolved caller reaches `dispatch`, which
+  takes the same per-key concurrency slot the API takes and writes the same
+  audit line (`mcp_scan`, `mcp_gate`, `mcp_review_queue`, with the key id, the
+  user, the status and the duration), so a key's budget is one budget rather
+  than one per surface. Plaintext is refused with `426` and every response
+  carries HSTS, exactly as on the API. Stdio stays unauthenticated, because
+  whoever started that subprocess already holds the privileges it runs with.
+  (REQ-010)
+- Confined every path argument on that transport, which is the thing that made
+  it safe to expose at all. These tools take `target` and `output_dir` as paths
+  **on the server**: right for a local agent, and for a remote caller an
+  arbitrary file read with a scanner attached, since `target: "/etc"` would come
+  back as findings quoting what is in there. So `--http` refuses to start
+  without `--root`, and rewrites every path to sit beneath `root/<key id>` —
+  one directory per key, so callers are separated from each other and not merely
+  from the rest of the disk. Relative paths are joined onto that directory,
+  absolute and `..` escapes are refused by `service.resolve_within`, which
+  resolves symlinks before comparing. The arguments treated this way are listed
+  in `mcp.PATH_ARGUMENTS`, and a test fails if a tool grows a path argument that
+  is not in the list, because that one would be unconfined and silently so.
+  (REQ-010)
+- Raised the SDK pin from `mcp>=1.0` to `mcp>=2.2`, and found while doing it
+  that `arbiter mcp` had been broken against anything 2.x: the server API moved
+  handlers from decorators (`@server.list_tools()`) to constructor arguments, so
+  the stdio server raised `AttributeError` at startup under the old pin's own
+  range. `_build_server` now builds both transports the one way, so they cannot
+  drift in what they expose, and a test constructs every entry of `TOOLS` as an
+  SDK `Tool` — the schemas are plain data precisely so tests can read them
+  without the SDK, which is also why nothing noticed when the SDK renamed the
+  field they map to. A tool that refuses is now returned with `is_error` set
+  rather than as ordinary text an agent would read as a result. 14 tests cover
+  the transport. Suite: 395 passed, 3 skipped. (REQ-010)
+- Wrote `docs/mcp.md`, which REQ-010 has required all along and which did not
+  exist: the tool surface, which transport needs a key, the path confinement and
+  why, and the one flag the proxy arrangement needs. The transport's
+  DNS-rebinding guard allows loopback names only until it is told otherwise,
+  while a proxy forwards the public hostname — so every real request comes back
+  `421 Invalid Host header` unless `--allowed-host` names it. That cannot be
+  detected from inside, so it is documented as the first thing to check when
+  every call fails and none of them reaches the audit log. The README's documentation
+  table was also missing `hosted-api.md`, `mcp.md`, `pilot-runbook.md`,
+  `pilot-terms.md` and `licensing.md`; all five are listed now. (REQ-010)
+
+### 2026-09-12
+
+- Built the hosted API over that service layer, in `src/arbiter/api.py`. Access
+  is distributed by hand: `arbiter api key add --user "..."` mints one key for
+  one user, prints it once and stores only its SHA-256 hash, so the key file is
+  not a credential store; `key list` and `key revoke` complete the set. A key is
+  scoped to a user and nothing else, and one user holds at most one live key —
+  minting over a live key is refused unless `--replace` is passed, which revokes
+  the old one in the same command, so a shared or half-rotated key cannot arise
+  quietly. `POST /v1/scan`, `/v1/gate` and `/v1/review-queue` take an uploaded
+  archive — never a repository credential — and `GET /v1/health` needs no key.
+  Nothing is retained: the workspace is deleted when the request ends and server
+  paths are withheld from responses. Uploads are capped at 100 MB and refused
+  before extraction. FastAPI and uvicorn are an optional extra imported only
+  inside `create_app`, so a plain install still depends on PyYAML alone.
+  `arbiter mcp` now runs the MCP server. (REQ-018)
+- Raised the per-key request limit from 30 an hour to 120, and published every
+  limit on `GET /v1/health` alongside `"free": true`. Nobody is charged and the
+  service is for people testing it, so a limit anybody can feel during normal
+  use is a restriction dressed up as capacity. The concurrency caps are
+  unchanged, because those are what decide whether the machine stays up.
+  Reworded the access and terms documents to say plainly that it is free, that
+  there is nothing to apply for, and that nobody is asked what they intend to
+  scan; issuing keys by hand is how access works in the absence of an identity
+  system, not a vetting step. (REQ-018)
+- Added the pilot deployment in `deploy/`: a Dockerfile that installs Arbiter
+  with the `api` and `tools` extras into a virtualenv and copies it into a clean
+  image running as uid 10001, a `compose.yaml` pairing it with Caddy, and a
+  `Caddyfile` carrying the hostname, the ACME contact and a 110 MB body limit.
+  A one-shot `certs` service gives Arbiter its own certificate so the hop from
+  Caddy is HTTPS as well, and Caddy verifies against that certificate rather
+  than skipping the check; Arbiter also shares Caddy's network namespace, so
+  only Caddy can reach the port at all. The container is read-only, capability-free, `no-new-privileges`, and
+  capped at 3 GB, 2 CPUs and 512 processes, because the analyzers parse
+  attacker-chosen files even though nothing from an upload is executed. The
+  image must stay private: running semgrep conveys no copy, but publishing the
+  image would. (REQ-018, REQ-005)
+- Capped concurrent scans for the whole server at 4, not just 2 per key, since
+  the per-key limit multiplies by the number of testers and five of them at once
+  would be ten analyzer runs on one machine. A caller over their own share is
+  told that rather than told the service is busy. (REQ-018)
+- Added a request log: one JSON line per request to `~/.arbiter/audit.log`
+  (`--audit`, `ARBITER_AUDIT`, or `--no-audit` to keep nothing), holding the key
+  id, the user, the operation, the status, the bytes uploaded and the elapsed
+  time — and nothing about the code, because a log that quoted findings would
+  rebuild on disk what the request path deletes. Failures and refused keys are
+  logged too, the latter without writing the rejected key down. A log write that
+  fails complains on stderr rather than failing the scan. (REQ-018)
+- Documented how to run the pilot in `docs/pilot-runbook.md` — container with a
+  memory limit, TLS-terminating proxy with a body limit, one key per tester,
+  what to read in the log — and what to tell a tester about their code in
+  `docs/pilot-terms.md`, which is a draft pending counsel. (REQ-018, REQ-005)
+- Made TLS mandatory on the hosted API, with no plaintext mode. Requests carry
+  an API key and a copy of somebody's source, so `serve` refuses to start
+  without `--cert`/`--key`, and refuses individual plaintext requests with
+  `426 Upgrade Required`. Direct TLS
+  offers forward-secret AEAD ciphers only, which leaves nothing a TLS 1.0 or 1.1
+  client can negotiate — a hard version floor is not assertable from here,
+  because uvicorn builds its own SSL context, so it comes from the platform
+  policy or from a terminating proxy. Every response carries a two-year
+  `Strict-Transport-Security` header, and the default port is now 8443.
+  (REQ-018)
+- Made an API key a limited grant rather than a permanent one, before any key is
+  handed out. Keys now expire after 90 days by default (`--expires-days`, or
+  `--no-expiry` for a deliberate permanent one), a single key is capped at 30
+  requests an hour and 2 concurrent scans, and exceeding either returns `429`
+  with `Retry-After`. Limits are per key, so one recipient cannot exhaust
+  another's. Expired, revoked and unknown keys share one `401` message, because
+  distinguishing them would confirm that a guessed key had once existed. The
+  counts live in one process's memory, which bounds this to a single-machine
+  deployment — recorded in `docs/hosted-api.md` rather than implied. (REQ-018)
+- Began the move to a hosted API, reversing the decision to expose Arbiter only
+  over MCP. MCP relocates the installation rather than removing it, and "no
+  local install" was the requirement. Both surfaces now call one
+  transport-neutral service layer, `src/arbiter/service.py`, which owns the
+  containment: workspaces created outside the server tree with `source/` and
+  `output/` as siblings and removed when the scan ends; uploaded archives
+  refused whole if any member is absolute, traverses upward, is a link or a
+  device node, or breaches the size and count bounds; `connected` and `audit`
+  refused unless an operator explicitly allows the network; and no operation
+  that records an adjudication verdict, asserted by test rather than convention.
+  `docs/hosted-api.md` holds the design; the HTTP surface is not built and the
+  framework is deliberately unchosen. The licensing objection recorded against
+  hosting was wrong and is corrected in `docs/licensing.md` — LGPL-2.1
+  obligations attach to conveying a copy, so L-6 does not gate a hosted service.
+  (REQ-018, REQ-010)
+- Restructured the documentation. `README.md` is now an overview — what Arbiter
+  is, its capabilities, administration, versioning and licensing — and the
+  granular material moved into `docs/` split by category: `architecture.md`,
+  `cli.md`, `configuration.md`, `probes.md`, `systems.md`, `compliance.md`,
+  `evidence.md`, `calibration.md`, `ab-testing.md` and `ci.md`. `SETUP.md` is
+  now an installation guide; its training-operations content moved to
+  `docs/ci.md`. (REQ-002)
+- Settled the corpus composition figures. The docs quoted 42 repositories in one
+  place and 39 in another, and the population table mixed a tuned-only count for
+  the vulnerable population with full counts for the other two. `tools/corpus.py`
+  is authoritative — 41 repositories, 5 held out, 36 tuned — and a new
+  `--counts` flag recomputes that without the corpus cloned, so the numbers stop
+  drifting. Stack gaps are now reported in both directions. (REQ-003)
+- Bounded requirement registry growth. Completed and withdrawn requirements are
+  swept into `.ai/requirements/archive.json`, which no context profile loads, by
+  `python omni requirement archive`. IDs are allocated across both files and are
+  never reused; `omni doctor` errors if they ever collide. The active registry is
+  read into every session, so it is a working set, not a history. (REQ-004)
+- Wrote up the licensing requirements in `docs/licensing.md`: eight requirements
+  covering the operative grant, copyright ownership, ownership of scan output and
+  the redistribution review that blocks the air-gapped bundle. `NOTICE.md` now
+  records every third-party component and whether it is redistributed. The
+  `LICENSE` file itself remains outstanding and needs counsel. (REQ-005)
+- Made adapter timeouts stop the analyzer on Windows. `Adapter._kill_group`
+  named `signal.SIGKILL`, which does not exist there, so every timeout raised
+  `AttributeError` out of the cleanup path. Windows also has no `os.killpg`, so
+  signalling the direct child alone left the fanned-out workers running — the
+  exact failure the process-group path exists to prevent. Timeouts now fall back
+  to `taskkill /T /F`, which walks the child tree from the parent PID. POSIX
+  behaviour is unchanged. (REQ-006)
+- Fixed the drift rule that reports a file named in prose as missing. It
+  normalized the path with `lstrip("./")`, which strips a character set rather
+  than a prefix, so `` `.ai/context-brief.md` `` collapsed to
+  `ai/context-brief.md` and matched nothing on disk — every dotted path in the
+  repository read as missing. It now uses `_normalize_relative()`, the helper
+  the sibling link rule already used, and skips paths that escape the
+  repository root. Measured by scanning Arbiter with itself before and after,
+  the rule goes from 187 findings to 28. (REQ-008)
+- Made Arbiter write and read its own artifacts as UTF-8 rather than the
+  platform default. Thirteen `write_text()` calls omitted `encoding=`, so on
+  Windows the HTML, markdown, PR-comment and review-queue renderings were
+  written in the console codepage; a generated `review-queue.md` here was
+  undecodable as UTF-8. Reports are meant to travel into accreditation packages
+  and pull requests, so they cross machines. Files belonging to the scanned
+  repository are untouched — those are decoded with `errors="replace"` by
+  design. (REQ-009)
+- Put the licensing position in writing as far as it can go without counsel.
+  `LICENSE` now exists, asserting copyright to Nicholas J Pauken, reserving all
+  rights, assigning ownership of scan output to the user, and disclaiming any
+  grant over the adapted third-party analyzers. It says plainly that it is an
+  interim notice and not the operative grant. `pyproject.toml` references it by
+  file rather than declaring the bare string `Proprietary`, and names the
+  author. `CONTRIBUTING.md` states that external contributions are not
+  accepted, which L-8 requires be settled before a patch is taken rather than
+  after. This closes L-2 and L-8, and L-1 provisionally; REQ-005 stays open
+  because L-3 follows from decisions only the owner can make and the L-6
+  redistribution review is untouched. (REQ-005)
+- Stopped a scan from reading its own output. `--out` defaults to
+  `arbiter-out`, a relative path inside the tree being scanned, and the walk
+  knew nothing about it, so every run after the first reported on the previous
+  run's rendering. Measured here: 28 of 101 unsuppressed findings were located
+  inside `arbiter-out` — 27.7% — and 24 of those were
+  `assurance.blanket-suppression`, the rule that was about to be adjudicated,
+  inflated by a report that is naturally full of the term it searches for.
+  `run_scan` now takes `out_dir` and `walk_repo` skips it. Two consecutive
+  scans into the default path produce identical findings, none of them inside
+  the output directory. (REQ-011)
+- Read files belonging to the scanned repository as UTF-8. Nine call sites used
+  `read_text(errors="replace")` with no encoding, so the codec was the platform
+  default — cp1252 on Windows. `errors=` governs what happens on failure, and
+  cp1252 decodes almost every byte without failing, so it never errored, it
+  silently produced wrong characters: an em dash in a scanned file reached a
+  generated review queue as `â€”`. REQ-009 fixed Arbiter's own artifacts and
+  deliberately excluded these sites, reasoning that `errors="replace"` was the
+  design intent. That reasoning was wrong — the intent is never crashing on a
+  target file, which `encoding="utf-8"` preserves. (REQ-012)
+- Checked documented paths against disk rather than only against the walked
+  inventory. Directories in `SKIP_DIRS` never enter the inventory, so tracked
+  files under `.arbiter` read as missing: 8 of 31 doc-drift findings here.
+  Whether a documented file exists is a question about disk, not about what the
+  probes were shown. The sibling broken-link rule had the identical defect
+  fifteen lines away and got the same fix. `.arbiter/baseline.json` still
+  reports, correctly — it is documented but genuinely absent. The other 22
+  findings are untouched, and `omni doctor` independently confirms them.
+  (REQ-013)
+- Gave doc-drift findings a repository in their `Location`. `Location.short()`
+  builds its `repo:path` prefix from the Location rather than the Finding, and
+  `doc_drift` set the id on the Finding only, so all 330 drift findings in a
+  36-repository corpus scan rendered as bare paths. Two of those repositories
+  each contain a python/ tree, so a line naming a README under it identified no
+  repository a reader could open. (Those paths are deliberately not backticked:
+  they belong to another repository, and backticking them here manufactures the
+  very drift finding this entry is about.)
+  (REQ-014)
+- Made the review queue name the repository for every probe, not just for
+  doc-drift. The same defect ran wider than one probe: 3,227 of 3,564 findings
+  in that scan carried a blank `Location.repo_id` — `supply_chain` 0 of 1,817,
+  `secrets` 0 of 377, `resource_policy` 7 of 1,040 — while `assurance` sets it
+  at every construction site. The `Finding` carries the id in all 3,564 cases,
+  so `review.where()` qualifies the path from there and both the markdown and
+  HTML front ends use it, rather than adjudication waiting on some twenty
+  construction sites across eight probes, several of them repo-level or
+  cross-repo and needing judgement rather than a mechanical pass. Those sites
+  are still wrong, so SARIF, HTML and console output remain unqualified.
+  (REQ-015)
+- Named the repository at every probe construction site, closing the residual
+  risk REQ-015 recorded rather than fixed. Eighteen of the twenty sites took the
+  id already in scope on the enclosing finding. Two did not, and they are why
+  the renderer went first. The `interface` rule for unused IAM grants collected
+  service names into a set and discarded where each grant was written, so it
+  could cite only a synthetic `iam:` string and attributed the finding to the
+  alphabetically first infrastructure repository — the wrong one whenever the
+  grant was not in it; it now keeps the grant's location the way the
+  neighbouring collections already did. The two `house_rules` path rules matched
+  against every path in the scan flattened into one set, which left them the
+  only sites in the tree setting no repository on the finding at all, and let
+  one repository's LICENSE answer the rule for every repository; both now ask
+  per repository. Re-measured on the same 36-repository corpus: 3,564 findings
+  before and after, of which 3,227 were unattributed before and none after, and
+  no finding changed repository. (REQ-016)
+- Made the review sampler spread across repositories, not only across files.
+  Within a rule it ordered findings so that distinct files came first, which one
+  repository satisfies on its own: of six queues drawn from the 36-repository
+  corpus, `resource.k8s-no-security-context` took 19 of 20 from a single
+  repository and all 20 from teaching material, which the corpus tooling states
+  is useless as a false-positive measure. Twenty findings from one repository
+  are largely one author, one generator and one set of conventions, so they
+  answer whether the rule is right about that repository while the ledger
+  records the answer as though it were about the rule. Selection now
+  round-robins across repositories and keeps file spread as the secondary axis
+  inside each. Re-measured on the same corpus: average distinct repositories per
+  queue 6.0 to 12.2, largest single-repository share 64.2% to 30.0%, and the
+  k8s-no-security-context queue from one population to all three. Population is
+  deliberately not an input — that label lives in the corpus tooling, and a
+  library that ranks findings must not import the test harness — so repository
+  spread is the proxy. Spread also cannot exceed the pool:
+  `resource.unencrypted-database` still draws 18 of 20 from terragoat, because
+  only three repositories in the corpus produce that finding at all. (REQ-017)
+
+Six commits (`8775017`…`54f9a13`) landed from an offline bundle without
+changelog entries. Recorded here after the fact, written from their diffs.
+(REQ-007)
+
+- Added incremental scanning. `arbiter scan|gate --changed REF` reads only the
+  files that differ from a ref plus uncommitted work, and `--only-files` takes
+  an explicit list; both run through the new `src/arbiter/incremental.py`.
+  Every probe now declares a `scope`. Seven are file-scoped — `secrets`,
+  `resource_policy`, `ast_metrics`, `supply_chain`, `house_rules`,
+  `house_rules_ast` and `authored` — and everything else keeps the conservative
+  `repo` default and is recorded as not-assessed, with the partial scan named
+  as the reason, rather than being run against a subset it cannot answer from.
+  Selection always retains dependency manifests, lockfiles, CI workflows and
+  Terraform, because those are the files a probe reasons about but does not
+  report on. (REQ-007)
+- Made a partial scan unable to describe the repository. Reports carry
+  `scan_scope`; a partial one contributes an abstention naming the unread
+  files, which flows into the gate claim, the grade and every dimension. The
+  overall grade is withheld outright, "probe ran and found nothing" narrows to
+  "found nothing in the files it was given", and finding density is measured
+  against lines read rather than repository size. Invariant **CI-11** — a
+  partial scan may make no complete-scope claim about the repository — is
+  machine-checked alongside the other ten, with the coverage measurement and a
+  failing gate as the two reasoned exceptions. A ref that does not resolve
+  refuses the scan instead of quietly reading nothing. (REQ-007)
+- Added nine provider-issued token rules: Stripe, OpenAI, Anthropic, Google,
+  GitLab, npm, SendGrid and PyPI at critical, Slack incoming webhooks at high.
+  The issuer assigns these prefixes, so the value is its own evidence and the
+  symbol name is irrelevant — which is why `STRIPE_KEY = "sk_live_…"` passed
+  the name-based heuristic untouched. Six patterns terminate in an explicit
+  lookahead rather than `\b`, because the charset is base64url and a token
+  ending in `-` has no word boundary after it. The injection harness gained
+  matching positive and control generators, the controls covering test-mode
+  keys, wrong lengths, placeholders, interpolations and `sk-` used as a slug.
+  (REQ-007)
+- Shipped the pull-request gate as a worked example: `examples/pull-request-gate/`
+  holds a two-job workflow and its config, `RUNNING-ON-YOUR-OWN-CODE.md` walks
+  through a first scan, a baseline, adjudication and then the gate, and
+  `docs/ci.md` gained "Scanning only what changed" and "A ready-made workflow".
+  Only the nightly full-scan job may refresh the baseline; refreshing it from a
+  partial scan would forgive every finding in the files that scan did not read.
+  (REQ-007)
+- Tagged findings a change did not cause. In a partial scan, findings landing
+  in a context file the diff never touched are tagged `outside-this-change` and
+  counted on the console. They stay in the report — the baseline, not deletion,
+  is what keeps them out of the gate. (REQ-007)
+- Added three provider-neutral TLS rules: `database-allows-plaintext-connections`,
+  `weak-tls-version` and `no-https-redirect`. Resource rules also gained
+  `exclude_native` beside `exclude_providers`, because a control can be
+  expressible on one resource of a provider and absent on another — Azure SQL
+  enforces TLS with no property saying so, and a provider-wide exclusion is too
+  coarse to express that. `aws_elb`/`aws_alb`, Azure app services and GCP HTTP
+  proxies and App Engine versions are normalized into the resource graph so the
+  new rules have something to match. (REQ-007)
+- Fixed a read cache that could serve one file's bytes for another. `_READ_CACHE`
+  keyed on path alone and depended on every caller clearing it between scans;
+  the injection harness invokes probes directly and writes every generated case
+  to the same path, so it was served stale text. The key is now
+  `(path, st_mtime_ns, st_size)` with a bounded size, so the cache cannot be
+  wrong regardless of who calls it. (REQ-007)
+- Taught `tools/corpus.py` to weight what it counts. Per-repository output now
+  carries severity-and-confidence weighted totals, weight by language and lines
+  by language, and the held-out comparison is made per KLOC of the language the
+  rules actually fire on rather than per repository line counted flat. (REQ-007)
+- Restored the shebang and executable bits on the four `tools/*.sh` scripts; an
+  earlier commit had indented `#!/usr/bin/env bash` by two spaces, which stops
+  the kernel recognising the file as a script whatever the mode bit says.
+  Added `HANDOFF.md`, a cold-read briefing for a session arriving without the
+  history. (REQ-007)
+
+- Adopted the OmniEngineering workspace: `.ai/` source-of-truth scaffold
+  (rules, schemas, playbooks, checklists, SWEBOK knowledge pack), the
+  repo-local `./omni` CLI (`make_ai.py`), a `CLAUDE.md` routing shim, and a
+  requirements registry. (REQ-001)
+- Installed Headroom for Claude Code at local scope: `.claude/settings.local.json`
+  routes traffic through the Headroom proxy (`127.0.0.1:8787`) and registers
+  its session hooks. The file is machine-specific and git-ignored. (REQ-001)

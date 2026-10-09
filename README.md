@@ -945,9 +945,22 @@ omni graph lineage REQ-021          # everything upstream and downstream of it, 
 omni graph lineage a1b2c3d --up     # a commit: the requirement and previous commit that led to it
 omni graph lineage FAIL-003 --depth 3 --json   # a failure: cause above it, tests, rules and fixes below it
 omni graph timeline REQ-021         # everything dated that is tied to it, oldest first
+omni graph impact                   # what the pending change set reaches: requirements, failures, suites, tests, rules, commits
+omni graph impact --changed main --depth 3 --json   # a different base commit, a wider walk, machine-readable
 omni graph show --all --layer history --kind commit
 omni graph build --layers code,governance      # skip layers; --max-commits N bounds the git scan
 ```
+
+`omni graph impact` starts from the files `omni gate` would check (the working tree
+plus the commits since the merge-base, or since `--changed BASE`), resolves each the
+way `why` does, and walks the cross-layer edges in both directions, two hops by
+default, never a code edge: the result is bucketed by kind, each entry carrying the
+hop count and the edge it was reached by, with the paths the graph does not know
+listed as `unresolved`. When `.ai/project-graph.json` exists, `omni gate` prints the
+same walk as one line beside the changed set (`impact: 2 requirement(s), 1 failure(s),
+1 suite(s), 3 test file(s), 2 rule(s); 1 path unresolved`) -- advice, never a verdict:
+a stale or broken graph prints nothing and changes nothing. `omni test run --impacted`
+uses the same walk to pick the suites worth running.
 
 Measure the token-savings claim instead of just asserting it, on your own project's own graph, right now:
 
@@ -1051,7 +1064,7 @@ omni mcp serve          # serve them over stdio (JSON-RPC 2.0, one JSON object p
 
 Point an MCP client's command at `omni mcp serve` (working directory: your project
 root). Every tool is read-only -- `graph_lineage`, `graph_why`, `graph_trace`,
-`graph_timeline`, `graph_show`, `graph_sources`, `requirement_show`,
+`graph_timeline`, `graph_impact`, `graph_show`, `graph_sources`, `requirement_show`,
 `requirement_list`, `requirement_search`, `failure_show`, `gate_status` -- so a
 client can call them with no confirmation step; nothing here writes a requirement,
 a changelog entry or a waiver. `omni requirement draft`, `omni requirement add` and

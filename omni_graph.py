@@ -3758,6 +3758,136 @@ def why(graph_path: Path, query: str) -> dict[str, Any]:
     return {"ok": True, "node": _node_brief(node), "sections": sections}
 
 
+# --------------------------------------------------------------------------
+# Impact: what a pending change set reaches across the governance, history, assurance and workspace layers
+# --------------------------------------------------------------------------
+
+# Every cross-layer edge type except `follows`: walking the commit chain would replay the whole history, not the change's reach.
+IMPACT_EDGE_TYPES: frozenset[str] = frozenset(edge for edge, layer in EDGE_LAYER.items() if layer != LAYER_CODE and edge != "follows")
+IMPACT_BUCKETS = ("requirements", "changelog", "failures", "tests", "suites", "rules", "commits")
+# A changed registry, ledger or changelog must not seed every requirement, failure or entry it holds; those are reached, not changed.
+_IMPACT_NO_SEED_KINDS = {"requirement", "changelog", "commit", "failure", "suite", "external"}
+
+
+def _impact_relpath(path: str) -> str:
+    rel = str(path).strip().replace("\\", "/")
+    if rel.startswith("./"):
+        rel = rel[2:]
+    return rel.rstrip("/")
+
+
+def _impact_seeds(graph_data: dict[str, Any], rel: str) -> list[str]:
+    """The anchors `why()` uses for a path: its `file:` node, every symbol parsed from it, and the directory scopes above it."""
+    seeds: list[str] = []
+    for node in graph_data["nodes"]:
+        if node["kind"] in _IMPACT_NO_SEED_KINDS:
+            continue
+        attrs = node.get("attrs") or {}
+        if node["id"] == f"file:{rel}" or node.get("file") == rel:
+            seeds.append(node["id"])
+        elif node["kind"] == "file" and attrs.get("directory") and node.get("file") and rel.startswith(node["file"] + "/"):
+            seeds.append(node["id"])
+    return seeds
+
+
+def _impact_bucket(node: dict[str, Any]) -> str | None:
+    kind = node["kind"]
+    direct = {"requirement": "requirements", "changelog": "changelog", "failure": "failures", "suite": "suites", "rule": "rules", "commit": "commits"}
+    if kind in direct:
+        return direct[kind]
+    if (node.get("attrs") or {}).get("test") or (node.get("layer") == LAYER_ASSURANCE and kind in ("module", "file")):
+        return "tests"
+    return None
+
+
+def impact(graph_path: Path, changed: list[str], depth: int = 2) -> dict[str, Any]:
+    """What a set of changed paths reaches across the non-code layers, bucketed by kind with the hop count and edge each was reached by.
+
+    Each path resolves the way `why()` resolves it (its file node, the symbols parsed from it, the directory scopes above it);
+    a breadth-first walk then follows every cross-layer edge in both directions, `depth` hops at most, and never a code edge, so
+    a change to one file lists the requirements that scope it, the failures that broke in it, the suites that cover it, the tests
+    that exercise it and the rules those failures produced, without drowning that in call graphs.
+    """
+    graph_data = load_graph(graph_path)
+    by_id = {n["id"]: n for n in graph_data["nodes"]}
+    adjacency: dict[str, list[tuple[str, str]]] = {}
+    for edge in graph_data["edges"]:
+        if edge["type"] not in IMPACT_EDGE_TYPES:
+            continue
+        adjacency.setdefault(edge["source"], []).append((edge["target"], edge["type"]))
+        adjacency.setdefault(edge["target"], []).append((edge["source"], edge["type"]))
+
+    resolved: list[str] = []
+    unresolved: list[str] = []
+    hops: dict[str, int] = {}
+    for raw in changed:
+        rel = _impact_relpath(raw)
+        if not rel or rel in resolved or rel in unresolved:
+            continue
+        seeds = _impact_seeds(graph_data, rel)
+        if seeds:
+            resolved.append(rel)
+            for seed in seeds:
+                hops.setdefault(seed, 0)
+        else:
+            unresolved.append(rel)
+
+    reached_by: dict[str, tuple[str, str]] = {}
+    queue: deque[str] = deque(sorted(hops))
+    while queue:
+        current = queue.popleft()
+        level = hops[current]
+        if level >= depth:
+            continue
+        for other_id, edge_type in sorted(adjacency.get(current, []), key=lambda pair: ((by_id.get(pair[0]) or {}).get("name", ""), pair[1])):
+            if other_id in hops or other_id not in by_id:
+                continue
+            hops[other_id] = level + 1
+            reached_by[other_id] = (edge_type, current)
+            queue.append(other_id)
+
+    module_of_file = {n["file"]: n for n in graph_data["nodes"] if n["kind"] == "module" and n.get("file")}
+    buckets: dict[str, list[dict[str, Any]]] = {name: [] for name in IMPACT_BUCKETS}
+    listed: dict[str, dict[str, Any]] = {}
+    for node_id in sorted(hops, key=lambda nid: (hops[nid], (by_id[nid].get("name") or ""))):
+        level = hops[node_id]
+        if level == 0:
+            continue
+        node = by_id[node_id]
+        bucket = _impact_bucket(node)
+        if bucket is None:
+            continue
+        if bucket == "tests" and node["kind"] not in ("module", "file") and node.get("file"):
+            # a regression test reached through `guards` is listed as its file, the unit a suite runs
+            node = module_of_file.get(node["file"]) or by_id.get(f"file:{node['file']}") or node
+        if node["id"] in listed or hops.get(node["id"]) == 0:
+            continue
+        edge_type, from_id = reached_by[node_id]
+        entry = _node_brief(node, edge_type)
+        entry["hops"] = level
+        entry["from"] = from_id
+        listed[node["id"]] = entry
+        buckets[bucket].append(entry)
+    return {
+        "ok": True, "changed": resolved, "unresolved": unresolved, "depth": depth,
+        "seeds": sum(1 for level in hops.values() if level == 0), **buckets,
+    }
+
+
+def impact_summary(result: dict[str, Any]) -> str:
+    """One line for the gate: `impact: 2 requirement(s), 1 failure(s), 1 suite(s), 3 test file(s), 2 rule(s); 1 path unresolved`."""
+    labels = (
+        ("requirements", "requirement(s)"), ("changelog", "changelog entry(ies)"), ("failures", "failure(s)"), ("suites", "suite(s)"),
+        ("tests", "test file(s)"), ("rules", "rule(s)"), ("commits", "commit(s)"),
+    )
+    parts = [f"{len(result.get(key) or [])} {label}" for key, label in labels if result.get(key)]
+    line = "impact: " + (", ".join(parts) if parts else "nothing in the graph is tied to the changed path(s)")
+    unresolved = len(result.get("unresolved") or [])
+    if unresolved:
+        line += f"; {unresolved} path{'s' if unresolved != 1 else ''} unresolved"
+    return line
+
+
 _TIMELINE_EDGES = {
     t for t, layer in EDGE_LAYER.items() if t not in ("follows", "contains", "covers", "verifies", "prevented_by")
 }

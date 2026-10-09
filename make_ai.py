@@ -2569,6 +2569,46 @@ def run_graph_lineage(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_graph_impact(args: argparse.Namespace) -> int:
+    if not require_omni_graph():
+        return 1
+
+    graph_path = Path(args.graph)
+    if not graph_path.is_file():
+        print(f"Graph file not found: {graph_path}; run ./omni graph build first", file=sys.stderr)
+        return 1
+
+    base = args.changed or gate_base_commit()
+    changed = sorted(gate_changed_paths(base))
+    result = omni_graph.impact(graph_path, changed, depth=max(0, args.depth))
+    result["base"] = base
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+
+    print(f"{len(changed)} changed path(s) since {base or 'the index'}: {len(result['changed'])} in the graph, {len(result['unresolved'])} unresolved")
+    for path in result["unresolved"][: args.limit]:
+        print(f"  ? {path}")
+    for bucket in omni_graph.IMPACT_BUCKETS:
+        items = result[bucket]
+        if not items:
+            continue
+        print(f"\n{bucket} ({len(items)})")
+        for item in items[: args.limit]:
+            extras = [item.get(key) for key in ("status", "date", "severity") if item.get(key)]
+            line = f"  {item['hops']}  {item['name']}" + (f"  [{', '.join(str(e) for e in extras)}]" if extras else "")
+            if item.get("file") and item["kind"] in ("module", "file"):
+                line += f"  {item['file']}"
+            elif item.get("summary"):
+                line += f"  {item['summary'][:90]}"
+            print(line + f"  <{item['via']}>")
+        if len(items) > args.limit:
+            print(f"  ... and {len(items) - args.limit} more (--limit or --json)")
+    print()
+    print(omni_graph.impact_summary(result))
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Failure ledger: what went wrong, why, and what now prevents it
 # --------------------------------------------------------------------------
@@ -4558,6 +4598,13 @@ def run_gate(args: argparse.Namespace) -> int:
 
     base = gate_base_commit()
     changed = gate_changed_paths(base)
+    if changed and not args.hook and omni_graph is not None:
+        try:
+            graph_file = Path(GRAPH_DEFAULT_OUTPUT)
+            if graph_file.is_file():
+                print(omni_graph.impact_summary(omni_graph.impact(graph_file, sorted(changed))))
+        except Exception:  # noqa: BLE001 -- the impact line is advice beside the gate; it never fails or delays it
+            pass
     failures: list[str] = []
     waived: list[str] = []
     if changed:
@@ -4987,6 +5034,16 @@ def build_parser() -> argparse.ArgumentParser:
     graph_timeline.add_argument("--depth", type=int, default=1, help="Hops across the layers to follow (default 1: what is directly tied to the node).")
     graph_timeline.add_argument("--limit", type=int, default=40, help="Show the newest N events (0 for all; default 40).")
     graph_timeline.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    graph_impact = graph_subparsers.add_parser(
+        "impact",
+        help="What the pending change set reaches across the layers: requirements, failures, suites, tests, rules, commits.",
+    )
+    graph_impact.add_argument("--changed", metavar="BASE", help="Base commit for the change set (default: the merge-base `omni gate` uses).")
+    graph_impact.add_argument("--graph", default=GRAPH_DEFAULT_OUTPUT, help=f"Graph file to read. Defaults to {GRAPH_DEFAULT_OUTPUT}.")
+    graph_impact.add_argument("--depth", type=int, default=2, help="Cross-layer hops to follow from each changed path (default 2).")
+    graph_impact.add_argument("--limit", type=int, default=40, help="Show at most N entries per bucket (default 40).")
+    graph_impact.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     graph_view = graph_subparsers.add_parser(
         "view",
@@ -5437,11 +5494,13 @@ def main(argv: list[str] | None = None) -> int:
             return run_graph_lineage(args)
         if args.graph_command == "timeline":
             return run_graph_timeline(args)
+        if args.graph_command == "impact":
+            return run_graph_impact(args)
         if args.graph_command == "sources":
             return run_graph_sources(args)
         if args.graph_command == "benchmark":
             return run_graph_benchmark(args)
-        parser.error("graph requires a subcommand (build, trace, show, why, lineage, timeline, sources, benchmark, render, view, schema)")
+        parser.error("graph requires a subcommand (build, trace, show, why, lineage, timeline, impact, sources, benchmark, render, view, schema)")
     if command == "test":
         handlers = {
             "detect": run_test_detect, "add": run_test_add, "remove": run_test_remove,

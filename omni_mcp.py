@@ -155,6 +155,17 @@ def _tool_gate_status(arguments: dict[str, Any]) -> Any:
     return {"pass": not failures, "changed_paths": changed, "failures": failures, "waived": waived}
 
 
+def _tool_graph_impact(arguments: dict[str, Any]) -> Any:
+    """What the pending change set reaches across the layers: the same walk `omni graph impact` prints, as data."""
+    path = _graph_path(arguments)
+    _require_graph_file(path)
+    base = str(arguments["base"]) if arguments.get("base") else ma.gate_base_commit()
+    changed = sorted(ma.gate_changed_paths(base))
+    result = og.impact(path, changed, depth=max(0, int(arguments.get("depth", 2))))
+    result["base"] = base
+    return result
+
+
 class ToolError(Exception):
     """A well-formed refusal (not found, ambiguous, missing graph) -- reported to the client, not a crash."""
 
@@ -257,6 +268,18 @@ TOOLS: list[MCPTool] = [
         "the completion gate -- the same check `omni gate` runs, read-only: nothing is written, nothing is blocked.",
         {"type": "object", "properties": {}},
         _tool_gate_status,
+    ),
+    MCPTool(
+        "graph_impact",
+        "What the pending change set (working tree plus commits since the merge-base) reaches across the layers: "
+        "requirements, changelog entries, failures, tests, suites, rules and commits, each with the hop count and "
+        "the edge it was reached by. Read-only; the same walk `omni graph impact` prints.",
+        {"type": "object", "properties": {
+            "base": {"type": "string", "description": "Base commit for the change set. Defaults to the merge-base `omni gate` uses."},
+            "depth": {"type": "integer", "default": 2, "description": "Cross-layer hops to follow from each changed path."},
+            "graph": {"type": "string", "description": f"Graph file to read. Defaults to {ma.GRAPH_DEFAULT_OUTPUT}."},
+        }},
+        _tool_graph_impact,
     ),
 ]
 TOOLS_BY_NAME: dict[str, MCPTool] = {tool.name: tool for tool in TOOLS}

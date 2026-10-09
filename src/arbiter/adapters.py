@@ -56,6 +56,80 @@ def cache_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Tool-version memo (ARB-045)
+# ---------------------------------------------------------------------------
+
+VERSION_MEMO_FILE = "tool-versions.json"
+VERSION_MEMO_SCHEMA = 1
+_SEP = "\x1f"
+
+
+def version_memo_path() -> Path:
+    return cache_dir() / VERSION_MEMO_FILE
+
+
+def _version_stamp(version_argv: list[str]) -> list[list]:
+    """What the memo is keyed on: the path, mtime and size of the resolved
+    executable, and of any other argument that is itself a file.
+
+    The second part is for a tool invoked through an interpreter
+    (`python script.py --version`): the interpreter is argv[0], but the
+    version is the script's, and replacing the script must re-probe. A
+    manifest that names a bare binary gets one stamp, the binary's.
+    """
+    stamp: list[list] = []
+    for i, arg in enumerate(version_argv):
+        if i and not os.path.isabs(arg):
+            continue
+        try:
+            st = os.stat(arg)
+        except OSError:
+            if i == 0:
+                return []
+            continue
+        if i and not os.path.isfile(arg):
+            continue
+        stamp.append([arg, st.st_mtime_ns, st.st_size])
+    return stamp
+
+
+def _read_version_memo() -> dict:
+    """A missing, corrupt or unreadable memo is an empty one: the cost is one
+    probe per tool, never an error."""
+    try:
+        doc = json.loads(version_memo_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict) or doc.get("schema_version") != VERSION_MEMO_SCHEMA:
+        return {}
+    tools = doc.get("tools")
+    return tools if isinstance(tools, dict) else {}
+
+
+def _write_version_memo(memo_key: str, entry: dict) -> bool:
+    """Read-merge-write the memo whole, to a temporary name and then renamed
+    into place, so a concurrent reader sees the old file or the new one. A
+    directory that cannot be written costs nothing but the next probe."""
+    tools = _read_version_memo()
+    tools[memo_key] = entry
+    path = version_memo_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".tool-versions-", suffix=".tmp", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+                json.dump({"schema_version": VERSION_MEMO_SCHEMA, "tools": tools}, fh,
+                          sort_keys=True, indent=1)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except OSError:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Minimal selector: $, $.a.b, $.a[0].b, trailing [*] to fan out
 # ---------------------------------------------------------------------------
 
@@ -158,11 +232,41 @@ class Adapter:
         return [b for b in self.binaries if shutil.which(b) is None]
 
     def tool_version(self) -> str:
+        """The analyzer's own version string, probed once per installed binary.
+
+        Every `arbiter` invocation registers every adapter, and registering
+        meant running each tool's `--version`: 27.5 s on one machine, paid
+        even by a partial scan that never runs an adapter (ARB-045). The
+        answer only changes when the binary does, so it is memoised at
+        `cache_dir()/tool-versions.json` under the resolved executable's
+        path, mtime and size (see `_version_stamp`). A binary that is not
+        installed is never probed: there is nothing to ask. `--no-cache`
+        leaves this alone -- it is not a result cache -- and
+        `ARBITER_NO_VERSION_MEMO=1` switches it off.
+        """
         if not self.version_argv:
             return ""
+        version_argv = list(self.version_argv)
+        resolved = shutil.which(version_argv[0])
+        if resolved is None:
+            return ""
+        version_argv[0] = resolved
+        memo_on = os.environ.get("ARBITER_NO_VERSION_MEMO", "") != "1"
+        stamp = _version_stamp(version_argv) if memo_on else []
+        memo_key = _SEP.join(version_argv)
+        if memo_on:
+            entry = _read_version_memo().get(memo_key)
+            if isinstance(entry, dict) and entry.get("stamp") == stamp \
+                    and isinstance(entry.get("version"), str):
+                return entry["version"]
+        version = self._probe_version(version_argv)
+        if memo_on:
+            _write_version_memo(memo_key, {"stamp": stamp, "version": version})
+        return version
+
+    @staticmethod
+    def _probe_version(version_argv: list[str]) -> str:
         try:
-            version_argv = list(self.version_argv)
-            version_argv[0] = shutil.which(version_argv[0]) or version_argv[0]
             r = subprocess.run(version_argv, capture_output=True, text=True, timeout=20)
             return (r.stdout or r.stderr).strip().split("\n")[0][:60]
         except Exception:
@@ -541,5 +645,6 @@ def register_adapters(extra_dirs: list[str] | None = None) -> list[Adapter]:
             scope=a.scope,
             scope_reason=SCOPE_REASON,
             version=a.tool_version() or "",
+            external=True,
         ))
     return adapters

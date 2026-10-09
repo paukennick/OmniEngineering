@@ -15,6 +15,7 @@ import codecs
 import math
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -68,13 +69,21 @@ class Probe:
     scope_reason: str = "this check reads relationships between files"
     version: str = "0.1.0"
 
-    def applicable(self, ctx: ProbeContext) -> tuple[bool, str]:
-        if self.multi_repo_only and len(ctx.repos) < 2:
-            return False, "system has a single repo; no seams to check"
+    def prevented(self) -> tuple[bool, str]:
+        """A dependency this machine lacks. Different fact from `applicable`:
+        the probe had a question to answer here and could not. It stays in
+        the coverage denominator, like a missing binary. The Windows job
+        found the two conflated: tree-sitter absent read as "not applicable"
+        and the AST probes left coverage instead of lowering it."""
         for mod in self.modules:
             import importlib.util
             if importlib.util.find_spec(mod) is None:
-                return False, f"missing python package: {mod}"
+                return True, f"missing python package: {mod}"
+        return False, ""
+
+    def applicable(self, ctx: ProbeContext) -> tuple[bool, str]:
+        if self.multi_repo_only and len(ctx.repos) < 2:
+            return False, "system has a single repo; no seams to check"
         if self.stacks is not None:
             present = set(getattr(ctx.inventory, "stacks", set()) or set())
             if not (set(self.stacks) & present):
@@ -1190,8 +1199,30 @@ _BACKTICK_PATH = re.compile(r"`([A-Za-z0-9_./-]+\.(?:py|tf|ts|js|json|ya?ml|md|s
 _ENV_MENTION = re.compile(r"\b([A-Z][A-Z0-9_]{4,})\b")
 
 
+def _once_tracked(root: Path, rel: str, cache: dict[str, bool]) -> bool:
+    """Was this path ever committed? A changelog or decision log is right to
+    name a file that was deliberately removed; a README naming one that never
+    existed has a typo. Git can tell the two apart, and when there is no git
+    the answer is unknown, which reads as never."""
+    if rel in cache:
+        return cache[rel]
+    answer = False
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(root), "log", "--all", "--diff-filter=A", "-1",
+             "--format=%H", "--", rel],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+        )
+        answer = r.returncode == 0 and bool(r.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        answer = False
+    cache[rel] = answer
+    return answer
+
+
 def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
     out: list[Finding] = []
+    tracked_cache: dict[str, bool] = {}
     by_repo_paths: dict[str, set[str]] = {}
     for f in ctx.inventory.files:
         by_repo_paths.setdefault(f.repo_id, set()).add(f.path)
@@ -1284,17 +1315,27 @@ def probe_doc_drift(ctx: ProbeContext) -> list[Finding]:
                 continue
             if on_disk(cand):
                 continue
+            root = roots.get(f.repo_id)
+            removed = root is not None and _once_tracked(root, cand, tracked_cache)
             out.append(Finding(
                 rule_id="arbiter/drift.doc-references-missing-file",
-                title=f"Documentation describes `{cand}`, which is not in the repository",
-                dimension="drift", severity="low", confidence="medium",
+                title=(f"Documentation describes `{cand}`, which was removed from the repository"
+                       if removed else
+                       f"Documentation describes `{cand}`, which is not in the repository"),
+                dimension="drift", severity="info" if removed else "low", confidence="medium",
                 repo_id=f.repo_id, probe="doc_drift",
                 location=Location(path=f.path, repo_id=f.repo_id,
                                   start_line=_line_of(text, m.start())),
-                description="A file named in prose has no counterpart on disk — usually a rename the docs missed.",
-                remediation="Update the document, or confirm the file was intentionally removed.",
-                evidence=f"path={cand}",
-                tags=["docs"],
+                description=("The file was tracked once and is gone now. A changelog or decision "
+                             "record is right to name it; a guide that still points a reader at "
+                             "it is stale."
+                             if removed else
+                             "A file named in prose has no counterpart on disk — usually a rename the docs missed."),
+                remediation=("Confirm the text describes the removal, or drop the reference."
+                             if removed else
+                             "Update the document, or confirm the file was intentionally removed."),
+                evidence=f"path={cand}" + (" removed=true" if removed else ""),
+                tags=["docs"] + (["history"] if removed else []),
             ))
 
         # Environment-variable drift is only checked inside a section that is

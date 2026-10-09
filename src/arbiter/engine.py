@@ -260,6 +260,12 @@ def run_scan(
                          "so it cannot answer from a subset")
             outcomes.append(oc)
             continue
+        blocked, why = probe.prevented()
+        if blocked:
+            # Prevented, not inapplicable: the gap counts against coverage.
+            oc.status, oc.reason = "skipped", why
+            outcomes.append(oc)
+            continue
         ok, why = probe.applicable(ctx)
         if not ok:
             oc.status, oc.reason = "skipped", why

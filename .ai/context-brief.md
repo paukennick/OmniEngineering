@@ -11,10 +11,14 @@ For most tasks, load only:
 2. `.ai/project-context.md` — arbiter's decision history and open gaps
 3. `.ai/project-configuration.md`
 4. `.ai/project-map.md`
-5. `.ai/requirements/requirements.json`
+5. The active requirement via `python omni requirement show <ID>` or
+   `python omni requirement list --status pending` (never the raw registry
+   file)
 
 Then inspect only the project files named by the active requirement or prompt.
 `README.md` "Layout" names the module responsible for each pipeline stage.
+Before editing a file, `python omni graph why <path>` lists the requirements,
+tests and earlier failures already attached to it.
 
 ## Escalation Rule
 
@@ -32,6 +36,7 @@ Read more context only when the task needs it:
 | Engineering-discipline depth | `.ai/knowledge/swebok/README.md` |
 | Probe, adapter or pack behavior | `README.md`, `src/arbiter/packs/` |
 | Training and calibration workflow | `SETUP.md`, `tools/` |
+| What broke before, and why | `python omni failure search <text>` |
 
 ## Token Rules
 
@@ -40,3 +45,16 @@ Read more context only when the task needs it:
 - Never load `training/`, `arbiter-out/` or `fixtures/` wholesale; open the
   specific fixture a test names.
 - Respect `.ai/.ignore`.
+
+## Completion Minimum
+
+Before claiming completion, confirm:
+
+- Requirement ID is known or assigned (`python omni requirement add|draft`).
+- Minimum access scope was followed.
+- `python -m pytest tests/ -q` was run, or explicitly marked not applicable.
+- A fixed defect has a failure-ledger entry (`python omni failure add`).
+- `python omni gate` passes, or each failure is explicitly waived with
+  `python omni waive <rule-id> --reason "..."`.
+- `CHANGELOG.md` and `.ai/project-context.md` record the outcome.
+- Final response includes remaining risk or follow-up, if any.

@@ -941,4 +941,119 @@ table records them and leaves the decision alone. `MIN_OBSERVATIONS = 20` is
 the one worth attacking first, since it is currently the reason no rule in the
 tool is proven.
 
+## 2026-10-09 — The workspace re-synced to its upstream (REQ-031)
+
+**What changed.** The OmniEngineering scaffold this repo carried was a fork:
+`make_ai.py` was closest to an upstream commit from 2026-06-23, with three
+local additions (a categories-keyed registry, an `archive.json` lifecycle
+with a `withdrawn` status, and a live MCP server check in doctor), and no
+`.ai/omni-version.json`, so `omni update` had nothing to merge against.
+Upstream had meanwhile added an executable completion gate, a requirement
+CLI, a failure ledger, test-suite registration, a five-layer code graph, an
+MCP server of its own, git hooks and a 3-way `omni update`. The re-sync
+recorded that 2026-06-23 commit as the merge base, ran `omni update`, and
+resolved ten conflicts by hand; see the CHANGELOG entry for the file-level
+outcome. The user chose, when asked, to do all of this holistically: both
+directions, flat registry, all shims and legal files, full enforcement with
+the training job exempt, the ledger backfilled, the graph built locally, and
+both MCP servers registered.
+
+**Why the registry format moved rather than the tooling.** Every new
+upstream command (`gate`'s registry check, `graph`, `mcp serve`, `draft`,
+`complete`) reads a flat `requirements` array with a `category` field. Teaching
+all of them a second shape would have been more code than the conversion and
+two formats to keep working forever. The conversion was mechanical and
+lossless: each entry gained `category` from its former key, ids and
+statuses are unchanged, and `python omni requirement list --all` shows all 30.
+The archive is now `requirements-archive.json`; upstream's `omni requirement
+archive` already allocates ids across both files, which was the point of
+REQ-004's version, and it gained the `withdrawn` status and the refusal to
+archive live work from arbiter's.
+
+**Why fixtures are excluded from the graph's code layer, not from `.ai/.ignore`.**
+`.ai/.ignore` is the list of files an assistant must not read, and the brief
+tells a session to open the specific fixture a test names. The graph only
+had `.gitignore` and `.ai/.ignore` as exclusions, so the first build parsed
+`fixtures/legacy-platform` and attributed its planted defects' symbols to
+arbiter. `exclude_code_globs` was added upstream for exactly this: a tracked,
+readable directory that is nevertheless not the project's source.
+
+**What was found stale.** Five playbooks and checklists still carried
+STEP-Migration text (`python3 app.py`, `tests/validate_stacks.py`, pyright,
+"`./omni map` is intentionally never run against this repo") that
+contradicted `.ai/project-configuration.md`, which says `omni map` is safe
+here. They had survived REQ-001's check for STEP-specific content because
+the check looked for CUI and project names, not for commands. They are
+upstream's versions now, and `core-context.md`'s matching paragraph is
+corrected.
+
+**Known limits.** The gate's `co_changed` rules require `CHANGELOG.md` and
+the registry to change with any other file; `training/**` and `.arbiter/**`
+are exempt because the nightly job commits there without a requirement by
+design (REQ-023), and `python omni waive` is the escape for anything else.
+`omni requirement complete` only demands a ledger entry when the category
+matches defect/bug/fix/regression, which arbiter's categories do not; record
+defects deliberately. The graph needs `tree-sitter-python` and
+`tree-sitter-bash` installed; without them every other command still works.
+Doctor's remaining WARNs are listed in `.ai/project-configuration.md`. The
+OmniEngineering suite has one pre-existing failure in this container
+(`test_gate_hook`'s background rebuild, which needs the tree-sitter grammar
+on the system interpreter) that is unrelated to the ported changes.
+
+## 2026-10-09 — Arbiter evaluates itself (REQ-032 … REQ-037)
+
+**The gap.** After the workspace re-sync, a self-scan was the obvious next
+question, and the answer was embarrassing in a useful way: the grade was
+withheld at 22% coverage, three high findings were the `authored` probe
+reading its own docstring, and the repository that ships a GitHub Action had
+never run that action on itself. The user chose to close the whole list:
+self-gate first, then the noise, then the capability gaps.
+
+**Why the self-gate runs on Linux only.** The analyzers do not all install
+on the Windows runner, and a gate that passed at lower coverage would answer
+a different question from the one `arbiter.yaml` asks. The Windows job keeps
+the suite, integrity, mutation, doctor and `omni gate`; `omni gate` on Windows
+runs `arbiter gate --changed` with native probes only, which is honest as
+long as the Linux job runs the full one.
+
+**Why adapter output is filtered against the inventory rather than each
+tool taught its exclusions.** REQ-026 and REQ-029 taught bandit, checkov and
+semgrep the inventory's exclusions through their own flags; gitleaks was not
+taught and walked `__pycache__` and a git-ignored graph file into four
+critical findings. Enforcing the boundary once, on the way in, means the next
+adapter cannot miss it. The tools still do their own traversal; what reaches
+the report is what the inventory decided was in scope.
+
+**Why not-applicable leaves the denominator, and why that is not a loophole.**
+`ProbeOutcome.applicable` already existed (REQ-022 added it for the control
+matrix) and the engine already set it; only `compute_scorecard` ignored it.
+The honest distinction is between a probe with no question to answer (seams
+on one repository) and a probe prevented from answering (a missing binary).
+The first now leaves the denominator; the second never does. CI-12 makes the
+distinction machine-checked: a report that pairs `applicable=False` with the
+engine's own prevented-reason wording, or with a `ran` or `error` status,
+fails verification, and `tools/integrity.py` breaks it on every run to prove
+the check is live. Coverage on this repository is 99% with the analyzers
+installed, and the 1% is the `judgement` probe the offline profile forbids,
+which is exactly right.
+
+**Suppressions, not exclusions, for the tooling and the corpus.**
+`arbiter.yaml` now suppresses quality and semgrep findings on
+OmniEngineering's three tooling files, all analyzer findings under
+`fixtures/`, gitleaks under `tests/`, and semgrep's Python 3.6 compatibility
+rules project-wide. Every entry carries its reason and an expiry, and the
+findings stay in the report marked as suppressed. That is the feature: the
+report can say how much of what it did not act on was a decision.
+
+**The two gates now meet.** OmniEngineering gained a `command` validation
+type (its REQ-032), and `completion.arbiter_gate` in this repository's
+completion rulepack runs `arbiter gate --changed <base>` inside `omni gate`
+whenever source, tests, tools or policy change. The pre-commit hook, the
+Claude Code Stop hook and CI all run it, so a change to Arbiter cannot be
+reported complete while Arbiter itself rejects it.
+
+**What is still open.** REQ-005 (licensing) needs counsel. REQ-024's last
+criterion, making the check required, is a repository setting. The control
+packs' identifiers were transcribed, not reproduced, and must be verified
+against the licensed PCI DSS and TSC texts before an audit package cites them.
 

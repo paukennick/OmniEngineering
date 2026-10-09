@@ -6,6 +6,146 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ## [Unreleased]
 
+### 2026-10-09
+
+- Arbiter now gates its own pull requests. `pr-check` installs the five
+  external analyzers and the `api` extra on Linux, then runs `arbiter gate .`
+  under this repository's `arbiter.yaml` after the suite, the integrity and
+  mutation checks and the workspace gate; with no baseline every finding is
+  new, so the policy is "no critical, no high". The first run was red for
+  three reasons that were all Arbiter's: the `authored` probe reported the
+  TLS-off patterns listed in its own module docstring as three high findings
+  (`_blank_comments` blanked `#` comments but not Python docstrings; it now
+  blanks both, as the import scanner always did), gitleaks reported fixture
+  token shapes it found in a git-ignored graph file and in `__pycache__` as
+  four critical secrets (adapter output is now held to the inventory's scope
+  on the way in, `in_scope`, instead of teaching each tool its own exclusion
+  flags), and semgrep's Python 3.6 compatibility rules fired on a project that
+  requires 3.11 (suppressed by name, with the reason). The same job runs the
+  sixteen hosted-API tests that had skipped on every pull request, and
+  `omni gate` now runs `arbiter gate --changed` through OmniEngineering's new
+  `command` validation type whenever `src/`, `tests/`, `tools/` or
+  `arbiter.yaml` change. FAIL-036, FAIL-038. (REQ-032, REQ-034)
+- Arbiter now installs alongside the OmniEngineering workspace. Upstream's
+  `omni adopt --with-arbiter` and `omni arbiter install` (OmniEngineering
+  REQ-033) pip-install `arbiter-eval[mcp]` from a checkout or the GitHub URL
+  and write the wiring this repository had assembled by hand: the `arbiter`
+  MCP server in `.mcp.json`, the `completion.arbiter_gate` command rule, a
+  starter `arbiter.yaml`, and `arbiter-out/` in `.gitignore`. Rerunning it
+  here reports every piece as already present, which is the check that the
+  hand-made wiring and the generated one agree. `SETUP.md` and
+  `RUNNING-ON-YOUR-OWN-CODE.md` document the path. (REQ-032)
+- Cut the self-scan's noise at its five sources. `drift.doc-references-
+  missing-file` asks git whether a path named in prose was ever tracked and
+  reports a removed one at `info` as removed, which a changelog is right to
+  mention, while a path that never existed stays `low` (24 findings, most in
+  append-only history files). `assurance.blanket-suppression` no longer reads
+  documentation, so a README explaining `# noqa` is not a blanket suppression.
+  The `no-bare-except` house rule matched every `except` clause because its
+  query had no predicate (89 findings, `except OSError:` among them); it now
+  matches `Exception` and `BaseException` and leaves bare `except:` to ruff
+  E722 (FAIL-037). OmniEngineering's `make_ai.py`, `omni_graph.py` and
+  `omni_mcp.py` were scored as Arbiter's code (44 of 90 complexity findings);
+  their quality and semgrep findings are suppressed with the reason recorded,
+  so they stay in the report attributed to the tooling. And a probe that
+  declares itself not applicable (the `interface` probe on a single
+  repository) now leaves the coverage denominator and prints as `n/a`, while a
+  probe that was prevented from running stays in it; claim invariant CI-12
+  refuses a report that marks a prevented probe as not applicable, and
+  `tools/integrity.py` proves it does. Coverage on this repository went from
+  22% (grade withheld) to 99% with the analyzers installed. The Windows job,
+  which has no tree-sitter, then showed the rule's one hole: a missing python
+  package also read as not applicable, so the two AST probes left the
+  denominator instead of lowering coverage. `Probe.prevented()` now reports a
+  missing dependency separately and the engine records it as a prevented
+  skip, like a missing binary; `applicable()` keeps only the cases where
+  there is nothing to assess, and CI-12 names the new wording (FAIL-039).
+  (REQ-033)
+- `arbiter review --apply --ledger FILE` drafts an open OmniEngineering
+  failure-ledger entry for every verdict recorded as a true positive: title,
+  severity, rule, location and the finding id, nothing the scanner cannot
+  know. Applying the same marks twice adds nothing, and the file passes
+  `omni failure check`. The adjudication ledger and the failure ledger were
+  parallel records of the same defects; now one feeds the other. (REQ-035)
+- Added the Claude Code skill (`.claude/skills/arbiter/SKILL.md`): which
+  surface to use for what, how to read a withheld grade and a not-assessed
+  probe, how to adjudicate, and what the self-gate requires of a change.
+  (REQ-036)
+- Added the four commercial control packs README had listed as unbuilt: PCI
+  DSS v4.0 (32 of 63 requirement sections), the HIPAA Security Rule (32 of
+  59 standards and implementation specifications), SOC 2 TSC 2017 (29 of 61
+  criteria) and CIS Controls v8 (41 of 153 safeguards). Each follows the
+  government packs' convention of declaring the framework's full size and
+  enumerating the scanner-relevant subset, names the human work that remains
+  on every control, cites only rule ids that exist, and says that PCI DSS and
+  the TSC are licensed documents whose identifiers must be verified against
+  the licensed text before an audit package cites them. (REQ-037)
+- Made the three setup-script tests run the bash that `PATH` resolves rather
+  than the bare name `bash`. The first run of the Windows half of `pr-check`
+  (it had never run: this was the workflow's first pull request) failed all
+  three, because `CreateProcess` searches `System32` before `PATH` and
+  `System32\bash.exe` is the WSL launcher, which prints an install prompt in
+  UTF-16 and exits 1 whether or not Git Bash is installed. The one test that
+  already went through `shutil.which("bash")` passed on the same runner,
+  which is the whole diagnosis; the other three now do the same and skip, as
+  it does, only when no bash exists at all. (REQ-024)
+- Exempted Arbiter's own test material from the gate's secret check. The
+  first change set to touch `tests/` tripped `data.privacy` on a planted PEM
+  header: the check is right in general and wrong for a secret scanner's
+  corpus, so `tests/**`, `fixtures/**` and `examples/**` are listed in the
+  rulepack's ignore set; `src/` and `tools/` hold no literal key shape and
+  stay scanned. (REQ-031)
+- Re-synced the OmniEngineering workspace to its real upstream and adopted
+  the tooling that arrived there since June. Arbiter's `omni` was a fork
+  assembled from STEP-Migration copies (REQ-001) and closest to an upstream
+  commit from 2026-06-23; `python omni update` now 3-way-merges against the
+  ref recorded in `.ai/omni-version.json`, so later template changes are a
+  command rather than a re-copy. What changed in the repository: the
+  requirements registry and its archive moved to the upstream flat shape
+  (`requirements-archive.json`; the categories-keyed form was arbiter-only
+  and every new upstream command reads the flat one) and are now queried and
+  changed only through `python omni requirement` -- never read or edited
+  whole; the five non-Claude assistant shims, `.cursorignore` and the
+  OmniEngineering `NOTICE`, `TRADEMARKS.md` and `LICENSES/` are installed,
+  which closes the eight `omni doctor` errors this repo had carried as an
+  accepted gap since REQ-001 (arbiter's own `NOTICE.md` and `LICENSE` are
+  unchanged); `python omni gate` is enforced by `.githooks/pre-commit`, by the
+  Claude Code Stop hook in `.claude/settings.json` (now tracked; the
+  machine-specific Headroom wiring stays in `settings.local.json`) and by
+  `pr-check.yml`, with `training/**` and `.arbiter/**` exempt so the nightly
+  job's measurement commits are not blocked; `.ai/test-suites.json` registers
+  the pytest suite and `tools/check_writeback.sh`; `.ai/graph-config.json`
+  builds the code graph with `fixtures/`, `examples/`, `training/`,
+  `.arbiter/` and the scan output directories kept out of the code layer, so
+  a planted defect's symbols are never attributed to arbiter; `.mcp.json`
+  registers `python omni mcp serve` beside `arbiter mcp`, and doctor now
+  starts both servers for real. Three stale playbooks (`planning`, `testing`,
+  `release`, `implementation`, `pre-implementation`) still carried
+  STEP-Migration text -- `python3 app.py`, `validate_stacks.py`, "`omni map`
+  is never run here" -- that contradicted this repo's own configuration;
+  they are upstream's versions now. The adapters, `public-release.md`,
+  `fallback-llm-rules.json` and `hci-ui-rules.json` authored for arbiter in
+  REQ-028 were kept and merged. (REQ-031)
+- Backfilled the failure ledger. `.ai/failures/failure-ledger.json` now
+  records the 34 shipped defects that `CHANGELOG.md`, `.ai/project-context.md`
+  and the requirement records already describe, FAIL-001 (the read cache
+  serving stale bytes, REQ-007) through FAIL-034 (CRLF dropped when file
+  reading moved to bytes, REQ-030), each with its root cause, the regression
+  test that now catches it, and the rule that prevents a repeat. Six have no
+  regression test and say so (`no_test_reason`); twelve have no fix commit
+  because the clone is shallow and the 2026-09-12 history is not in it.
+  `python omni graph why <path>` and `python omni failure search` read this
+  ledger, and `python omni failure add` is how the next defect is recorded.
+  (REQ-031)
+- Ported three arbiter-only improvements upstream instead of keeping them as
+  a fork, as OmniEngineering REQ-031: the `withdrawn` terminal status with
+  `requirement archive --id` refusing live work; doctor's live check of every
+  MCP server `.mcp.json` registers (it replaces the arbiter-specific
+  `validate_mcp_server` from REQ-025 and checks both servers here);
+  `exclude_code_globs` for the graph; and dated `###` sections under an
+  `[Unreleased]` heading -- this file's format -- parsed as separate
+  changelog entries. (REQ-031)
+
 ### 2026-09-16
 
 - Stopped vendored and generated content from being scanned as first-party

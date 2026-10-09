@@ -165,8 +165,8 @@ Two workflows, split by how long they take rather than by what they cover.
 | | `pr-check.yml` | `train.yml` |
 |---|---|---|
 | when | every pull request | 08:00 UTC nightly |
-| what | the test suite, then `tools/integrity.py` | the full measurement cycle |
-| how long | about a minute | about two hours |
+| what | the test suite, `tools/integrity.py`, `tools/mutate_tests.py`, `python omni doctor`, `python omni gate`; on Linux also the five analyzers, the `api` extra, and `arbiter gate .` | the full measurement cycle |
+| how long | Windows about two minutes; Linux twenty-odd, because it installs the five analyzers, the adapter tests then run the real tools, and semgrep alone takes about six minutes over this tree | about two hours |
 | platforms | ubuntu-latest **and** windows-latest | ubuntu-latest |
 | writes to the repo | no | yes — the five accumulating files |
 
@@ -185,6 +185,18 @@ sensitive — the code paths around them are.
 `fail-fast: false`, because cancelling the Windows job when Linux fails hides
 precisely the class of defect the matrix was added to find. Neither job carries
 `continue-on-error`: an advisory check is a check nobody reads.
+
+**Arbiter evaluates itself.** The Linux job ends with `arbiter gate .` under
+this repository's own `arbiter.yaml`: fail on any critical, fail on any new
+high, and with no baseline every finding is new. It runs after
+`tools/install_tools.sh`, so the external analyzers are present and the
+self-gate cannot pass by failing to run half its probes. The first time it ran
+it reported three high findings: the `authored` probe matching the TLS-off
+patterns listed in its own module docstring (REQ-032). The Windows job does
+not run the self-gate, because not every analyzer installs there and a gate at
+lower coverage would answer a different question. The same job installs the
+`api` extra, so the sixteen hosted-API tests run on every pull request instead
+of skipping (REQ-034).
 
 **Skips are printed, not counted.** The pull-request check runs `pytest -rs`,
 so every skip appears in the log with its reason. Windows legitimately skips

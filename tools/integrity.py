@@ -130,6 +130,14 @@ def break_invariant(name: str, report: Report):
         report.gate = {"passed": True, "reasons": []}
         report.integrity = {}
         return "gate-complete"
+    elif name == "CI-12":
+        # A coverage gap dressed as a non-question: the engine's own wording
+        # for a probe it was prevented from running, paired with the flag that
+        # says the probe could never have applied.
+        report.probes.append(ProbeOutcome(name="laundered", status="skipped",
+                                          reason="missing binary: laundered",
+                                          applicable=False,
+                                          dimensions=["security"], checks=2))
     elif name == "CI-11":
         # A scan that read part of the repository, with every probe clean and
         # nothing else missing. Without CI-11 this report would assert

@@ -196,6 +196,14 @@ def _blank_comments(text: str, language: str) -> str:
     if language in hash_langs or language == "unknown":
         out = _COMMENT_SYNTAX[3][0].sub(blank, out)
         out = _COMMENT_SYNTAX[4][0].sub(blank, out)
+    if language == "python":
+        # A docstring is prose, and prose that LISTS the dangerous settings is
+        # exactly what a security module's own documentation looks like: this
+        # file's docstring names `verify=False` and reported itself as three
+        # high findings. The import scanner already blanks docstrings for the
+        # same reason (`_strip_prose`); this is the same fix in the second
+        # place it was needed.
+        out = _PY_DOCSTRING.sub(blank, out)
     return out
 
 

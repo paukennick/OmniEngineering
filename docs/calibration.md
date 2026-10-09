@@ -105,6 +105,18 @@ Verdicts recorded before this existed migrate with the reviewer
 `unattributed`. They are real evidence and are kept, but they are not given a
 plausible name on the way through — an invented one would read as a fact later.
 
+### A true positive can open a failure-ledger entry
+
+`arbiter review --apply FILE --ledger .ai/failures/failure-ledger.json` drafts
+one `open` entry in the OmniEngineering failure ledger for every verdict it
+records as a true positive: the finding's title, severity, rule and location,
+and a `how_detected` naming the finding id so applying the same marks twice
+adds nothing. Root cause, fix and regression test are left for the person who
+fixes it (`omni failure update FAIL-### ...`); the bridge records what the
+scanner knows and nothing it does not. The file it writes passes
+`omni failure check`, and `omni graph why <path>` then shows the finding
+beside the requirements and tests already attached to that file.
+
 ### Adjudicating needs a terminal
 
 `arbiter feedback` and `arbiter review --interactive` check that stdin is a

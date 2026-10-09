@@ -101,7 +101,9 @@ def test_output_directory_is_not_scanned(tmp_path):
     (tmp_path / "app.py").write_text("x = 1\n")
     out = tmp_path / "arbiter-out"
     out.mkdir()
-    (out / "review.md").write_text("A blanket suppression  # noqa\n")
+    # A source file, not the markdown rendering: the suppression probe no
+    # longer reads documentation (REQ-033), and the control must still trip.
+    (out / "leftover.py").write_text("x = 1  # noqa\n")
     cfg = dict(load_config(None))
 
     # The control: without out_dir the previous run's output is read back.
@@ -568,6 +570,33 @@ def test_missing_file_in_prose_still_found(tmp_path):
     assert [f for f in found if "doc-references-missing-file" in f.rule_id]
 
 
+def test_a_removed_file_named_in_prose_is_history_not_drift(tmp_path):
+    """CHANGELOG.md and the decision log name files that were deliberately
+    deleted or renamed; 24 self-scan findings said they were missing. Git
+    knows the difference between a path that was never there and one that
+    was removed, so the probe asks it and reports the second kind as
+    information, not as a stale document."""
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+    (tmp_path / "old.py").write_text("x = 1\n")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    import os
+    env = {**os.environ, **env}
+    subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True, env=env)
+    subprocess.run(["git", "commit", "-q", "-m", "add"], cwd=str(tmp_path), check=True, env=env)
+    (tmp_path / "old.py").unlink()
+    subprocess.run(["git", "commit", "-q", "-am", "remove"], cwd=str(tmp_path), check=True, env=env)
+    found = _scan_text(tmp_path, "CHANGELOG.md",
+                       "Removed `old.py`; `never.py` was a typo.\n", ["doc_drift"])
+    by_path = {f.evidence.split()[0]: f for f in found
+               if "doc-references-missing-file" in f.rule_id}
+    assert by_path["path=old.py"].severity == "info"
+    assert "removed" in by_path["path=old.py"].title
+    assert by_path["path=never.py"].severity == "low"
+    assert "not in the repository" in by_path["path=never.py"].title
+
+
 def test_prose_path_escaping_the_repository_is_not_checked(tmp_path):
     """`../../other/thing.py` names a file outside the repository, which this
     scan cannot speak to either way."""
@@ -862,11 +891,19 @@ def test_bounded_state_space_is_exhaustively_clean():
 
 
 def test_a_dimension_with_no_basis_cannot_claim_complete(legacy_report):
-    """interface scores 100 because nothing ran. That must read as partial."""
+    """interface used to score 100 on a single repository because nothing
+    ran, and the claim had to read as partial. Since REQ-033 a probe that
+    declares itself not applicable is not scored at all: there is no
+    dimension claim to get wrong, and the coverage claim names the probe so
+    the omission is visible rather than silent."""
     claims = {c["id"]: c for c in legacy_report.claims}
-    interface = claims.get("dimension:interface")
-    assert interface and interface["scope"] == "partial"
-    assert interface["basis"] == []
+    assert "dimension:interface" not in claims
+    assert "interface" not in legacy_report.scorecard.dimensions
+    assert "not applicable here: interface" in claims["coverage"]["statement"]
+    # and the general rule still holds for every dimension that IS scored
+    for cid, c in claims.items():
+        if cid.startswith("dimension:") and c["basis"] == []:
+            assert c["scope"] == "partial", cid
 
 
 def test_wilson_bound_refuses_to_flatter_small_samples():
@@ -1752,6 +1789,70 @@ def test_an_inapplicable_check_is_not_a_gap(tmp_path):
     assert states["B"] == SATISFIED
 
 
+def test_a_not_applicable_probe_leaves_the_coverage_denominator():
+    """Seams on a single repository are not an unassessed check; there is
+    nothing the probe would have assessed. The interface dimension read 0%
+    on every single-repo scan and dragged the overall figure below the
+    threshold for the wrong reason. A probe that was PREVENTED from running
+    is a different fact and stays in the denominator."""
+    from arbiter.core import ProbeOutcome
+    from arbiter.policy import DEFAULTS, compute_scorecard
+    ran = ProbeOutcome(name="secrets", status="ran", dimensions=["security"], checks=10)
+    prevented = ProbeOutcome(name="bandit", status="skipped", reason="missing binary: bandit",
+                             dimensions=["security"], checks=10)
+    na = ProbeOutcome(name="interface", status="skipped", applicable=False,
+                      reason="system has a single repo; no seams to check",
+                      dimensions=["interface"], checks=6)
+    with_na = compute_scorecard([], [ran, prevented, na], 1000, DEFAULTS)
+    without = compute_scorecard([], [ran, prevented], 1000, DEFAULTS)
+    assert with_na.coverage == without.coverage == 0.5
+    assert "interface" not in with_na.dimensions
+
+
+def test_a_missing_dependency_is_prevented_not_inapplicable(tmp_path):
+    """The Windows job has no tree-sitter. Its AST probes reported themselves
+    not applicable and left the coverage denominator, which is the exact
+    laundering CI-12 exists to refuse: a check with a question to answer here
+    that could not answer it. A missing package is a prevented probe."""
+    from arbiter.probes import Probe
+    ghost = Probe(name="ghost", dimensions=["quality"], checks=2, run=lambda ctx: [],
+                  modules=["arbiter_no_such_module_xyz"])
+    blocked, why = ghost.prevented()
+    assert blocked and "missing python package" in why
+    (tmp_path / "a.py").write_text("x = 1\n")
+    import arbiter.probes as probes_mod
+    probes_mod.REGISTRY.append(ghost)
+    try:
+        rep = run_scan([str(tmp_path)], load_config(None), only=["ghost"], use_adapters=False)
+    finally:
+        probes_mod.REGISTRY.remove(ghost)
+    outcome = next(p for p in rep.probes if p.name == "ghost")
+    assert outcome.status == "skipped" and outcome.applicable is True
+    assert "missing python package" in outcome.reason
+    from arbiter.claims import verify
+    assert not [v for v in verify(rep, load_config(None)) if v.invariant == "CI-12"]
+
+
+def test_not_applicable_cannot_launder_a_prevented_probe():
+    """CI-12: a report may mark a probe not applicable only when it could
+    never have applied. Pairing applicable=False with the engine's own
+    "missing binary" wording is a coverage gap wearing a non-question's
+    clothes, and the ledger refuses it."""
+    from arbiter.claims import verify
+    from arbiter.core import ProbeOutcome, Report
+    from arbiter.policy import DEFAULTS, compute_scorecard
+    honest = ProbeOutcome(name="interface", status="skipped", applicable=False,
+                          reason="system has a single repo; no seams to check",
+                          dimensions=["interface"], checks=6)
+    laundered = ProbeOutcome(name="bandit", status="skipped", applicable=False,
+                             reason="missing binary: bandit", dimensions=["security"], checks=4)
+    for probes, expect in (([honest], 0), ([honest, laundered], 1)):
+        rep = Report(system="t", findings=[], probes=probes)
+        rep.scorecard = compute_scorecard([], probes, 1000, DEFAULTS)
+        ci12 = [v for v in verify(rep, DEFAULTS) if v.invariant == "CI-12"]
+        assert len(ci12) == expect
+
+
 def test_procedural_controls_are_marked_not_automatable(tmp_path):
     """Personnel screening is not a failure and not a pass. Reporting it as
     either is dishonest; it belongs to a human assessor."""
@@ -2258,6 +2359,20 @@ def test_adapter_timeout_kills_the_whole_process_group(tmp_path):
     import time as _t
     _t.sleep(3)
     assert not marker.exists(), "a grandchild outlived the timeout and kept working"
+
+
+def test_adapter_findings_outside_the_inventory_are_dropped():
+    """gitleaks walks git-ignored files and __pycache__ on its own; the first
+    self-gate reported fixture token shapes from .ai/project-graph.json and a
+    .pyc as four critical secrets. The inventory is the one answer to what is
+    in scope, and every adapter's output is held to it on the way in."""
+    from arbiter.adapters import in_scope
+    kept = Finding(rule_id="gitleaks/x", title="t", location=Location(path="src/a.py"))
+    ignored = Finding(rule_id="gitleaks/x", title="t", location=Location(path=".ai/project-graph.json"))
+    cache = Finding(rule_id="gitleaks/x", title="t", location=Location(path="tests/__pycache__/t.pyc"))
+    tool_level = Finding(rule_id="gitleaks/version", title="t", location=Location(path=""))
+    out = in_scope([kept, ignored, cache, tool_level], {"src/a.py", "src/b.py"})
+    assert out == [kept, tool_level]
 
 
 def test_adapter_still_returns_output_normally(tmp_path):
@@ -2925,6 +3040,25 @@ def test_a_comment_discussing_the_setting_is_not_the_setting(tmp_path):
     assert not [f for f in rep.active() if "security-check-disabled" in f.rule_id]
 
 
+def test_a_docstring_listing_the_dangerous_settings_is_not_the_setting(tmp_path):
+    """authored.py's own module docstring enumerates `verify=False`,
+    `rejectUnauthorized: false` and `InsecureSkipVerify: true` as the shapes
+    it looks for, and the first self-gate reported them as three high
+    findings. Comments were already blanked; docstrings were not."""
+    (tmp_path / "a.py").write_text(
+        '"""Looks for verify=False, rejectUnauthorized: false and\n'
+        'InsecureSkipVerify: true in the code it scans."""\n'
+        "import requests\n"
+        "\n"
+        "def fetch(url):\n"
+        "    return requests.get(url, verify=False)\n")
+    rep = run_scan([str(tmp_path)], load_config(None), only=["authored"],
+                   use_adapters=False)
+    hits = [f for f in rep.active() if "security-check-disabled" in f.rule_id]
+    assert len(hits) == 1
+    assert hits[0].location.start_line == 6
+
+
 def test_an_opt_in_insecure_mode_is_downgraded_not_hidden(tmp_path):
     """An insecure mode the operator has to ask for is a feature, not a
     default. Still reported, because the mode existing is worth knowing."""
@@ -3105,6 +3239,34 @@ def test_the_read_cache_never_serves_one_scans_bytes_for_another(tmp_path):
     assert not [f for f in r2.active()], "stale bytes were served from the cache"
 
 
+def test_prose_discussing_a_suppression_is_not_a_suppression(tmp_path):
+    """README and the decision log explain what `# noqa` means. The
+    suppression probe reported them as blanket suppressions."""
+    found = _scan_text(tmp_path, "README.md",
+                       "A bare `# noqa` silences every rule, and `checkov:skip` "
+                       "without an id does the same.\n", ["assurance"])
+    assert not [f for f in found if "blanket-suppression" in f.rule_id]
+
+
+def test_the_broad_except_house_rule_matches_only_broad_clauses(tmp_path):
+    """`(except_clause) @hit` matched every handler in the tree: 89 findings
+    on a self-scan, `except OSError:` among them. The predicate is the rule."""
+    from arbiter import ast as ts
+    if not ts.available():
+        pytest.skip("tree-sitter not installed")
+    import yaml
+    rule = next(r for r in yaml.safe_load((ROOT / "arbiter.yaml").read_text())["rules"]
+                if r["id"] == "no-bare-except")
+    rule = dict(rule, files="**/*.py")
+    code = ("try:\n    pass\n"
+            "except OSError:\n    pass\n"
+            "except Exception:\n    pass\n"
+            "except BaseException:\n    raise\n")
+    found = _scan_text(tmp_path, "pkg/a.py", code, ["house_rules_ast"], {"rules": [rule]})
+    hits = sorted(f.location.start_line for f in found if f.rule_id == "house/no-bare-except")
+    assert hits == [5, 7]
+
+
 # ---------------------------------------------------------------------------
 # The setup scripts.
 #
@@ -3113,14 +3275,29 @@ def test_the_read_cache_never_serves_one_scans_bytes_for_another(tmp_path):
 # and creating the GitHub repository. Both are tested here for the properties
 # that matter — the installer must never fail a build, and the bootstrap must
 # never destroy history.
+#
+# The scripts are run through the bash that PATH resolves, never the bare name
+# "bash": on Windows, CreateProcess searches System32 before PATH, and
+# System32\bash.exe is the WSL launcher, which prints an install prompt in
+# UTF-16 and exits 1 whether or not Git Bash is installed. shutil.which walks
+# PATH only, where the runner puts Git's bin directory, so it finds the real
+# shell. The first run of the Windows matrix (REQ-024) failed exactly this way.
 # ---------------------------------------------------------------------------
+
+def _bash():
+    import shutil
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+    return bash
+
 
 def test_install_script_never_fails_a_build(tmp_path):
     """A missing analyzer is a coverage fact, not an error: Arbiter records it
     as not assessed and the coverage figure drops. Exiting non-zero here would
     turn an honest gap into a broken pipeline."""
     import subprocess
-    r = subprocess.run(["bash", str(ROOT / "tools" / "install_tools.sh"), "nosuchtool"],
+    r = subprocess.run([_bash(), str(ROOT / "tools" / "install_tools.sh"), "nosuchtool"],
                        capture_output=True, text=True, cwd=str(ROOT), timeout=180)
     assert r.returncode == 0, r.stderr[-400:]
 
@@ -3135,7 +3312,7 @@ def test_bootstrap_refuses_when_it_is_not_a_repository(tmp_path):
     import subprocess, shutil
     (tmp_path / "tools").mkdir()
     shutil.copy(ROOT / "tools" / "bootstrap_repo.sh", tmp_path / "tools")
-    r = subprocess.run(["bash", "tools/bootstrap_repo.sh", "--dry-run"],
+    r = subprocess.run([_bash(), "tools/bootstrap_repo.sh", "--dry-run"],
                        capture_output=True, text=True, cwd=str(tmp_path), timeout=60)
     assert r.returncode == 1 and "No .git" in r.stdout
 
@@ -3160,7 +3337,7 @@ def test_bootstrap_is_idempotent_about_an_existing_remote(tmp_path):
                  "commit", "-q", "-m", "init"],
                 ["git", "remote", "add", "origin", "https://example.com/pre.git"]):
         subprocess.run(cmd, cwd=str(tmp_path), check=True)
-    r = subprocess.run(["bash", "tools/bootstrap_repo.sh", "--dry-run"],
+    r = subprocess.run([_bash(), "tools/bootstrap_repo.sh", "--dry-run"],
                        capture_output=True, text=True, cwd=str(tmp_path), timeout=60)
     assert "Leaving it alone" in r.stdout
     url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=str(tmp_path),
@@ -5256,3 +5433,79 @@ def test_scope_note_requires_a_backtick_path_match(tmp_path):
 
     found = run_scan([str(tmp_path)], load_config(None), only=["secrets"]).active()
     assert found and found[0].scope_note == ""
+
+
+
+# ---------------------------------------------------------------------------
+# The failure-ledger bridge (REQ-035).
+# ---------------------------------------------------------------------------
+
+def _two_findings():
+    return [
+        Finding(rule_id="arbiter/secrets.aws-access-key", title="AWS access key committed",
+                severity="critical", description="A live-looking key in source.",
+                location=Location(path="app/config.py", start_line=12)),
+        Finding(rule_id="arbiter/ast.high-complexity", title="High complexity",
+                severity="info", description="cx=30.",
+                location=Location(path="app/big.py", start_line=1)),
+    ]
+
+
+def test_true_positive_verdicts_draft_open_ledger_entries(tmp_path):
+    from arbiter.ledger import draft_entries
+    findings = _two_findings()
+    path = tmp_path / ".ai" / "failures" / "failure-ledger.json"
+    written = draft_entries(findings, [findings[0].id], path, today="2026-10-09")
+    assert written == ["FAIL-001"]
+    ledger = json.loads(path.read_text(encoding="utf-8"))
+    entry = ledger["failures"][0]
+    assert entry["status"] == "open" and entry["severity"] == "critical"
+    assert entry["affected"] == ["app/config.py"]
+    assert findings[0].id in entry["how_detected"]
+    assert "app/config.py:12" in entry["symptom"]
+    # a false positive, or an unmarked finding, draws nothing
+    assert draft_entries(findings, [findings[1].id][:0], path) == []
+
+
+def test_the_same_verdict_applied_twice_adds_nothing(tmp_path):
+    from arbiter.ledger import draft_entries
+    findings = _two_findings()
+    path = tmp_path / "ledger.json"
+    draft_entries(findings, [findings[0].id], path)
+    assert draft_entries(findings, [findings[0].id], path) == []
+    assert len(json.loads(path.read_text(encoding="utf-8"))["failures"]) == 1
+
+
+def test_a_drafted_entry_satisfies_the_workspace_ledger_check(tmp_path):
+    """The file is OmniEngineering's; its own `omni failure check` is the
+    authority on whether an entry is well formed."""
+    import subprocess
+    from arbiter.ledger import draft_entries
+    findings = _two_findings()
+    (tmp_path / ".ai" / "failures").mkdir(parents=True)
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "config.py").write_text("KEY = 'x'\n")
+    (tmp_path / "app" / "big.py").write_text("pass\n")
+    draft_entries(findings, [findings[0].id], tmp_path / ".ai" / "failures" / "failure-ledger.json")
+    r = subprocess.run([sys.executable, str(ROOT / "omni"), "failure", "check"],
+                       cwd=str(tmp_path), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    # info is not a ledger severity: the bridge writes the nearest honest one
+    assert draft_entries(findings, [findings[1].id],
+                         tmp_path / ".ai" / "failures" / "failure-ledger.json") == ["FAIL-002"]
+    r = subprocess.run([sys.executable, str(ROOT / "omni"), "failure", "check"],
+                       cwd=str(tmp_path), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_review_apply_reports_which_ids_it_recorded(tmp_path):
+    from arbiter.learn import Knowledge
+    from arbiter.review import apply, render
+    findings = _two_findings()
+    knowledge = Knowledge()
+    text = render(findings, knowledge, "r.json")
+    marked = text.replace(f"[ ] {findings[0].id}", f"[y] {findings[0].id}")
+    res = apply(marked, findings, knowledge, reviewer="t")
+    assert res["recorded"] == 1
+    assert res["recorded_ids"]["true_positive"] == [findings[0].id]
+    assert res["recorded_ids"]["false_positive"] == []

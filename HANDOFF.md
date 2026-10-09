@@ -11,7 +11,8 @@ Use the maintained context in this order:
 2. `.ai/project-context.md`
 3. `.ai/project-configuration.md`
 4. `.ai/project-map.md`
-5. `.ai/requirements/requirements.json`
+5. The active requirements via `python omni requirement list --status pending`
+   (never the registry file itself)
 
 `README.md` explains the product. The active requirements registry is the
 authority for unfinished work; `CHANGELOG.md` and `.ai/project-context.md`
@@ -32,11 +33,16 @@ code paths in CI) is engineering work and is unblocked.
 
 ## Validation
 
-The configured completion command is:
+The configured completion commands are:
 
 ```bash
 PYTHONPATH=src python -m pytest -q
+python omni doctor
+python omni gate
 ```
+
+`python omni graph why <path>` shows what a file is attached to before you
+change it; `python omni failure search <text>` shows what has broken before.
 
 Use `python tools/corpus.py --counts` for corpus totals instead of copying a
 number into this file. Adjudication remains necessary before calibration can

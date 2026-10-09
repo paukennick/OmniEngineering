@@ -298,10 +298,13 @@ tuning set of 36. On the severities that gate a build the separation is total:
 zero criticals and zero highs across 2.3 million lines of well-maintained
 production code. Method and limits: [docs/evidence.md](docs/evidence.md).
 
-**Not yet built:** the Claude skill, air-gapped bundles, and the dashboard.
-Commercial control packs (PCI-DSS, HIPAA, SOC 2, CIS) are a data file each in
-the format the five government packs already use — the interfaces exist, the
-implementations do not.
+**Not yet built:** air-gapped bundles and the dashboard. The Claude Code
+skill is `.claude/skills/arbiter/SKILL.md`; the commercial control packs
+(PCI DSS v4, HIPAA Security Rule, SOC 2 TSC, CIS Controls v8) sit beside the
+five government packs in `src/arbiter/packs/controls/`, each declaring the
+scanner-relevant subset it covers and the human work that remains. Arbiter
+also runs on itself: `pr-check` gates every pull request with
+`arbiter gate .` under `arbiter.yaml`.
 
 ## Versioning
 

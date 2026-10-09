@@ -114,7 +114,11 @@ class Fixture(unittest.TestCase):
 
     def git(self, *args: str) -> None:
         env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, env=env)
+        # Every git call in a fixture repository runs with auto-gc off: a commit may otherwise detach a
+        # gc that is still writing under .git/objects while the temporary directory is being removed,
+        # which failed teardown on macOS CI in the history-layer tests (FAIL-017) and then in the
+        # lineage test that inherits this fixture (FAIL-018). Passing it here covers every subclass.
+        subprocess.run(["git", "-C", str(self.root), "-c", "gc.auto=0", *args], check=True, capture_output=True, env=env)
 
     def edges(self, edge_type: str) -> set[tuple[str, str]]:
         return {(e.source, e.target) for e in self.graph.edges if e.type == edge_type}

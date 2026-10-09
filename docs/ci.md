@@ -194,11 +194,11 @@ Two workflows, split by how long they take rather than by what they cover.
 | platforms | ubuntu-latest **and** windows-latest | ubuntu-latest |
 | writes to the repo | no | yes — the five accumulating files |
 
-**Why the pull-request check runs on two platforms.** REQ-006 was a crash on
+**Why the pull-request check runs on two platforms.** ARB-006 was a crash on
 every adapter timeout on Windows: `os.killpg` does not exist there, so the
 process-group kill path raised `AttributeError` and the analyzer outlived the
 timeout meant to stop it. It was found by hand, months later, because no
-automation had ever run on Windows. UTF-8 decoding (REQ-007) and path handling
+automation had ever run on Windows. UTF-8 decoding (ARB-007) and path handling
 are sensitive the same way, and a developer's machine is not a control.
 
 The matrix is on this workflow and not the nightly one deliberately. Running a
@@ -216,11 +216,11 @@ high, and with no baseline every finding is new. It runs after
 `tools/install_tools.sh`, so the external analyzers are present and the
 self-gate cannot pass by failing to run half its probes. The first time it ran
 it reported three high findings: the `authored` probe matching the TLS-off
-patterns listed in its own module docstring (REQ-032). The Windows job does
+patterns listed in its own module docstring (ARB-032). The Windows job does
 not run the self-gate, because not every analyzer installs there and a gate at
 lower coverage would answer a different question. The same job installs the
 `api` extra, so the sixteen hosted-API tests run on every pull request instead
-of skipping (REQ-034).
+of skipping (ARB-034).
 
 **Skips are printed, not counted.** The pull-request check runs `pytest -rs`,
 so every skip appears in the log with its reason. Windows legitimately skips

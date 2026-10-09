@@ -10,7 +10,7 @@ merged and asking each author to re-license it, and any author who cannot be
 reached leaves code that cannot be cleanly relicensed.
 
 Requirement **L-8** in [docs/licensing.md](docs/licensing.md) records this, and
-it is tracked as REQ-005. Until an operative licence exists and inbound terms
+it is tracked as ARB-005. Until an operative licence exists and inbound terms
 are chosen — a CLA, a DCO, or a standing grant — a pull request cannot be
 merged, because there would be no agreed basis on which the contribution was
 offered.

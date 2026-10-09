@@ -171,6 +171,7 @@ arbiter mcp --http --root /srv/arbiter/work --cert cert.pem --key key.pem
 | `--allowed-host` | hostname callers reach this server by; repeatable, needed when a proxy forwards a public name |
 | `--cert`, `--key` | TLS certificate and private key; required, including behind a proxy |
 | `--audit`, `--no-audit` | where request lines go, or not keeping them |
+| `--limiter` | `memory` (default, one process) or `file`: the caps counted in `limiter.db` beside the key file, shared by every process serving the same keys — see [hosted-api.md](hosted-api.md#sharing-the-limits-between-processes---limiter-file) |
 
 The SDK is pinned at `mcp>=2.2`. That is a hard floor rather than caution: the
 server API changed shape there — handlers became constructor arguments instead of
@@ -195,8 +196,6 @@ expire. It matches what the rest of the service promises.
 - Any OAuth flow. Keys are issued by hand, which is the same model the hosted
   API uses and the same reason: there is no identity system here to do it
   another way.
-- Rate limits shared across processes. The per-key caps are held in one
-  process's memory, so running several instances is a known gap.
 - Uploads over MCP. A caller can only name paths already on the server; source
   that has to travel goes through [the hosted API](hosted-api.md).
 - Any deployment. Nothing here has been exposed to a network.

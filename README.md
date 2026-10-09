@@ -116,10 +116,31 @@ version record, baseline refresh, doctor, stopping at the first failing step)
 and `./omni update` for the workspace template; `./omni arbiter baseline
 --refresh` alone re-cuts the baseline on a green gate.
 
+What that adds to this repository, in one list (the per-path table is in the
+release notes):
+
+- `arbiter/`: the whole Arbiter checkout as a git subtree with its full
+  history, its own `.ai/` workspace on the `ARB-###` prefix, its own
+  `LICENSE` (all rights reserved, not Apache-2.0) and `NOTICE.md`.
+- `arbiter.yaml`, `.arbiter/baseline.json`, the `arbiter` server in
+  `.mcp.json`, the required rule `completion.arbiter_gate` and the recommended
+  example `completion.tests` in the completion rulepack, `arbiter-out/` and
+  `.arbiter/cache.json` in `.gitignore`.
+- CI: the matrix job installs the vendored Arbiter and uploads the gate's
+  SARIF; two new jobs run the subtree's own suite, claim-integrity and mutation
+  checks, and prove the adopt loop end to end.
+- Commands: `omni adopt --with-arbiter`, `omni arbiter install | baseline |
+  update`, `omni doctor --json`, `omni requirement archive | renumber`,
+  `omni graph impact | findings`, `omni test run`.
+- Records: requirements REQ-031 to REQ-045 (and ARB-038 to ARB-044 inside the
+  subtree), defects FAIL-010 to FAIL-015, one `CHANGELOG.md` entry per
+  requirement, and the statement in `NOTICE` and `LICENSES/README.md` that
+  the Apache-2.0 grant stops at `arbiter/`.
+
 The full mechanics, the CI jobs and what each proves, the off switches and a
 finding-tracing walkthrough are in
 [docs/arbiter-integration.md](docs/arbiter-integration.md); the dated list of
-every change on both sides is in
+every change on both sides, and the table of every path it added, is in
 [docs/release-notes-2026-10-09.md](docs/release-notes-2026-10-09.md).
 
 ## Design Documents
@@ -1556,6 +1577,11 @@ OmniEngineering is licensed under the Apache License, Version 2.0. The
 OmniEngineering names, marks, and project identity are governed by the
 repository trademark policy. User projects built with this workspace remain
 owned and licensed by their project owners.
+
+One directory is excluded: `arbiter/`, the vendored Arbiter subtree, is
+licensed under its own `arbiter/LICENSE` (all rights reserved) and the
+Apache-2.0 grant above does not extend to it. `NOTICE` and the license guide
+say so; see [The vendored Arbiter subtree](#the-vendored-arbiter-subtree).
 
 See:
 

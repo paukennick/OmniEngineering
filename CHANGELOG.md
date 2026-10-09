@@ -73,6 +73,12 @@
   keeping both level, requirement ids across the two, the off switches) and the dated release notes
   `docs/release-notes-2026-10-09.md`, linked from the README (a new Arbiter section after Quick Start
   and the design list), the Arbiter section and `.ai/context-brief.md`; `docs/` is an allowed root path.
+  - The documents now say in full what the integration put into the tree. The release notes list
+    REQ-035 (the subtree itself) and REQ-045, which they had left out, give ARB-044 its own row, count
+    FAIL-015 among the defects, and end with a table of every path the integration added with the
+    requirement each came by, plus the commands that did not exist before. The README's Arbiter section
+    carries the same inventory in one list, and its License section states the `arbiter/` exclusion that
+    `NOTICE` and `LICENSES/README.md` already did.
 
 - `REQ-041` | CI / repo hygiene | The adopt loop is proven end to end. A CI job and
   `tests/test_adopt_loop.py` adopt the workspace with Arbiter into an empty directory, commit, plant

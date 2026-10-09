@@ -13,6 +13,7 @@ is in each repository's `CHANGELOG.md`.
 | REQ-032 | the `command` gate validation type; `defect_category_pattern` configuration |
 | REQ-033 | `omni adopt --with-arbiter` and `omni arbiter install` |
 | REQ-034 | vendored workspaces recognised by the gate, doctor and CI |
+| REQ-035 | Arbiter vendored under `arbiter/` as a git subtree with its full history; `arbiter.yaml` at the root with `arbiter/**` suppressed; the `arbiter` MCP server beside `omni`; `arbiter/` kept out of the root code graph; `NOTICE` and `LICENSES/README.md` state that the Apache-2.0 grant stops at `arbiter/` |
 | REQ-036 | `omni doctor` `Posture:` line and `--json`; duplicate requirement ids across registries are an error |
 | REQ-037 | `omni requirement complete` refuses on a missing, stale or red Arbiter report; `--no-arbiter-check REASON` |
 | REQ-038 | a committed Arbiter baseline at install; `omni arbiter baseline [--refresh]`; doctor baseline checks |
@@ -22,11 +23,12 @@ is in each repository's `CHANGELOG.md`.
 | REQ-042 | Arbiter version recorded in `.ai/omni-version.json`; `omni arbiter update`; drift warnings |
 | REQ-043 | Arbiter findings as graph nodes; `omni graph findings`; the viewer's Findings tab, colour modes, filters, source row and one-click traces; the `graph_findings` MCP tool |
 | REQ-044 | requirement id aliases and `omni requirement renumber --prefix` |
+| REQ-045 | the integration handbook `docs/arbiter-integration.md` and these release notes, linked from the README and the context brief |
 
 Defects found and fixed on the way: FAIL-010 (CI YAML), FAIL-011 (schema enum),
 FAIL-012 (committed Arbiter reports scanned as source), FAIL-013 (suite timeout
 did not kill the process tree on Windows), FAIL-014 (a path assertion on
-Windows).
+Windows), FAIL-015 (`omni adopt --include-cli` into an empty target exited 1).
 
 ## Arbiter
 
@@ -38,7 +40,37 @@ Windows).
 | ARB-040 | runs on Python 3.10 (`tomllib` with a `tomli` fallback) |
 | ARB-041 | the opt-in per-file result cache with integrity invariant CI-13 and `--verify-cache` |
 | ARB-042 | `history.jsonl` per run and `arbiter dashboard` |
-| ARB-043 | the workspace tooling synced from this repository; requirements renumbered from `REQ-###` to `ARB-###` with aliases |
+| ARB-043 | the workspace tooling synced from this repository (posture line, baseline, impact, findings, `omni test run`, the version record, the gate rule's full run text) |
+| ARB-044 | requirements renumbered from `REQ-###` to `ARB-###` with `id_aliases`, so the two registries never collide in one tree |
+
+## What the repository now contains
+
+Everything the two lists above put into the tree, so a reviewer can see the
+whole of it in one place. Paths are relative to the repository root; the
+`arbiter/` subtree is listed once and its contents are described by its own
+`README.md`, `CHANGELOG.md` and `docs/`.
+
+| Path | What it is | Landed by |
+|---|---|---|
+| `arbiter/` | the Arbiter repository evaluator, vendored as a git subtree with its full history: its source, tests, fixtures, CI, docs, its own `.ai/` workspace (registry on the `ARB` prefix), `LICENSE` (all rights reserved) and `NOTICE.md`. Not covered by the root Apache-2.0 grant. | REQ-035 |
+| `arbiter.yaml` | this repository's Arbiter policy: profile offline, fail on critical, fail on new high; `arbiter/**` suppressed because the subtree gates itself | REQ-035 |
+| `.arbiter/baseline.json` | the committed baseline: every finding id present when it was cut, the commit and the sha256 of `arbiter.yaml`; "new" means new since it | REQ-038 |
+| `.mcp.json` | the `arbiter` (`arbiter mcp`) and `omni` (`omni mcp serve`) servers; `omni doctor` starts both for real | REQ-031, REQ-035 |
+| `.ai/rules/completion-workflow.json` | the required rule `completion.arbiter_gate` (type `command`, runs `arbiter gate` on the change set with the baseline) and the recommended example rule `completion.tests` | REQ-032, REQ-033, REQ-038, REQ-040 |
+| `.github/workflows/ci.yml` | the matrix job installs a vendored Arbiter and uploads the gate's SARIF; new jobs `vendored-arbiter` (the subtree's suite, claim-integrity and mutation checks) and `adopt-loop` (adopt, plant a defect, gate fails, fix, gate passes) | REQ-034, REQ-041 |
+| `.gitignore` | `arbiter-out/` (reports) and `.arbiter/cache.json` (the per-file cache), so neither is ever scanned as source or committed | REQ-033, REQ-038 |
+| `NOTICE`, `LICENSES/README.md` | the statement that the Apache-2.0 licence of this repository does not extend to `arbiter/` | REQ-035 |
+| `docs/arbiter-integration.md`, `docs/release-notes-2026-10-09.md` | the handbook and these notes; `docs/` is an allowed root path | REQ-045 |
+| `make_ai.py`, `omni_graph.py`, `omni_mcp.py`, `.ai/graph-viewer/viewer.html` | the CLI, graph, MCP and viewer code behind every command named above | REQ-031 to REQ-044 |
+| `tests/` | thirteen test files, new or extended (adopt loop, Arbiter install and update, doctor MCP probe and posture, gate rules, graph findings and impact, requirement aliases, archive and completion, `omni test run`, the viewer) | REQ-031 to REQ-044 |
+| `.ai/requirements/requirements.json`, `.ai/failures/failure-ledger.json`, `CHANGELOG.md`, `.ai/project-map.md`, `.ai/context-brief.md` | the fifteen requirements (all completed), the six defects (FAIL-010 to FAIL-015, all fixed), one changelog entry per requirement, the project map and the brief's pointer to the handbook | REQ-031 to REQ-045 |
+
+The commands that did not exist before this date: `omni adopt
+--with-arbiter`, `omni arbiter install | baseline | update`, `omni doctor
+--json`, `omni requirement archive | renumber`, `omni requirement complete
+--no-arbiter-check`, `omni graph impact`, `omni graph findings`, `omni test
+run`; inside the subtree, `arbiter gate --format annotations | --github`,
+`arbiter scan --no-cache | --verify-cache`, `arbiter dashboard`.
 
 ## For an adopter
 

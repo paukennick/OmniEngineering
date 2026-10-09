@@ -460,6 +460,15 @@ def _entropy(s: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
+# A value shaped like an environment-variable name: upper-case letters, digits
+# and underscores only, starting with a letter. Credentials mix cases or carry
+# punctuation; `OMNI_GRAPH_SEMANTIC_API_KEY` is the name of where one lives.
+_ENV_VAR_NAME = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
+# A symbol that says it holds the NAME of something (`API_KEY_ENV`,
+# `token_env_var`, `secret_name`), not the thing itself.
+_NAME_HOLDER_SUFFIX = re.compile(r"(?i)(?:_env|_env_var|_envvar|_var|_name|_key_name)$")
+
+
 def _credential_finding(f, text: str, offset: int, name: str, value: str,
                         test_material: bool, quoted: bool) -> Finding | None:
     """Shared judgement for a credential-shaped assignment.
@@ -470,6 +479,14 @@ def _credential_finding(f, text: str, offset: int, name: str, value: str,
     """
     val_s = (value or "").strip()
     if not val_s or _PLACEHOLDER.match(val_s):
+        return None
+    # `SEMANTIC_API_KEY_ENV = "OMNI_GRAPH_SEMANTIC_API_KEY"` names the variable
+    # the key is read FROM; the value is an identifier, not a credential
+    # (FAIL-050: reported as a hardcoded credential on OmniEngineering's own
+    # scan). An upper-case identifier with underscores has two character
+    # classes and enough entropy to pass the gates below, so it is excluded by
+    # shape, and so is a symbol whose suffix says it holds a name, not a value.
+    if _ENV_VAR_NAME.match(val_s) or _NAME_HOLDER_SUFFIX.search(name):
         return None
     # `access_key_status = "Inactive"` and `secretName: tls-cert` hold a status
     # and a reference. The keyword matched; the suffix says what it holds.

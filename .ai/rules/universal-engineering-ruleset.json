@@ -43,6 +43,7 @@
     "classification_banner": "",
     "allowed_root_paths": [
       "arbiter",
+      "arbiter-out",
       "arbiter.yaml"
     ]
   },

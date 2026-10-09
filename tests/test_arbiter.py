@@ -3823,7 +3823,7 @@ def test_every_probe_declares_a_scope_we_understand():
     from arbiter.probes import REGISTRY
     from arbiter.adapters import register_adapters
     register_adapters()
-    bad = [p.name for p in REGISTRY if p.scope not in ("file", "repo")]
+    bad = [p.name for p in REGISTRY if p.scope not in ("file", "repo", "change")]
     assert bad == [], f"probes with an unrecognised scope: {bad}"
 
 

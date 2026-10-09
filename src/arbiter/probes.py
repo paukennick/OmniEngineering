@@ -33,6 +33,11 @@ class ProbeContext:
     graph: list[Resource] = field(default_factory=list)
     config: dict = field(default_factory=dict)
     system: dict = field(default_factory=dict)
+    # Repo id -> relative posix paths changed since the base of a `--changed`
+    # scan. Empty in a full scan, which is how a change-scoped probe tells
+    # "nothing changed" from "nobody asked about a change" (REQ-038).
+    changed: dict[str, set[str]] = field(default_factory=dict)
+    changed_since: str | None = None
 
     def repo_ids(self) -> list[str]:
         return [r.id for r in self.repos]
@@ -59,6 +64,10 @@ class Probe:
     # suppressions the repository contains -- so a subset gives a wrong answer
     # rather than a partial one. Those are reported as not assessed in an
     # incremental scan, never as a pass.
+    # "change" means the probe reads a small, fixed set of files it names
+    # itself (a ledger, a registry) plus the set of changed paths, so a
+    # partial scan is its natural habitat and a full scan is answered with the
+    # empty change. It runs in both modes.
     #
     # Conservative by default: a probe is "repo" unless it is known not to be.
     scope: str = "repo"
@@ -88,6 +97,14 @@ class Probe:
     cacheable: bool = False
     cache_context: Callable[["ProbeContext"], str] | None = None
 
+
+    # A probe's own answer to "is there anything here for me to check": a
+    # ledger to read, a registry to compare against. Consulted after the
+    # stack and multi-repo checks. Saying no records the probe as not
+    # applicable, which leaves the coverage denominator; it must never be
+    # used for a dependency this machine lacks (that is `prevented`).
+    applies: Callable[[ProbeContext], tuple[bool, str]] | None = None
+
     def prevented(self) -> tuple[bool, str]:
         """A dependency this machine lacks. Different fact from `applicable`:
         the probe had a question to answer here and could not. It stays in
@@ -107,6 +124,10 @@ class Probe:
             present = set(getattr(ctx.inventory, "stacks", set()) or set())
             if not (set(self.stacks) & present):
                 return False, f"no {'/'.join(self.stacks)} detected in target"
+        if self.applies is not None:
+            ok, why = self.applies(ctx)
+            if not ok:
+                return False, why
         return True, ""
 
 
@@ -1902,6 +1923,129 @@ def probe_house_rules_ast(ctx: ProbeContext) -> list[Finding]:
 register(Probe(
     name="house_rules_ast", scope="file", cacheable=True, dimensions=["quality", "security"],
     checks=1, run=probe_house_rules_ast, modules=["tree_sitter_language_pack"],
+))
+
+
+# ===========================================================================
+# governance: the failure ledger against the change (REQ-038)
+# ===========================================================================
+#
+# A repository that keeps a failure ledger has written down, per defect, which
+# files it lived in and which test guards against its return. That is a
+# contract the next change can break in two ways without any test failing:
+# touch an affected file of a still-open failure without touching its guard,
+# or let the guard of a fixed failure quietly disappear. Neither is visible
+# to a test runner, because the first is a test that was not run and the
+# second is a test that no longer exists.
+
+_LEDGER = ".ai/failures/failure-ledger.json"
+_OPEN_STATUSES = ("open", "mitigated")
+
+
+def _read_ledger(repo_path: str) -> list[dict]:
+    import json
+    try:
+        data = json.loads((Path(repo_path) / _LEDGER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    entries = data.get("failures") if isinstance(data, dict) else None
+    return [e for e in (entries or []) if isinstance(e, dict)]
+
+
+def _test_file(ref: str) -> str:
+    """The file half of `tests/test_x.py::test_y`, as a posix path."""
+    return str(ref).split("::", 1)[0].strip().replace("\\", "/")
+
+
+def _has_failure_ledger(ctx: ProbeContext) -> tuple[bool, str]:
+    if any((Path(r.path) / _LEDGER).is_file() for r in ctx.repos):
+        return True, ""
+    return False, f"no failure ledger at {_LEDGER}; nothing to govern"
+
+
+def _open_failures_untested(repo, entries: list[dict], changed: set[str]) -> list[Finding]:
+    out: list[Finding] = []
+    for e in entries:
+        if str(e.get("status") or "").lower() not in _OPEN_STATUSES:
+            continue
+        fid = str(e.get("id") or "?")
+        tests = [_test_file(t) for t in (e.get("regression_tests") or [])]
+        if any(t in changed for t in tests):
+            # The guard moved with the change; that is the contract honoured.
+            continue
+        for raw in e.get("affected") or []:
+            path = str(raw).replace("\\", "/")
+            if path not in changed:
+                continue
+            out.append(Finding(
+                rule_id="arbiter/governance.open-failure-untested",
+                title=f"{fid} is {e.get('status')} and {path} changed without its regression test",
+                dimension="drift", severity="medium", confidence="high",
+                repo_id=repo.id, probe="governance",
+                location=Location(path=path, logical=fid, repo_id=repo.id),
+                description=(f"The failure ledger lists {path} as affected by {fid}, which is "
+                             f"still {e.get('status')}. This change touches the file and none of "
+                             f"the entry's regression tests ({', '.join(tests) or 'none recorded'})."),
+                remediation=(f"Change or add the regression test named by {fid} in the same "
+                             f"change, or close the entry if the failure is fixed."),
+                evidence=str(e.get("title") or fid),
+                tags=["governance"],
+            ))
+    return out
+
+
+def _regression_tests_missing(repo, entries: list[dict]) -> list[Finding]:
+    out: list[Finding] = []
+    for e in entries:
+        if str(e.get("status") or "").lower() != "fixed":
+            continue
+        fid = str(e.get("id") or "?")
+        for ref in e.get("regression_tests") or []:
+            file_part = _test_file(ref)
+            if not file_part or (Path(repo.path) / file_part).is_file():
+                continue
+            out.append(Finding(
+                rule_id="arbiter/governance.regression-test-missing",
+                title=f"{fid} is fixed but its regression test file {file_part} is gone",
+                dimension="drift", severity="medium", confidence="high",
+                repo_id=repo.id, probe="governance",
+                location=Location(path=_LEDGER, logical=fid, repo_id=repo.id),
+                description=(f"{fid} ({e.get('title') or 'untitled'}) names {ref} as the test "
+                             f"that keeps it fixed, and {file_part} is not in the tree. "
+                             "Nothing guards against the failure returning."),
+                remediation=("Restore or rename the test and point regression_tests at it, "
+                             "or record a no_test_reason in the ledger entry."),
+                evidence=str(ref),
+                tags=["governance"],
+            ))
+    return out
+
+
+def probe_governance(ctx: ProbeContext) -> list[Finding]:
+    """The failure ledger, held against the change.
+
+    Two checks. `open-failure-untested` needs the change set and is silent in
+    a full scan: the question is about what this change touched. `regression-
+    test-missing` is a fact about the tree and runs in both modes. The probe
+    is change-scoped because it reads only the ledger and the changed paths,
+    so a partial scan is a complete answer rather than a wrong one.
+    """
+    out: list[Finding] = []
+    for repo in ctx.repos:
+        entries = _read_ledger(repo.path)
+        if not entries:
+            continue
+        changed = {str(p).replace("\\", "/") for p in ctx.changed.get(repo.id, set())}
+        if changed:
+            out.extend(_open_failures_untested(repo, entries, changed))
+        out.extend(_regression_tests_missing(repo, entries))
+    return out
+
+
+register(Probe(
+    name="governance", scope="change", dimensions=["drift"], checks=2,
+    run=probe_governance, applies=_has_failure_ledger,
+    scope_reason="this check reads the failure ledger and the changed paths",
 ))
 
 

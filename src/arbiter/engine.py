@@ -187,6 +187,7 @@ def run_scan(
     # facts about the repository rather than about the diff. What narrows is
     # which files the probes are shown. See incremental.py.
     scan_scope: dict = {"mode": "full"}
+    changed_set: dict[str, set[str]] = {}
     if changed_since or only_files:
         from .incremental import git_changed, narrow
         selected: dict[str, set[str]] = {}
@@ -217,6 +218,7 @@ def run_scan(
         scan_scope = {"mode": "partial", **stats}
         scan_scope["basis"] = (f"changed since {changed_since}" if changed_since
                                else "an explicit file list")
+        scan_scope["changed_since"] = changed_since
         if changed_since and only_files:
             scan_scope["basis"] = f"changed since {changed_since}, plus an explicit file list"
 
@@ -243,7 +245,8 @@ def run_scan(
     if profiles:
         run_config["quality"] = resolve_quality_config(config, profiles)
 
-    ctx = ProbeContext(repos=repos, inventory=inv, graph=graph, config=run_config, system=manifest)
+    ctx = ProbeContext(repos=repos, inventory=inv, graph=graph, config=run_config, system=manifest,
+                       changed=changed_set, changed_since=changed_since)
 
     disabled = set((config.get("probes") or {}).get("disable") or []) | set(skip or [])
     enabled_only = set(only or []) or None
@@ -264,7 +267,7 @@ def run_scan(
             oc.status, oc.reason = "skipped", "disabled in configuration"
             outcomes.append(oc)
             continue
-        if scan_scope["mode"] == "partial" and probe.scope != "file":
+        if scan_scope["mode"] == "partial" and probe.scope not in ("file", "change"):
             # Not run against a subset, because the answer would be wrong
             # rather than merely incomplete. Recorded as not-assessed so it
             # stays in the coverage denominator.
@@ -340,6 +343,20 @@ def run_scan(
         for f in findings:
             if f.location.path and f.location.path not in changed_set.get(f.repo_id, set()):
                 f.tags.append("outside-this-change")
+    if changed_since:
+        # Every finding in the change is attributed to the requirement ids the
+        # commits since the base cite, so a report can be read per requirement
+        # (REQ-038). Findings in context files are not: they were not
+        # introduced under any of these ids.
+        from .incremental import requirement_ids_since, requirement_prefix
+        for r in repos:
+            ids = requirement_ids_since(r.path, changed_since, prefix=requirement_prefix(r.path))
+            if not ids:
+                continue
+            in_change = changed_set.get(r.id, set())
+            for f in findings:
+                if f.repo_id == r.id and f.location.path in in_change:
+                    f.tags.extend(f"req:{i}" for i in ids)
 
     from .learn import apply as apply_knowledge
     calibration = apply_knowledge(findings, knowledge)

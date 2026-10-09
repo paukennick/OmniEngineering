@@ -78,6 +78,56 @@ def counts_by_severity(findings: list[Finding]) -> dict[str, int]:
     return out
 
 
+REQ_TAG = "req:"
+UNATTRIBUTED = "unattributed"
+
+
+def requirement_rows(findings: list[Finding]) -> list[tuple[str, dict[str, int], list[str]]]:
+    """Findings grouped by the requirement their commits cited (REQ-038).
+
+    One row per `req:<ID>` tag, counts by severity and the first three titles.
+    Findings in the change that carry no requirement tag land in an
+    `unattributed` row; findings tagged outside-this-change are not in the
+    change and are left out. Empty unless some finding carries a tag, so a
+    report with no attribution to make prints nothing. Titles only -- a
+    summary table is read by people who may not be cleared for the evidence.
+    """
+    if not any(t.startswith(REQ_TAG) for f in findings for t in f.tags):
+        return []
+    groups: dict[str, list[Finding]] = defaultdict(list)
+    for f in findings:
+        ids = [t[len(REQ_TAG):] for t in f.tags if t.startswith(REQ_TAG)]
+        if ids:
+            for rid in ids:
+                groups[rid].append(f)
+        elif "outside-this-change" not in f.tags:
+            groups[UNATTRIBUTED].append(f)
+    rows = []
+    ordered = sorted(k for k in groups if k != UNATTRIBUTED)
+    if UNATTRIBUTED in groups:
+        ordered.append(UNATTRIBUTED)
+    for key in ordered:
+        members = groups[key]
+        counts = counts_by_severity(members)
+        titles = list(dict.fromkeys(m.title for m in members))[:3]
+        rows.append((key, counts, titles))
+    return rows
+
+
+def requirement_block(findings: list[Finding], heading: str = "## By requirement") -> list[str]:
+    """The Markdown rendering of `requirement_rows`, or nothing."""
+    rows = requirement_rows(findings)
+    if not rows:
+        return []
+    L = [heading, "", "| Requirement | " + " | ".join(s.capitalize() for s in SEV_ORDER) + " | First titles |",
+         "|---|" + "---|" * len(SEV_ORDER) + "---|"]
+    for key, counts, titles in rows:
+        shown = "; ".join(t.replace("|", "\\|") for t in titles)
+        L.append(f"| `{key}` | " + " | ".join(str(counts[s]) for s in SEV_ORDER) + f" | {shown} |")
+    L.append("")
+    return L
+
+
 def _bluf_lines(report: Report) -> list[str]:
     """What this report can and cannot claim, worst news first.
 
@@ -363,6 +413,7 @@ def render_markdown(report: Report) -> str:
     L.append("|" + "---|" * len(SEV_ORDER))
     L.append("| " + " | ".join(str(counts[s]) for s in SEV_ORDER) + " |")
     L.append("")
+    L.extend(requirement_block(active))
 
     if sc.dimensions:
         gaps: dict[str, list[str]] = defaultdict(list)

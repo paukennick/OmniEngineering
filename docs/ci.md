@@ -78,11 +78,15 @@ arbiter gate . --changed origin/main --baseline .arbiter/baseline.json
 Every probe declares a scope. **file** means every finding depends only on the
 file it is in — a hardcoded secret is a secret whether or not the rest of the
 tree was read. **repo** means the answer depends on relationships between
-files, and a subset-based answer is not weaker, it is false.
+files, and a subset-based answer is not weaker, it is false. **change** means
+the probe reads a few files it names itself plus the changed paths — the
+`governance` probe, which holds the failure ledger against the change — so a
+partial scan is the question it was built for, and it runs in both modes.
 
-In a partial scan the file-scoped probes run, and the repo-scoped ones are
-recorded as skipped with the partial scan named as the reason — so they stay in
-the coverage denominator as not-assessed rather than vanishing. The files read
+In a partial scan the file-scoped and change-scoped probes run, and the
+repo-scoped ones are recorded as skipped with the partial scan named as the
+reason — so they stay in the coverage denominator as not-assessed rather than
+vanishing. The files read
 are the changed ones plus dependency manifests, lockfiles, CI workflows and
 Terraform, which is where a rule genuinely reasons about a file it is not
 reporting on.
@@ -125,6 +129,11 @@ green gate that read no files at all.
 Findings that land in a context file the branch did not touch are tagged
 `outside-this-change`, so a pull request is not blamed for a lockfile it never
 opened. The baseline is what keeps them out of the gate.
+
+Findings in the change are tagged `req:<ID>` for every requirement id the
+commits since the base cite (the prefix comes from the registry's
+`requirement_id_prefix`, `REQ` by default), and the Markdown report and the
+pull-request comment summarise them in a **By requirement** table.
 
 ## A ready-made workflow
 

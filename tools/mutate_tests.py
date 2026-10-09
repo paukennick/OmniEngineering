@@ -116,6 +116,19 @@ MUTATIONS = [
         new='    return _sha("", getattr(probe, "version", ""), ARBITER_VERSION, code_digest(), context)',
         test="tests/test_cache.py::test_a_config_change_invalidates_the_cache",
     ),
+    Mutation(
+        name="governance-ignores-status",
+        defect="The open-failure rule stops reading the ledger entry's status, so "
+               "a fixed failure whose affected file changed is reported as if it "
+               "were still open and every change to a once-broken file is noise.",
+        path="src/arbiter/probes.py",
+        old='        if str(e.get("status") or "").lower() not in _OPEN_STATUSES:\n'
+            '            continue\n        fid = str(e.get("id") or "?")\n'
+            '        tests = [_test_file(t)',
+        new='        fid = str(e.get("id") or "?")\n'
+            '        tests = [_test_file(t)',
+        test="tests/test_governance.py::test_a_changed_affected_file_without_its_regression_test_is_reported",
+    ),
 ]
 
 

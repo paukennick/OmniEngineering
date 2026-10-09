@@ -27,9 +27,14 @@ Every probe declares a `scope`:
                 these can be answered from a subset, and a subset-based answer
                 is not a weaker answer, it is a false one.
 
-In a partial scan, file-scoped probes run against the selected files and
-repo-scoped probes are recorded as **skipped, with the partial scan named as
-the reason**. They are not run against a subset and they are not quietly
+  * `"change"` — the probe reads a small, fixed set of files it names itself
+                (the failure ledger, the requirement registry) and the set of
+                changed paths. A partial scan is its natural habitat; a full
+                scan is answered with the empty change. It runs in both modes.
+
+In a partial scan, file-scoped and change-scoped probes run against the
+selected files and repo-scoped probes are recorded as **skipped, with the
+partial scan named as the reason**. They are not run against a subset and they are not quietly
 dropped: they land in the coverage denominator as not-assessed, which is
 exactly what they are.
 
@@ -64,10 +69,20 @@ abstention flows into the gate claim, the grade, and every dimension, so:
 
 A green partial scan therefore cannot be quoted as a green repository, which is
 the whole point.
+
+## Which requirement a finding belongs to
+
+The commits since the base cite requirement ids ("(REQ-038)" in a subject).
+`requirement_ids_since` collects them, and the engine tags every finding in
+the change with `req:<ID>` for each, so a report can be read per requirement
+rather than per file. The prefix comes from the registry's
+`requirement_id_prefix` when the repository keeps one.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -166,6 +181,40 @@ def git_changed(repo_path: str, ref: str) -> tuple[set[str], str]:
         if code == 0:
             paths.update(p.strip() for p in out.split("\n") if p.strip())
     return paths, ""
+
+
+REGISTRY_PATH = ".ai/requirements/requirements.json"
+
+
+def requirement_prefix(repo_path: str, default: str = "REQ") -> str:
+    """The id prefix the repository's requirement registry declares, or the default."""
+    try:
+        data = json.loads((Path(repo_path) / REGISTRY_PATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+    prefix = data.get("requirement_id_prefix") if isinstance(data, dict) else None
+    return str(prefix) if prefix else default
+
+
+def requirement_ids_since(repo_path: str, ref: str, prefix: str = "REQ") -> list[str]:
+    """Requirement ids cited by the commits in `ref..HEAD`, sorted and unique.
+
+    Empty when git is unavailable, the path is not a repository or the ref is
+    unknown: an attribution the tool cannot make is left unmade, never
+    guessed. Uncommitted work cites nothing, which is right -- it has no
+    commit message yet.
+    """
+    if not (Path(repo_path) / ".git").exists():
+        return []
+    try:
+        r = subprocess.run(["git", "-C", repo_path, "log", f"{ref}..HEAD", "--format=%B"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=120)
+    except Exception:  # noqa: BLE001 - no git, or a hung one, both mean "unknown"
+        return []
+    if r.returncode != 0:
+        return []
+    return sorted(set(re.findall(rf"\b{re.escape(prefix)}-\d+\b", r.stdout)))
 
 
 def narrow(inv: Inventory, selected: dict[str, set[str]]) -> tuple[Inventory, dict]:

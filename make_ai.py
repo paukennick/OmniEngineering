@@ -1507,6 +1507,28 @@ def validate_cli_entrypoints(report: DoctorReport) -> None:
         report.pass_check("Installable omni console script is configured")
 
 
+def validate_vendored_workspaces(report: DoctorReport) -> None:
+    """A vendored workspace (a subtree with its own `.ai/omni-version.json`) carries copies of the CLI.
+    When those copies differ from this checkout's, the two tools are running different code in one
+    repository and nobody can tell which is authoritative; the fix is the mechanism adoption already
+    has, `omni update`, run from inside the vendored directory against this root."""
+    for workspace in vendored_workspace_dirs():
+        rel = workspace.relative_to(Path(".").resolve()).as_posix()
+        drifted = [
+            name for name in ADOPTION_CLI_FILES
+            if (workspace / name).is_file() and Path(name).is_file()
+            and (workspace / name).read_bytes() != Path(name).read_bytes()
+        ]
+        if drifted:
+            report.warning(
+                f"Vendored workspace {rel}/ carries tooling that differs from this checkout's "
+                f"({', '.join(drifted[:3])}{' ...' if len(drifted) > 3 else ''}); "
+                f"run `cd {rel} && python omni update --source ..` to bring it level"
+            )
+        else:
+            report.pass_check(f"Vendored workspace {rel}/ runs the same tooling as this checkout")
+
+
 def validate_omni_version_present(report: DoctorReport) -> None:
     if read_omni_version_file() is None:
         report.warning(
@@ -2998,6 +3020,7 @@ def build_doctor_report() -> DoctorReport:
     validate_recent_commits_tracked(report)
     validate_cli_entrypoints(report)
     validate_mcp_registrations(report)
+    validate_vendored_workspaces(report)
     validate_omni_version_present(report)
     return report
 
@@ -3638,6 +3661,35 @@ def all_requirement_ids() -> set[str]:
     return ids
 
 
+def vendored_workspace_dirs(root: Path | None = None) -> list[Path]:
+    """Directories below the root that carry their own OmniEngineering workspace: a vendored subtree, a
+    monorepo package, an adopter checked in beside the template. Recognised by `.ai/omni-version.json`,
+    which `omni adopt` writes and nothing else does. The root itself is never listed."""
+    base = (root or Path(".")).resolve()
+    found: list[Path] = []
+    for marker in sorted(base.glob("*/.ai/omni-version.json")) + sorted(base.glob("*/*/.ai/omni-version.json")):
+        workspace = marker.parent.parent
+        if workspace != base and not any(part in DEFAULT_MAP_EXCLUDED_DIRS for part in workspace.relative_to(base).parts):
+            found.append(workspace)
+    return found
+
+
+def vendored_requirement_ids() -> set[str]:
+    """Requirement ids owned by vendored workspaces. Their commits cite their own registries, and a
+    subtree pull brings those messages here; the gate must not read them as typos in this registry."""
+    ids: set[str] = set()
+    for workspace in vendored_workspace_dirs():
+        for path in sorted((workspace / ".ai" / "requirements").glob("requirements*.json")):
+            try:
+                registry = load_json(path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            for item in registry.get("requirements", []) if isinstance(registry, dict) else []:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    ids.add(item["id"])
+    return ids
+
+
 def find_requirement(requirement_id: str) -> tuple[Path, dict[str, Any], dict[str, Any]] | None:
     wanted = normalize_requirement_id(requirement_id)
     for path in (REQUIREMENTS_PATH, REQUIREMENTS_ARCHIVE_PATH):
@@ -4008,7 +4060,7 @@ def _gate_check_requirement_registry_entry(rule: dict[str, Any], validation: dic
         cited.update(pattern.findall(Path("CHANGELOG.md").read_text(encoding="utf-8", errors="replace")))
     if not cited:
         return None
-    unknown = sorted(cited - all_requirement_ids())
+    unknown = sorted(cited - all_requirement_ids() - vendored_requirement_ids())
     if not unknown:
         return None
     rule_id = str(rule["id"])

@@ -4,6 +4,15 @@
 
 ### Completed
 
+- `REQ-034` | Process | A vendored workspace is recognised, not fought. A directory below the root that
+  carries its own `.ai/omni-version.json` (the `arbiter` subtree on the `arbiter` branch, a monorepo
+  package, an adopter checked in beside the template) is a workspace of its own: the requirement-id gate
+  accepts ids from its registry, so a `git subtree pull` whose commits cite `REQ-0xx` no longer needs a
+  waiver here; `omni doctor` warns when its copies of the CLI differ from this checkout's and names the
+  `omni update` command that brings them level; and CI gains a job that runs a vendored Arbiter's own
+  suite, claim-integrity and mutation checks whenever `arbiter/pyproject.toml` exists, so the copy
+  cannot rot unnoticed. Dependency folders (`vendor/`, `node_modules/`) are never read as workspaces.
+
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install
     --source SOURCE` pip-install `arbiter-eval[mcp]` (editable from a local checkout, or from the GitHub

@@ -8,6 +8,14 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- Closed REQ-024 with the pull-request check deliberately advisory. The
+  Windows matrix has now run for real and found two defects (FAIL-035,
+  FAIL-039), which was its purpose; the remaining criterion, a required
+  status check on `main`, was weighed and declined: it only blocks a merge
+  button a sole committer already reads, and the strict form would make
+  every pull request stale after each nightly training commit. The
+  decision is recorded on the requirement, to revisit when a second
+  committer or automated merging arrives. (REQ-024)
 - Arbiter now gates its own pull requests. `pr-check` installs the five
   external analyzers and the `api` extra on Linux, then runs `arbiter gate .`
   under this repository's `arbiter.yaml` after the suite, the integrity and

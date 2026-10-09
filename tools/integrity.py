@@ -282,6 +282,81 @@ def check_ci13_enforced() -> bool:
     return any(f.startswith("cross_file:") for f in failures)
 
 
+# ---------------------------------------------------------------------------
+# Direction 4 — CI-14: the adapter memo misses when any inventory file changes
+# ---------------------------------------------------------------------------
+#
+# An external analyzer is memoised whole (src/arbiter/cache.py, ARB-047), on
+# the strength of one claim: the key covers every file the tool could have
+# read, so a replay is only ever served for the tree the tool actually saw.
+# This runs a fake adapter -- a probe marked `external`, counting its calls
+# -- through the engine three times: a cold scan must run it, a repeat scan
+# must replay it, and a one-byte change to one inventory file must run it
+# again. Then the claim is broken deliberately (the inputs digest pinned to a
+# constant) and the check must fail, or it proves nothing.
+
+CI14_REPLAY = "replayed from cache (nothing the tool reads changed)"
+
+
+def check_adapter_memo() -> tuple[bool, str]:
+    """CI-14 over a fake adapter. Returns (ok, why not)."""
+    from arbiter.engine import run_scan
+    from arbiter.policy import load_config
+    from arbiter.probes import REGISTRY, Probe
+
+    calls = {"n": 0}
+
+    def fake_adapter(ctx):
+        calls["n"] += 1
+        return [Finding(rule_id="synthetic/adapter.planted", title="planted", probe="fake_adapter",
+                        repo_id="root", location=Location(path="a.py", start_line=1),
+                        evidence="e")]
+
+    probe = Probe(name="fake_adapter", dimensions=["quality"], checks=1,
+                  run=fake_adapter, external=True)
+    REGISTRY.append(probe)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            (root / "a.py").write_bytes(b"x = 1\n")
+            (root / "b.py").write_bytes(b"y = 2\n")
+            config = dict(load_config(None))
+            config["cache"] = {"enabled": True}
+            kw = dict(only=["fake_adapter"], use_adapters=False,
+                      cache_path=str(Path(tmp) / "cache.json"))
+            run_scan([str(root)], config, **kw)
+            if calls["n"] != 1:
+                return False, f"a cold scan ran the adapter {calls['n']} time(s), not once"
+            rep = run_scan([str(root)], config, **kw)
+            oc = next(p for p in rep.probes if p.name == "fake_adapter")
+            if calls["n"] != 1 or oc.reason != CI14_REPLAY:
+                return False, "a repeat scan of the same tree did not replay the adapter"
+            if [f.rule_id for f in rep.findings] != ["synthetic/adapter.planted"]:
+                return False, "the replay did not carry the adapter's findings"
+            (root / "b.py").write_bytes(b"y = 2\n\n")      # one byte, in the other file
+            run_scan([str(root)], config, **kw)
+            if calls["n"] != 2:
+                return False, "one changed inventory file was served from the memo"
+    finally:
+        REGISTRY.remove(probe)
+    return True, ""
+
+
+def check_ci14_enforced() -> bool:
+    """CI-14 must catch a memo whose key ignores the tree. With the inputs
+    digest pinned to a constant, the changed file would be replayed, and the
+    check must say so."""
+    import arbiter.cache as cache_module
+    real = cache_module.adapter_inputs_digest
+    cache_module.adapter_inputs_digest = lambda inv, repos: "constant"
+    try:
+        ok, _why = check_adapter_memo()
+    finally:
+        cache_module.adapter_inputs_digest = real
+    return not ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probes", type=int, default=5)
@@ -334,7 +409,16 @@ def main() -> int:
     print(f"    enforced            : {'yes' if enforced13 else 'NO'} "
           "(a synthetic cross-file probe is caught)")
 
-    ok = not failures and not unenforced and not failures13 and enforced13
+    ok14, why14 = check_adapter_memo()
+    enforced14 = check_ci14_enforced()
+    print(f"\n  Direction 4 — CI-14: a changed inventory file misses the adapter memo")
+    print(f"    cold, replay, edit  : {'PASS' if ok14 else 'FAIL'}"
+          + (f" ({why14})" if why14 else ""))
+    print(f"    enforced            : {'yes' if enforced14 else 'NO'} "
+          "(a memo keyed without the tree is caught)")
+
+    ok = (not failures and not unenforced and not failures13 and enforced13
+          and ok14 and enforced14)
     print(f"\n  Verdict: {'PASS' if ok else 'FAIL'}\n")
     return 0 if ok else 1
 

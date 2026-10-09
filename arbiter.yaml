@@ -18,3 +18,15 @@ suppress:
     path: "arbiter/**"
     reason: "vendored Arbiter subtree; gated by its own arbiter.yaml (cd arbiter && arbiter gate .)"
     expires: 2099-01-01
+  # The adopt loop plants a request with TLS verification switched off, on
+  # purpose, and proves the gate rejects it; the literal lives in the CI script
+  # and in the test that mirrors it. Scanning this repository must not report the planted
+  # defect as this repository's own.
+  - rule: "arbiter/authored.security-check-disabled"
+    path: ".github/workflows/ci.yml"
+    reason: "the adopt loop plants a TLS-verification-off request to prove completion.arbiter_gate rejects it (REQ-041)"
+    expires: 2027-10-01
+  - rule: "arbiter/authored.security-check-disabled"
+    path: "tests/test_adopt_loop.py"
+    reason: "the adopt-loop test plants a TLS-verification-off request to prove the gate rejects it (REQ-041)"
+    expires: 2027-10-01

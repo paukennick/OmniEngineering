@@ -365,6 +365,29 @@
       ],
       "prevention_notes": "The adopt loop now runs end to end in CI and in a test from an empty directory, so a regression in adopt itself fails the build.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-016",
+      "date": "2026-10-09",
+      "title": "Every action in ci.yml was pinned by a mutable major tag",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "Code scanning on upstream OmniEngineering PR #3 raised four 'Action actions/checkout pinned to a mutable ref (v5)' notes (arbiter/supply.unpinned-action) on .github/workflows/ci.yml; the same finding was an open entry (FAIL-046) in the vendored Arbiter's ledger.",
+      "how_detected": "code scanning on upstream OmniEngineering PR #3 (Arbiter SARIF)",
+      "root_cause": "The workflow referenced actions/checkout@v5, actions/setup-python@v5, actions/cache@v4 and github/codeql-action/upload-sarif@v3 by major tag; a tag can be moved, so the workflow ran whatever the tag pointed at on the day.",
+      "requirement": "REQ-041",
+      "affected": [
+        ".github/workflows/ci.yml"
+      ],
+      "fix_summary": "Every uses: line names the tag's commit SHA with the tag in a trailing comment (checkout fbc6f399, setup-python a26af69b, cache 0057852b, upload-sarif 9f759ee6, resolved with git ls-remote --tags).",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A workflow file has no unit test; Arbiter's supply.unpinned-action rule in the self-gate is the check that catches a return to tags.",
+      "prevention_rules": [
+        "completion.arbiter_gate"
+      ],
+      "prevention_notes": "Arbiter's supply-chain probe reports a mutable action ref on every gate run; the SARIF upload makes it a code-scanning alert.",
+      "recurrence_of": ""
     }
   ]
 }

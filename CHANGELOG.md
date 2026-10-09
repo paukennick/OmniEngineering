@@ -4,6 +4,15 @@
 
 ### Completed
 
+- `REQ-041` | CI / repo hygiene | What the upstream's first CI run on the pull request reported, fixed:
+  every action in `.github/workflows/ci.yml` names its tag's commit SHA with the tag in a trailing
+  comment (`actions/checkout` fbc6f399 v5, `actions/setup-python` a26af69b v5, `actions/cache` 0057852b
+  v4, `github/codeql-action/upload-sarif` 9f759ee6 v3), so the workflow runs what was reviewed
+  (FAIL-016); and `arbiter.yaml` suppresses `arbiter/authored.security-check-disabled` on the adopt
+  loop's CI script and its test, where `verify=False` is the planted defect the loop proves the gate
+  rejects, each with a reason and an expiry, so the scan no longer reports the plant as this
+  repository's own and the SARIF upload stops raising it as an alert.
+
 - `REQ-051` | Code understanding | A finding traces to the requirement that introduced its line. `omni graph
   build` blames every finding's line (`git blame --porcelain -L`, one call per distinct file with all of its
   flagged lines, at the commit the report scanned, falling back to HEAD and then the working tree), records

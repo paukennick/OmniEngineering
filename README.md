@@ -1237,21 +1237,28 @@ not pass; `--json` gives the same as data. `--impacted` resolves the change set
 (`--changed BASE`, else the merge-base `omni gate` uses) through the graph and picks
 the suites whose files, paths or declared coverage meet a changed file or a test
 file the walk reached, directory prefixes included; without a graph it says so and
-runs every suite. The completion rulepack ships a `completion.tests` rule as the
-worked example of wiring it into the gate:
+runs every suite. The completion rulepack ships `completion.tests` as a required
+rule, so `omni gate` runs it:
 
 ```json
 {
   "id": "completion.tests",
-  "severity": "recommended",
+  "severity": "required",
   "validation": {"type": "command", "run": "omni test run --impacted", "when_changed": ["**"],
                  "ignore": [".ai/**", "*.md", "docs/**"], "timeout": 900}
 }
 ```
 
-It is `recommended`, and `omni gate` executes only `required` rules, so the
-pre-commit hook stays fast by default; an adopter whose suite registry is complete
-promotes it to `required` and every commit then runs the tests its change reaches.
+Every commit then runs the suites its change reaches; with no suite registered
+there is nothing to run, which passes. The gate keeps the hook fast another way:
+a `command` rule that passed is memoised in the gate state file
+(`.git/omni-gate-last.json`) on the changed paths its own globs select, their
+mtimes and sizes, and its run text, and the next `omni gate` reports it as
+`passed (memo)` instead of re-running it until a scoped file changes. A failed
+rule is never memoised; `omni gate --no-memo` forces every rule; the non-hook
+output prints each command rule's duration (`ran     completion.tests 41.2s PASS`).
+Skip the rule for one change with `omni waive completion.tests --reason "..."`,
+or set its severity to `recommended` to switch it off.
 
 ### MCP server: the graph as tools for any assistant
 

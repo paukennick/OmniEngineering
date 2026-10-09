@@ -60,6 +60,17 @@ skipped when present and never overwritten:
 It also records `{source, version}` under `arbiter` in
 `.ai/omni-version.json` so doctor can tell when the installed Arbiter drifts.
 
+The workspace the adopter copies in brings one more required command rule of
+its own, `completion.tests` (REQ-047): `omni gate` runs `omni test run
+--impacted`, so the registered suites the change reaches must pass before a
+change is reported complete. The adopted suite registry starts empty, which is
+"nothing to run" and a pass; register the project's suites with `omni test
+detect --write` or `omni test add` and the rule has teeth. A passed command
+rule is memoised on its scoped change set, so the hook re-runs it only when a
+file the rule watches changes. To skip it for one change, record a waiver
+(`omni waive completion.tests --reason "..."`); to switch it off, set its
+`severity` to `recommended` in `.ai/rules/completion-workflow.json`.
+
 ## 4. The loop, edit by edit
 
 ```
@@ -69,6 +80,8 @@ edit code
 omni gate  (pre-commit hook, Claude Stop hook, CI)
    ├─ completion.changelog_gate, completion.requirements_registry, controlled.requirement_id, data.privacy ...
    ├─ impact: 2 requirement(s), 1 failure(s), 1 suite(s) ...        ← graph impact of the change set
+   ├─ completion.tests ──► omni test run --impacted                 ← the registered suites the change reaches
+   │     ran     completion.tests 41.2s PASS   /   memo    completion.tests passed (memo)
    └─ completion.arbiter_gate ──► arbiter gate . --changed <base> --baseline .arbiter/baseline.json
                                     ├─ probes + analyzers on the changed files
                                     ├─ governance probe: reads .ai/failures/failure-ledger.json
@@ -97,6 +110,16 @@ Each arrow is enforced, not advisory:
   scopes Arbiter to the change set (`--changed {base}`) so a pre-commit run
   reads only what changed; probes that need the whole repository are
   reported as skipped for that run, never as clean.
+- **The gate runs the suites.** `completion.tests` is `required` (REQ-047):
+  `omni test run --impacted` runs the registered suites that the graph says the
+  change reaches (every suite without a graph, nothing when none is
+  registered) and a failure or timeout fails the gate. Each `command` rule
+  that passed is memoised in the gate state file (`.git/omni-gate-last.json`)
+  on the changed paths its own globs select, their mtimes and sizes, and its
+  run text; the next `omni gate`, hook or not, reports it as `passed (memo)`
+  and does not re-run it until a scoped file changes. A failed rule is never
+  memoised; `omni gate --no-memo` forces every rule; the non-hook output
+  prints each command rule's duration.
 - **Arbiter reads the ledger.** The `governance` probe is applicable only when
   `.ai/failures/failure-ledger.json` exists (otherwise it is recorded as not
   applicable, which does not count against coverage). Its two rules are
@@ -176,8 +199,8 @@ entries, failures, test files, suites, rules and commits the change reaches,
 each with the hop count and the edge it came by. `omni gate` prints the
 one-line summary. `omni test run --impacted` runs only the registered suites
 that intersect that set (all suites, with a note, when there is no graph);
-`omni test run NAME` runs one; the recommended example rule `completion.tests`
-shows how to make it a required gate.
+`omni test run NAME` runs one; the required rule `completion.tests` makes the
+first of these a gate (section 4).
 
 ## 7. Pull-request output
 
@@ -196,7 +219,7 @@ evidence.
 |---|---|
 | Tests, doctor & gate (3 OS × Python 3.10/3.12) | the workspace tooling on every platform; with a vendored Arbiter present and an interpreter that meets `requires-python` from `arbiter/pyproject.toml`, Arbiter is installed, doctor starts both MCP servers for real and the gate runs `arbiter gate`; the SARIF is uploaded |
 | Vendored Arbiter subtree tests | the subtree's own pytest suite, claim-integrity and mutation checks, so the copy cannot rot |
-| Adopt loop | `omni adopt --with-arbiter` into a temp directory, commit, plant `verify=False`, `omni gate` fails naming `completion.arbiter_gate`, fix it, `omni gate` passes: the seam works end to end, not just each half |
+| Adopt loop | `omni adopt --with-arbiter` into a temp directory, commit, plant `verify=False`, `omni gate` fails naming `completion.arbiter_gate` alone while the required `completion.tests` runs and passes with no suite registered, fix it, `omni gate` passes with the tests rule run again: the seam works end to end, not just each half |
 | Optional graph extra | the five-layer graph builds and the viewer renders |
 
 Arbiter's own `pr-check` runs its suite, integrity and mutation tools, the
@@ -233,6 +256,7 @@ Every piece has a switch so a misbehaving one is disabled, not reverted.
 | Piece | Switch | Risk it bounds |
 |---|---|---|
 | Arbiter gate inside `omni gate` | remove or set `severity: recommended` on `completion.arbiter_gate` | a red Arbiter blocking unrelated work |
+| Test suites inside `omni gate` | `omni waive completion.tests --reason "..."` for one change; `severity: recommended` on `completion.tests` to switch it off; `omni gate --no-memo` to distrust the memo | a slow or flaky suite blocking unrelated work; a stale pass record |
 | Baseline | delete `.arbiter/baseline.json` (every finding is new again) | hidden debt; doctor warns when it is stale, the posture line shows `existing high+` |
 | Completion check | `--no-arbiter-check REASON` | a stale report blocking a completion; the reason is recorded |
 | Findings in the graph | `findings_report: null` in `.ai/graph-config.json` | a bad report polluting the graph |

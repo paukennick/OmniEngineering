@@ -1,6 +1,7 @@
 """REQ-041: the adopt loop proven end to end. A fresh directory adopts the workspace with Arbiter wired in
 (`omni adopt --with-arbiter`), becomes a git repository, gets a real defect planted (`verify=False`), and
-`omni gate` must fail on `completion.arbiter_gate` alone; the defect is fixed and the same gate must pass.
+`omni gate` must fail on `completion.arbiter_gate` alone while the required `completion.tests` rule (REQ-047)
+runs and passes with no suite registered; the defect is fixed and the same gate must pass.
 This mirrors the adopt-loop job in .github/workflows/ci.yml, so a break in the loop shows up here before
 it shows up there. The loop needs the real `arbiter` and `git` on PATH and is skipped without them; the
 adoption regression test below runs everywhere. Stdlib only. Run with:
@@ -30,6 +31,7 @@ import make_ai as ma  # noqa: E402
 GATE_TIMEOUT = 180  # seconds per `omni gate` call; the rule's own `arbiter gate` command runs verbatim inside it
 SEED_ID = "REQ-900"  # the adopted registry is a copy of this repository's, so REQ-001 already exists there
 PLANTED = "import requests\n\n\ndef fetch(url):\n    return requests.get(url, verify=False)\n"
+TESTS_RULE_RAN = r"(?m)^  ran +completion\.tests \d+\.\ds PASS$"  # the gate's per-rule line for a run, passed command rule
 
 
 class TestAdoptCopiesNestedCliFilesWithTheirDirectory(unittest.TestCase):
@@ -145,10 +147,14 @@ class TestAdoptLoop(unittest.TestCase):
             f"rules other than {ma.ARBITER_GATE_RULE_ID} failed, so the Arbiter verdict is masked\n\n{self.diagnosis()}",
         )
         self.assertTrue((self.root / ma.ARBITER_GATE_OUT_DIR / "report.sarif").is_file(), self.diagnosis())
+        # REQ-047: the tests rule is required, and the adopted registry has no suites, so `omni test run
+        # --impacted` has nothing to run and passes; it must have run (not been skipped or memoised) here.
+        self.assertRegex(output, TESTS_RULE_RAN, f"completion.tests did not run and pass\n\n{self.diagnosis()}")
 
         app.write_text(PLANTED.replace("verify=False", "verify=True"), encoding="utf-8")
         output = self.gate(0)
         self.assertIn("omni gate: PASS", output, self.diagnosis())
+        self.assertRegex(output, TESTS_RULE_RAN, f"the fix changed src/app.py, so completion.tests must run again\n\n{self.diagnosis()}")
 
 
 if __name__ == "__main__":

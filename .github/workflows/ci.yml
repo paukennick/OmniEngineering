@@ -156,7 +156,9 @@ jobs:
 
   # The adopt loop proven end to end, not by unit tests of its parts: a fresh directory adopts the
   # workspace with Arbiter wired in, becomes a git repository, gets a real defect planted, `omni gate`
-  # has to fail on completion.arbiter_gate alone, the defect is fixed, and the same gate has to pass.
+  # has to fail on completion.arbiter_gate alone (the required completion.tests rule, REQ-047, runs
+  # `omni test run --impacted` and passes: the adopted registry has no suites), the defect is fixed,
+  # and the same gate has to pass.
   # tests/test_adopt_loop.py mirrors this script. Like vendored-arbiter, this exists only when the
   # subtree does; on branches without it (main) it is skipped, not failed.
   adopt-loop:
@@ -224,6 +226,18 @@ jobs:
           if grep "^  - " <<<"$out" | grep -qv "^  - completion.arbiter_gate"; then
             echo "::error::rules other than completion.arbiter_gate failed, so the Arbiter verdict is masked (output above)"; exit 1
           fi
+          # REQ-047: completion.tests is required; with no suite registered it has nothing to run and passes,
+          # and the gate's per-rule line proves it ran rather than being skipped or memoised.
+          if ! grep -Eq "^  ran +completion\.tests [0-9]+\.[0-9]s PASS$" <<<"$out"; then
+            echo "::error::the required completion.tests rule did not run and pass on a repository with no suites (output above)"; exit 1
+          fi
           sed -i 's/verify=False/verify=True/' src/app.py
-          python omni gate
-          echo "adopt loop OK: the planted verify=False failed completion.arbiter_gate alone, and the fix passed the gate"
+          out=$(python omni gate 2>&1); code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::expected omni gate to pass after the fix, got exit $code (output above)"; exit 1
+          fi
+          if ! grep -Eq "^  ran +completion\.tests [0-9]+\.[0-9]s PASS$" <<<"$out"; then
+            echo "::error::the fix changed src/app.py, so completion.tests had to run again and pass (output above)"; exit 1
+          fi
+          echo "adopt loop OK: the planted verify=False failed completion.arbiter_gate alone, completion.tests passed with no suites, and the fix passed the gate"

@@ -204,16 +204,20 @@ class TestImpactedSelection(Workspace):
 
 
 class TestCompletionRule(unittest.TestCase):
-    """The shipped `completion.tests` rule: a worked example of wiring `omni test run --impacted` into the gate."""
+    """The shipped `completion.tests` rule: required since REQ-047, so `omni gate` runs `omni test run --impacted`
+    and memoises the pass on the scoped change set."""
 
     def rule(self) -> dict:
         pack = json.loads((ROOT / ".ai/rules/completion-workflow.json").read_text(encoding="utf-8"))
         return next(r for r in pack["rules"] if r["id"] == "completion.tests")
 
-    def test_the_rule_is_recommended_and_declares_a_command_validation(self) -> None:
+    def test_the_rule_is_required_and_declares_a_command_validation(self) -> None:
         rule = self.rule()
-        self.assertEqual(rule["severity"], "recommended")
-        self.assertTrue(rule["statement"])
+        self.assertEqual(rule["severity"], "required")
+        self.assertIn("--impacted", rule["statement"])
+        self.assertIn("memo", rule["statement"])
+        self.assertIn("omni waive completion.tests", rule["statement"])
+        self.assertNotIn("Recommended here", rule["statement"])
         validation = rule["validation"]
         self.assertEqual(validation["type"], "command")
         self.assertEqual(validation["run"], "omni test run --impacted")
@@ -221,11 +225,11 @@ class TestCompletionRule(unittest.TestCase):
         self.assertEqual(validation["ignore"], [".ai/**", "*.md", "docs/**"])
         self.assertEqual(validation["timeout"], 900)
 
-    def test_a_recommended_rule_is_not_executed_by_the_gate(self) -> None:
+    def test_the_required_rule_is_executed_by_the_gate(self) -> None:
         cwd = Path.cwd()
         os.chdir(ROOT)
         self.addCleanup(os.chdir, cwd)
-        self.assertNotIn("completion.tests", {str(r["id"]) for r in ma.gate_rules()})
+        self.assertIn("completion.tests", {str(r["id"]) for r in ma.gate_rules()})
 
     def test_the_rulepack_still_validates(self) -> None:
         cwd = Path.cwd()

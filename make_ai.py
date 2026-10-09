@@ -5532,14 +5532,26 @@ def _gate_check_content_forbidden(rule: dict[str, Any], validation: dict[str, An
     return f"{rule_id}: {example}"
 
 
+def _gate_command_argv(argv: list[str]) -> list[str] | None:
+    """The argv a `command` rule actually runs. `omni` in a run text is this CLI: the `omni` script beside
+    this module, run by the interpreter running the gate, so a rule such as `omni test run --impacted`
+    works where `omni` is not on PATH (an adopted repository runs `python omni ...`) and never picks up
+    some other omni that happens to be installed. Anything else resolves through PATH; None when it
+    cannot (REQ-047)."""
+    if argv[0] == "omni":
+        sibling = Path(__file__).resolve().parent / "omni"
+        if sibling.is_file():
+            return [sys.executable, str(sibling), *argv[1:]]
+    executable = shutil.which(argv[0])
+    return None if executable is None else [executable, *argv[1:]]
+
+
 def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], changed: set[str], base: str | None) -> str | None:
     """Run the project's own check -- a scanner, a test suite, a linter -- as a gate. The command runs only
     when a changed path matches `when_changed` (minus `ignore`), `{base}` in `run` is the gate's base commit,
     and a non-zero exit, a timeout, or an executable that is not on PATH all fail the rule: an unrunnable
     check is not a pass. The last lines of its output ride along so the failure says why, not just that."""
-    when = [str(p) for p in validation.get("when_changed", ["**"])]
-    ignore = [str(p) for p in validation.get("ignore", [])]
-    if not any(matches_any(p, when) and not matches_any(p, ignore) for p in changed):
+    if not arbiter_rule_scope(rule, changed):
         return None
     rule_id = str(rule["id"])
     run = str(validation.get("run", "")).strip()
@@ -5552,8 +5564,8 @@ def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], change
         return f"{rule_id}: cannot parse `{rendered}`: {exc}"
     if not argv:
         return f"{rule_id}: command validation has no `run` to execute"
-    executable = shutil.which(argv[0])
-    if executable is None:
+    command = _gate_command_argv(argv)
+    if command is None:
         return f"{rule_id}: `{argv[0]}` is not on PATH, so `{rendered}` could not run (an unrunnable check is not a pass)"
     try:
         timeout = float(validation.get("timeout", 600))
@@ -5561,7 +5573,7 @@ def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], change
         timeout = 600.0
     try:
         completed = subprocess.run(
-            [executable, *argv[1:]], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return f"{rule_id}: `{rendered}` did not finish within {timeout:.0f}s"
@@ -5598,12 +5610,42 @@ def gate_waivers(base: str | None) -> dict[str, str]:
     return waivers
 
 
-def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None = None) -> tuple[list[str], list[str]]:
+def gate_rule_memo_signature(rule: dict[str, Any], changed: set[str], base: str | None = None) -> str:
+    """What a passed `command` rule's memo is keyed on (REQ-047): the rule's run text (with `{base}`
+    rendered, so a moved base re-runs it) and, for every changed path the rule's own globs select
+    (`arbiter_rule_scope`), its mtime and size. Any edit to a scoped file changes the signature; an edit
+    to a file the rule ignores (the registry, the changelog, a document) does not."""
+    validation = rule.get("validation") if isinstance(rule, dict) else None
+    validation = validation if isinstance(validation, dict) else {}
+    parts = ["run=" + str(validation.get("run", "")).strip().replace("{base}", base or "HEAD")]
+    for path in sorted(arbiter_rule_scope(rule, changed)):
+        try:
+            stat = Path(path).stat()
+            parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
+        except OSError:
+            parts.append(f"{path}:gone")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def gate_evaluate(
+    changed: set[str],
+    waivers: dict[str, str],
+    base: str | None = None,
+    memo: dict[str, str] | None = None,
+    outcomes: list[dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Every gated rule against the change set. `memo` (rule id -> memo signature, from the gate state
+    file) is consulted and updated in place for `command` rules: one whose stored signature matches the
+    current scoped change set is reported as passed (memo) and not re-run, a pass records its signature,
+    and a failure removes any record, so the memo never applies to a rule that failed (REQ-047). With
+    `memo=None` nothing is memoised. `outcomes`, when given, collects one record per rule."""
     failures: list[str] = []
     waived: list[str] = []
     for rule in gate_rules():
         validation = rule["validation"]
         vtype = validation.get("type")
+        rule_id = str(rule["id"])
+        outcome: dict[str, Any] = {"rule": rule_id, "type": vtype, "status": "pass", "duration_s": 0.0}
         if vtype == "co_changed":
             failure = _gate_check_co_changed(rule, validation, changed)
         elif vtype == "requirement_registry_entry":
@@ -5611,22 +5653,71 @@ def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None =
         elif vtype == "content_forbidden":
             failure = _gate_check_content_forbidden(rule, validation, changed)
         elif vtype == "command":
+            if not arbiter_rule_scope(rule, changed):
+                outcome["status"] = "skipped"
+                if outcomes is not None:
+                    outcomes.append(outcome)
+                continue
+            signature = gate_rule_memo_signature(rule, changed, base)
+            if memo is not None and memo.get(rule_id) == signature:
+                outcome["status"] = "memo"
+                if outcomes is not None:
+                    outcomes.append(outcome)
+                continue
+            started = time.monotonic()
             failure = _gate_check_command(rule, validation, changed, base)
+            outcome["duration_s"] = round(time.monotonic() - started, 1)
+            if memo is not None:
+                if failure is None:
+                    memo[rule_id] = signature
+                else:
+                    memo.pop(rule_id, None)
         else:
             continue
         if failure is None:
+            if outcomes is not None:
+                outcomes.append(outcome)
             continue
-        rule_id = str(rule["id"])
         if rule_id in waivers:
             waived.append(f"{rule_id}: waived ({waivers[rule_id]})")
-            continue
-        failures.append(failure)
+            outcome["status"] = "waived"
+        else:
+            failures.append(failure)
+            outcome["status"] = "fail"
+        if outcomes is not None:
+            outcomes.append(outcome)
     return failures, waived
 
 
 def gate_state_file() -> Path | None:
     git_dir = git_run("rev-parse", "--git-dir")
     return Path(git_dir.strip()) / "omni-gate-last.json" if git_dir else None
+
+
+def gate_state_load() -> dict[str, Any]:
+    """The gate state file's contents (`{"signature": ..., "memo": {rule id: signature}}`), or {}."""
+    state_file = gate_state_file()
+    if state_file is None:
+        return {}
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def gate_state_save(update: dict[str, Any]) -> None:
+    """Merge `update` into the gate state file; the hook's failure signature and the per-rule memo share
+    the file, so neither write may drop the other's key. Best effort: a read-only .git is not an error."""
+    state_file = gate_state_file()
+    if state_file is None:
+        return
+    state = gate_state_load()
+    state.update(update)
+    try:
+        state_file.write_text(json.dumps(state), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def gate_signature(failures: list[str], changed: set[str]) -> str:
@@ -5667,11 +5758,27 @@ def run_gate(args: argparse.Namespace) -> int:
             pass
     failures: list[str] = []
     waived: list[str] = []
+    outcomes: list[dict[str, Any]] = []
     if changed:
         doctor = build_doctor_report()
         failures.extend(f"doctor: {message}" for message in doctor.errors)
-        rule_failures, waived = gate_evaluate(changed, gate_waivers(base), base)
+        # REQ-047: a command rule that passed on exactly this scoped change set is not re-run (hook or
+        # not) until a scoped file changes; --no-memo forces every rule, and still records the passes.
+        stored = gate_state_load().get("memo")
+        memo: dict[str, str] = {} if getattr(args, "no_memo", False) or not isinstance(stored, dict) else dict(stored)
+        rule_failures, waived = gate_evaluate(changed, gate_waivers(base), base, memo=memo, outcomes=outcomes)
         failures.extend(rule_failures)
+        gate_state_save({"memo": memo})
+
+    if not args.hook:
+        for outcome in outcomes:
+            if outcome["type"] != "command" or outcome["status"] == "skipped":
+                continue
+            if outcome["status"] == "memo":
+                print(f"  memo    {outcome['rule']} passed (memo)")
+            else:
+                verdict = {"pass": "PASS", "fail": "FAIL", "waived": "FAIL (waived)"}[outcome["status"]]
+                print(f"  ran     {outcome['rule']} {outcome['duration_s']:.1f}s {verdict}")
 
     if not failures:
         if not args.hook:
@@ -5689,18 +5796,11 @@ def run_gate(args: argparse.Namespace) -> int:
         print(message)
         return 1
 
-    state_file = gate_state_file()
     signature = gate_signature(failures, changed)
-    if state_file is not None:
-        try:
-            if json.loads(state_file.read_text(encoding="utf-8")).get("signature") == signature:
-                return 0
-        except (OSError, ValueError):
-            pass
-        try:
-            state_file.write_text(json.dumps({"signature": signature}), encoding="utf-8")
-        except OSError:
-            pass
+    if gate_state_file() is not None:
+        if gate_state_load().get("signature") == signature:
+            return 0
+        gate_state_save({"signature": signature})
     print(message, file=sys.stderr)
     return 2
 
@@ -6493,6 +6593,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check that changed files carry the changelog/registry updates the completion rulepack requires.",
     )
     gate_parser.add_argument("--hook", action="store_true", help="Claude Code Stop-hook mode: read hook JSON on stdin, exit 2 to block.")
+    gate_parser.add_argument("--no-memo", action="store_true",
+                             help="Run every command rule, ignoring the per-rule pass memo in the gate state file (REQ-047).")
 
     waive_parser = subparsers.add_parser("waive", help="Record an explicit, auditable waiver for a gate rule.")
     waive_parser.add_argument("rule", help="Gate rule ID, e.g. completion.changelog_gate.")

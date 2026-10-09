@@ -814,6 +814,72 @@
       "risk_notes": [
         "history lives under the gitignored output directory"
       ]
+    },
+    {
+      "id": "REQ-043",
+      "category": "process",
+      "title": "Sync the workspace tooling from OmniEngineering (posture, baseline, impact, test run, findings in the graph, aliases)",
+      "description": "Pull the OmniEngineering CLI and rulepacks as of 2026-10-09 into this repository with omni update, rewrite the completion.arbiter_gate rule to pass the committed baseline and emit json, sarif and pr-comment, cut and commit .arbiter/baseline.json, and record the installed Arbiter version in .ai/omni-version.json.",
+      "priority": "high",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "omni_graph.py",
+        "omni_mcp.py",
+        ".ai/rules/completion-workflow.json",
+        ".arbiter/baseline.json",
+        ".ai/omni-version.json"
+      ],
+      "acceptance_criteria": [
+        "omni doctor passes with the posture line",
+        "omni gate runs arbiter gate with the baseline",
+        "omni graph findings works on this repository"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md"
+      ],
+      "risk_notes": [
+        "none beyond a 3-way merge of template-managed files"
+      ]
+    },
+    {
+      "id": "REQ-044",
+      "category": "process",
+      "title": "Requirements use the ARB prefix so they never collide with an OmniEngineering registry",
+      "description": "Two registries on the REQ prefix collide the moment Arbiter is vendored into OmniEngineering (each had reached number 035 with a different requirement). omni requirement renumber --prefix ARB renumbers every requirement keeping its number, writes id_aliases so commits and ledger entries that cite REQ-### stay valid, and rewrites the governance text; code, tests and git history are untouched.",
+      "priority": "high",
+      "status": "proposed",
+      "minimum_access_scope": [
+        ".ai/requirements/requirements.json",
+        ".ai/requirements/requirements-archive.json",
+        ".ai/failures/failure-ledger.json",
+        "CHANGELOG.md",
+        ".ai/project-context.md",
+        "README.md",
+        "docs/"
+      ],
+      "acceptance_criteria": [
+        "every requirement id reads ARB-###",
+        "id_aliases map every old id",
+        "omni doctor and omni gate pass",
+        "commits citing REQ-### still satisfy the gate"
+      ],
+      "validation_required": [
+        "python omni doctor",
+        "python omni gate",
+        "python omni failure check"
+      ],
+      "documentation_required": [
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "risk_notes": [
+        "only governance text is rewritten"
+      ]
     }
   ]
 }

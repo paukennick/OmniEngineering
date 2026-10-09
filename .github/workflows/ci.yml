@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # A vendored Arbiter (the `arbiter` branch) registers `arbiter mcp` in .mcp.json and a command rule
+      # A vendored Arbiter (under arbiter/ on main since 2026-10-09) registers `arbiter mcp` in .mcp.json and a command rule
       # that runs `arbiter gate`; doctor starts that server for real and the gate runs that command, so
       # the package has to be installed wherever the subtree is present. Arbiter's interpreter floor is
       # read from its own pyproject (`requires-python`, >=3.11 today), so this stays right when the
@@ -113,7 +113,7 @@ jobs:
       - name: Render the offline viewer
         run: python omni graph view --all --mode 2d
 
-  # A vendored Arbiter (the `arbiter` branch carries it as a subtree under arbiter/) must not rot
+  # A vendored Arbiter (a subtree under arbiter/, on main since 2026-10-09) must not rot
   # silently: the main job never looks inside arbiter/tests. This job exists only when the subtree
   # does; on branches without it (main) it is skipped, not failed.
   vendored-arbiter:

@@ -56,7 +56,7 @@ expectations.
 The correct protection against repackaging confusion is trademark and identity
 policy, not blocking people from using, forking, or modifying the workspace.
 
-## arbiter/ (the `arbiter` branch only)
+## arbiter/ (vendored on `main` since 2026-10-09)
 
 Not Apache-2.0. The vendored Arbiter under `arbiter/` is licensed under
 `arbiter/LICENSE` (all rights reserved, Nicholas J Pauken). Nothing in this

@@ -30,7 +30,7 @@ through.
    while adopting, and `omni arbiter install --source SOURCE` adds it to a
    repository adopted earlier. The source is a local checkout (editable
    install) or the GitHub URL. Arbiter is proprietary and not on PyPI.
-2. **Vendored as a subtree** (this repository's `arbiter` branch). The whole
+2. **Vendored as a subtree** (this repository's `main`, since 2026-10-09). The whole
    Arbiter checkout sits under `arbiter/` with its own `.ai/` workspace. The
    root workspace recognises it as a vendored workspace: the requirement-id
    gate accepts ids from its registry, doctor checks its CLI copies are level

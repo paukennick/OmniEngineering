@@ -1207,7 +1207,7 @@
       "id": "REQ-035",
       "category": "Process",
       "title": "Publish Arbiter into this repository as a subtree on the arbiter branch",
-      "description": "The arbiter branch vendors Arbiter's source under arbiter/ as a git subtree with its full history, so the workspace and the evaluator can be read, cloned and run from one place. main carries only the workspace. The branch allows arbiter as a root path, exempts arbiter/** from the data.privacy content check (Arbiter's fixture corpus is planted secrets by design), excludes arbiter/ from this repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not extend to arbiter/, and wires Arbiter to gate this repository too. Arbiter keeps its own LICENSE and NOTICE.md under arbiter/.",
+      "description": "The arbiter branch vendors Arbiter's source under arbiter/ as a git subtree with its full history, so the workspace and the evaluator can be read, cloned and run from one place. main carries only the workspace. The branch allows arbiter as a root path, exempts arbiter/** from the data.privacy content check (Arbiter's fixture corpus is planted secrets by design), excludes arbiter/ from this repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not extend to arbiter/, and wires Arbiter to gate this repository too. Arbiter keeps its own LICENSE and NOTICE.md under arbiter/. Merged to main on 2026-10-09 (pull request #3).",
       "priority": "low",
       "status": "completed",
       "minimum_access_scope": [
@@ -1243,7 +1243,7 @@
       "risk_notes": [
         "Mixed licensing on one branch: Apache-2.0 for the workspace",
         "all rights reserved for arbiter/",
-        "stated at the root. Not merged to main."
+        "stated at the root. Merged to main on 2026-10-09 (pull request #3)."
       ]
     },
     {

@@ -61,7 +61,8 @@
               "pending",
               "proposed",
               "blocked",
-              "needs_review"
+              "needs_review",
+              "withdrawn"
             ]
           },
           "minimum_access_scope": {

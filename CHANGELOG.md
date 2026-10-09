@@ -4,12 +4,28 @@
 
 ### Completed
 
-- `REQ-034` | Process | Arbiter published into this repository on the `arbiter` branch, as a git subtree
+- `REQ-034` | Process | A vendored workspace is recognised, not fought. A directory below the root that
+  carries its own `.ai/omni-version.json` (the `arbiter` subtree on the `arbiter` branch, a monorepo
+  package, an adopter checked in beside the template) is a workspace of its own: the requirement-id gate
+  accepts ids from its registry, so a `git subtree pull` whose commits cite `REQ-0xx` no longer needs a
+  waiver here; `omni doctor` warns when its copies of the CLI differ from this checkout's and names the
+  `omni update` command that brings them level; and CI gains a job that runs a vendored Arbiter's own
+  suite, claim-integrity and mutation checks whenever `arbiter/pyproject.toml` exists, so the copy
+  cannot rot unnoticed. Dependency folders (`vendor/`, `node_modules/`) are never read as workspaces.
+  - Also restored `withdrawn` in the requirements schema enum. REQ-031 added it to the CLI vocabulary and
+    meant to add it to the schema, but that edit was overwritten before the commit and the test guarding
+    the two (`test_schema_enum_matches_the_cli_vocabulary`) was misread as the known environment failure
+    in the hook test. Recorded as FAIL-011: from now on a failing suite is read by test name, never by
+    count.
+
+- `REQ-035` | Process | Arbiter published into this repository on the `arbiter` branch, as a git subtree
   under `arbiter/` with its full history (`git subtree pull --prefix=arbiter ... main` takes later
-  changes). The branch adds `arbiter` to the ruleset's allowed root paths and exempts `arbiter/**` from
-  the `data.privacy` content check, because Arbiter's fixture corpus is planted secrets by design.
-  Arbiter keeps its own licence and notice under `arbiter/`; `main` is unchanged and carries only the
-  workspace.
+  changes). The branch allows `arbiter` as a root path, exempts `arbiter/**` from the `data.privacy`
+  content check (Arbiter's fixture corpus is planted secrets by design), keeps `arbiter/` out of this
+  repository's code graph (the subtree has its own), states at the root that the Apache-2.0 grant does not
+  extend to `arbiter/`, and wires Arbiter to gate this repository too: `arbiter gate . --changed` runs
+  inside `omni gate`, and the `arbiter` MCP server is registered beside `omni`. `main` is unchanged and
+  carries only the workspace.
 
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install

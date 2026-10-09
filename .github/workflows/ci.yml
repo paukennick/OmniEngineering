@@ -65,3 +65,45 @@ jobs:
 
       - name: Render the offline viewer
         run: python omni graph view --all --mode 2d
+
+  # A vendored Arbiter (the `arbiter` branch carries it as a subtree under arbiter/) must not rot
+  # silently: the main job never looks inside arbiter/tests. This job exists only when the subtree
+  # does; on branches without it (main) it is skipped, not failed.
+  vendored-arbiter:
+    name: Vendored Arbiter subtree tests (ubuntu-latest, Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Is Arbiter vendored here?
+        id: vendored
+        run: |
+          if [ -f arbiter/pyproject.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Set up Python
+        if: steps.vendored.outputs.present == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the vendored Arbiter with its test and MCP extras
+        if: steps.vendored.outputs.present == 'true'
+        run: python -m pip install -e "./arbiter[dev,mcp]"
+
+      - name: Run Arbiter's suite, claim-integrity and mutation checks
+        if: steps.vendored.outputs.present == 'true'
+        working-directory: arbiter
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -m pytest -q -rs
+          python tools/integrity.py
+          python tools/mutate_tests.py
+
+      - name: The vendored workspace runs the same tooling as this checkout
+        if: steps.vendored.outputs.present == 'true'
+        run: python omni doctor
+

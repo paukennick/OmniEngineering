@@ -8,6 +8,15 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 
 ### 2026-10-09
 
+- FAIL-050 (ARB-048) | The secrets probe no longer reports an environment-variable
+  NAME assigned to a credential-named symbol (`SEMANTIC_API_KEY_ENV =
+  "OMNI_GRAPH_SEMANTIC_API_KEY"`): a value shaped like an upper-case identifier,
+  or a symbol whose suffix says it holds a name (`_ENV`, `_VAR`, `_NAME`), is not
+  a credential; a live-looking key beside it still fires. Found by code scanning
+  on upstream OmniEngineering pull request #3.
+- FAIL-046 (ARB-049) | Every action in `pr-check.yml` and `train.yml` is pinned to
+  its tag's commit SHA, the tag kept in a trailing comment, so the workflows run
+  what was reviewed rather than what the tag points at on the day.
 - ARB-052 | A finding in a `--changed` gate is tagged `req:<ID>` for the requirements
   cited by the commits since the base that touched its own file, marked
   `req-scope:commits`. Before, every finding in the change carried every id the

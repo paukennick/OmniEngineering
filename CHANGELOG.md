@@ -12,6 +12,10 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 - ARB-046 | (in progress) The suite runs in a fast and a slow tier and CI shards them.
 - ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.
 - ARB-048 | (in progress) The doc-drift probe ignores generated output, git-ignored paths and cross-repository references.
+- FAIL-042 (ARB-048) | The stub detector counts a marker only at the function body's own
+  indentation: a `pass` under `except`, `if` or `with` is a branch, not a body. Found by
+  code scanning on OmniEngineering pull request #5, where `store_mcp_probe_memo`, which
+  writes a file and swallows a failed write, was reported as a stub.
 - ARB-049 | (in progress) Arbiter's own debt is worked through the review flow and the baseline is re-cut.
 - ARB-050 | (in progress) `arbiter_review_draft` proposes marks with reasons and never records one.
 - ARB-051 | (in progress) The air-gapped bundle without the analyzers; the hosted API's limiter shared across processes.

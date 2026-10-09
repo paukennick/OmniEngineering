@@ -1101,6 +1101,31 @@
       ],
       "prevention_notes": "A content key is computed from content; file metadata is never a proxy for it. The regression test pins the mtime so it fails on every platform if the memo returns.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-042",
+      "date": "2026-10-09",
+      "title": "The stub detector matched a pass nested under except, so a real function was reported as a stub",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "Code scanning on OmniEngineering PR #5 raised 'store_mcp_probe_memo is a stub' (arbiter/authored.stub-on-production-path) for a function that writes a JSON file and swallows a failed write with except OSError: pass.",
+      "how_detected": "code scanning alert from the SARIF the omni gate uploaded on OmniEngineering PR #5",
+      "root_cause": "_stubs searched the first eight body lines for any marker line (pass, ..., raise NotImplementedError, a temporary constant return) regardless of indentation, so a pass that was the body of a nested except, if or with branch counted as the body of the function.",
+      "requirement": "ARB-048",
+      "affected": [
+        "src/arbiter/authored.py"
+      ],
+      "fix_summary": "_stub_marker_at_body_level counts a marker only at the body's own indentation (the first statement after the docstring); a marker in a nested branch is ignored.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_authored_stub_precision.py::test_a_pass_nested_under_except_is_not_a_stub"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "The regression test holds a function with a nested pass and asserts no stub finding, beside one whose whole body is pass and must still fire.",
+      "recurrence_of": ""
     }
   ]
 }

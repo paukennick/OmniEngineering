@@ -525,13 +525,47 @@ def package_exists(ecosystem: str, name: str, timeout: int = 8) -> bool | None:
     return result
 
 
+
+def _stub_marker_at_body_level(body: str) -> bool:
+    """True when a stub marker is a statement of the function body itself.
+
+    The markers used to be searched anywhere in the first eight lines, so a
+    real function whose early lines held `except OSError:` followed by `pass`
+    was reported as a stub (FAIL-042: `store_mcp_probe_memo` in
+    OmniEngineering's `make_ai.py`, which writes a file and swallows a failed
+    write on purpose). A `pass` under an `except`, an `if` or a `with` is a
+    branch, not a body: only a marker at the body's own indentation, the
+    indentation of its first statement after the docstring, says the function
+    does nothing.
+    """
+    base: int | None = None
+    quote: str | None = None
+    for line in body.split("\n"):
+        stripped = line.strip()
+        if quote is not None:
+            if quote in stripped:
+                quote = None
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        if base is None and stripped[:3] in ('"""', "'''"):
+            if not (len(stripped) >= 6 and stripped.endswith(stripped[:3])):
+                quote = stripped[:3]
+            continue
+        indent = len(line) - len(line.lstrip())
+        if base is None:
+            base = indent
+        if indent == base and _STUB_MARKERS.search(line):
+            return True
+    return False
+
 def _stubs(f, text) -> list[Finding]:
     if f.language != "python" or f.role in ("test", "docs"):
         return []
     out: list[Finding] = []
     for m in _STUB_BODY.finditer(text):
         name, body = m.group("name"), m.group("body")
-        if not _STUB_MARKERS.search(body):
+        if not _stub_marker_at_body_level(body):
             continue
         sensitive = bool(_SENSITIVE_NAME.search(name))
         out.append(Finding(

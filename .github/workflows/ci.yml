@@ -241,3 +241,49 @@ jobs:
             echo "::error::the fix changed src/app.py, so completion.tests had to run again and pass (output above)"; exit 1
           fi
           echo "adopt loop OK: the planted verify=False failed completion.arbiter_gate alone, completion.tests passed with no suites, and the fix passed the gate"
+
+  # The viewer is a page, and the unit tests above only read its template; this job drives the built page in a
+  # real headless Chromium (REQ-048): tests/test_viewer_browser.py builds a graph from a fixture repository
+  # plus a synthetic Arbiter report, opens the viewer, switches to the Findings tab, selects a finding, reads
+  # the source row and the breadcrumb, traces it to its requirement and to its failure-ledger entry, and
+  # switches the colour mode. The test skips itself anywhere Playwright or a Chromium is missing, so it runs
+  # for real only here. The browser download is this job's own dependency: it is cached by Playwright version
+  # (and the cached browser is reused across runs), the install is retried once because it is a network
+  # download, and the job runs on its own so the test matrix stays independent of it. Whether this job becomes
+  # a required check is the integrator's call.
+  viewer-browser:
+    name: Graph viewer in headless Chromium (ubuntu-latest, Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_VERSION: "1.63.0"   # the pin tests/test_viewer_browser.py was written against; the cache key follows it
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install with the [graph] extra (omni graph build needs tree-sitter) and the pinned Playwright
+        run: |
+          python -m pip install '.[graph]'
+          python -m pip install "playwright==${PLAYWRIGHT_VERSION}"
+
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
+
+      # --with-deps also installs Chromium's system libraries, which the cache does not hold, so the step runs
+      # on a cache hit too (the download itself is then skipped). One retry covers a flaky download.
+      - name: Install Chromium for Playwright (retried once)
+        run: |
+          python -m playwright install --with-deps chromium || { echo "first install failed; retrying once"; sleep 15; python -m playwright install --with-deps chromium; }
+
+      - name: Drive the viewer in headless Chromium
+        run: python -m unittest tests.test_viewer_browser -v

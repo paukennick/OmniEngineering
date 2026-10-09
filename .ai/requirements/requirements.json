@@ -1199,7 +1199,8 @@
       "risk_notes": [
         "The CI job needs GitHub Actions enabled on this repository",
         "which it currently is not.",
-        "CI also runs on pushes to the arbiter branch so the vendored-Arbiter job exercises the subtree there."
+        "CI also runs on pushes to the arbiter branch so the vendored-Arbiter job exercises the subtree there.",
+        "The matrix installs a vendored Arbiter when present; without it doctor's live MCP check fails on the arbiter branch (first run, 6/6 jobs)."
       ]
     },
     {

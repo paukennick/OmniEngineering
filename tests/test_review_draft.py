@@ -57,7 +57,8 @@ def _ids(ws) -> list[str]:
 
 
 def _tree(root: Path) -> set[str]:
-    return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()}
+    # as_posix: the assertion compares against "out/review-draft.md" on Windows too (FAIL-043).
+    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
 
 
 def _draft(ws, verdicts, **kw) -> dict:

@@ -1126,6 +1126,31 @@
       ],
       "prevention_notes": "The regression test holds a function with a nested pass and asserts no stub finding, beside one whose whole body is pass and must still fire.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-043",
+      "date": "2026-10-09",
+      "title": "The review-draft test compared a Windows path against a posix string",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "pr-check (windows-latest, 3.11) on PR #6: tests/test_review_draft.py::test_the_knowledge_file_is_byte_identical_after_the_tool failed: {'out\\\\review-draft.md'} != {'out/review-draft.md'}.",
+      "how_detected": "pr-check on PR #6 (windows-latest), read by test name",
+      "root_cause": "The _tree helper built its set with str(path.relative_to(root)), which uses the platform separator; the expected value was written with a forward slash. The Linux run cannot see the difference.",
+      "requirement": "ARB-050",
+      "affected": [
+        "tests/test_review_draft.py"
+      ],
+      "fix_summary": "_tree returns relative_to(root).as_posix(), so the set compares the same on every platform.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_review_draft.py::test_the_knowledge_file_is_byte_identical_after_the_tool"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.verify_target_environment"
+      ],
+      "prevention_notes": "A test that compares path strings builds them with as_posix() or compares Path objects; the Windows cell of pr-check is the control that catches the rest.",
+      "recurrence_of": ""
     }
   ]
 }

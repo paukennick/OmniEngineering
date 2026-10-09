@@ -1,1 +1,0 @@
-{"rule": "controlled.requirement_id", "reason": "The REQ ids cited by commits under arbiter/ belong to Arbiter's own registry (arbiter/.ai/requirements), vendored with its history on this branch; this repository's registry is not the authority for them.", "requirement": null, "date": "2026-10-09"}

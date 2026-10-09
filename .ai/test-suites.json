@@ -15,32 +15,6 @@
         "make_ai.py"
       ],
       "notes": "Layers, failure ledger, why traversal, CLI gates, repo hygiene regressions."
-    },
-    {
-      "id": "arbiter-pytest",
-      "name": "arbiter pytest unit tests",
-      "kind": "unit",
-      "framework": "pytest",
-      "paths": [
-        "arbiter/tests"
-      ],
-      "command": "cd arbiter && python3 -m pytest",
-      "covers": [
-        "arbiter"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "check-writeback",
-      "name": "check writeback (script)",
-      "kind": "validation",
-      "framework": "script",
-      "paths": [
-        "arbiter/tools/check_writeback.sh"
-      ],
-      "command": "",
-      "covers": [],
-      "notes": ""
     }
   ]
 }

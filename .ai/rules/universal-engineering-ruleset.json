@@ -42,7 +42,8 @@
     "require_user_confirmation_for_destructive_actions": true,
     "classification_banner": "",
     "allowed_root_paths": [
-      "arbiter"
+      "arbiter",
+      "arbiter.yaml"
     ]
   },
   "global_operating_principles": {

@@ -19,3 +19,6 @@ build/
 # Editor and assistant tool settings are local
 .idea/
 .serena/
+
+# Arbiter scan output
+arbiter-out/

@@ -12,6 +12,11 @@
   `omni update` command that brings them level; and CI gains a job that runs a vendored Arbiter's own
   suite, claim-integrity and mutation checks whenever `arbiter/pyproject.toml` exists, so the copy
   cannot rot unnoticed. Dependency folders (`vendor/`, `node_modules/`) are never read as workspaces.
+  - Also restored `withdrawn` in the requirements schema enum. REQ-031 added it to the CLI vocabulary and
+    meant to add it to the schema, but that edit was overwritten before the commit and the test guarding
+    the two (`test_schema_enum_matches_the_cli_vocabulary`) was misread as the known environment failure
+    in the hook test. Recorded as FAIL-011: from now on a failing suite is read by test name, never by
+    count.
 
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install

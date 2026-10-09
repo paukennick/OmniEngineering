@@ -241,6 +241,31 @@
       "prevention_rules": [],
       "prevention_notes": "Any GitHub Actions step name or other string value containing a colon needs quoting; run yaml.safe_load locally before pushing a workflow edit.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-011",
+      "date": "2026-10-09",
+      "title": "The withdrawn status reached the CLI but not the schema; the failing test was misread as the known failure",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "test_schema_enum_matches_the_cli_vocabulary failed on main since REQ-031: the schema enum lacked 'withdrawn' while REQUIREMENT_STATUSES had it.",
+      "how_detected": "full suite run before REQ-034, read by test name",
+      "root_cause": "The schema edit was overwritten in the working tree by a shell command that ran in the wrong directory before the REQ-031 commit, and every later suite run reported one failure, which was assumed to be the pre-existing hook test without checking the name.",
+      "requirement": "REQ-031",
+      "affected": [
+        ".ai/schemas/requirements.schema.json"
+      ],
+      "fix_summary": "withdrawn restored in the enum; the existing test now passes.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_requirement_archive.py::TestStatusVocabulary::test_schema_enum_matches_the_cli_vocabulary"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Read a failing suite by test name, never by failure count; a known failure does not license ignoring the next one.",
+      "recurrence_of": ""
     }
   ]
 }

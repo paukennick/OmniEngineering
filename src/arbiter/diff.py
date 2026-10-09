@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .core import Finding, Report, SEV_RANK
+from .core import SEV_RANK, Finding, Report
 
 
 @dataclass

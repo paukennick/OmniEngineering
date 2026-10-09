@@ -326,7 +326,7 @@ def _exclusions(ctx: ProbeContext, repo_id: str) -> list[Finding]:
                     "reasonable; excluding source is how a scanner ends up reporting "
                     "on the tests."
                 ),
-                remediation=f"Confirm each pattern excludes code you meant to exclude.",
+                remediation="Confirm each pattern excludes code you meant to exclude.",
                 evidence=f"{tool}:" + "; ".join(patterns[:6]),
                 controls=["NIST-800-218:PO.3"],
                 tags=["assurance", "exclusion", tool],

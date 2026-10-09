@@ -6,7 +6,6 @@ module-global, so the first scan with adapters made every later
 `use_adapters=False` scan run all five analyzers. The fast test tier paid
 minutes of semgrep for tests that asked for Arbiter's own rules alone.
 """
-from pathlib import Path
 
 from arbiter.engine import run_scan
 from arbiter.policy import load_config

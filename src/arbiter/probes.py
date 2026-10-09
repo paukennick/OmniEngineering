@@ -19,7 +19,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from .core import Finding, Location
 from .graph import Resource
@@ -956,8 +956,6 @@ def probe_quality(ctx: ProbeContext) -> list[Finding]:
     out: list[Finding] = []
     cfg = (ctx.config.get("quality") or {})
     max_file = int(cfg.get("max_file_lines", 800))
-    max_func = int(cfg.get("max_function_lines", 120))
-    max_cx = int(cfg.get("max_complexity", 20))
 
     source_files = [f for f in ctx.inventory.text_files() if f.role in ("source", "iac")]
     test_files = [f for f in ctx.inventory.text_files() if f.role == "test"]
@@ -2015,8 +2013,9 @@ def probe_house_rules_ast(ctx: ProbeContext) -> list[Finding]:
     Structural rather than textual: `(except_clause) @hit` finds bare excepts
     wherever they are formatted, which a regex cannot promise.
     """
-    from . import ast as ts
     import fnmatch
+
+    from . import ast as ts
 
     rules = [r for r in (ctx.config.get("rules") or []) if r.get("type") == "ast_query"]
     if not rules:

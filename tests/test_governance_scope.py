@@ -14,17 +14,23 @@ from __future__ import annotations
 import json
 import subprocess
 
+from helpers import CLEAN_PY, LEAKY_PY, _git_repo
+from test_governance import _commit
+
 from arbiter import incremental
 from arbiter.core import Finding, Location, ProbeOutcome, Report
 from arbiter.diff import render_pr_comment
 from arbiter.engine import run_scan
-from arbiter.incremental import (REQ_SCOPE_COMMITS, REQ_SCOPE_OPEN, cited_ids,
-                                 requirement_ids_by_path, requirement_ids_since,
-                                 requirement_registry)
+from arbiter.incremental import (
+    REQ_SCOPE_COMMITS,
+    REQ_SCOPE_OPEN,
+    cited_ids,
+    requirement_ids_by_path,
+    requirement_ids_since,
+    requirement_registry,
+)
 from arbiter.policy import load_config
 from arbiter.report import render_markdown
-from helpers import CLEAN_PY, LEAKY_PY, _git_repo
-from test_governance import _commit
 
 REGISTRY = ".ai/requirements/requirements.json"
 

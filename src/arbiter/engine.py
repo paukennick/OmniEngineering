@@ -17,7 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .core import Finding, ProbeOutcome, Report, RepoInfo
+from .core import Finding, ProbeOutcome, RepoInfo, Report
 from .graph import build_graph
 from .inventory import acquire_one, build_inventory
 from .policy import (
@@ -27,8 +27,8 @@ from .policy import (
     compute_scorecard,
     evaluate_gate,
 )
-from .scope_notes import apply_scope_notes
 from .probes import REGISTRY, Probe, ProbeContext
+from .scope_notes import apply_scope_notes
 
 ARBITER_VERSION = "0.1.0"
 

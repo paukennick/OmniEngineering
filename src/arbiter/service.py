@@ -506,8 +506,8 @@ def review_draft(report_path: str, output_dir: str, verdicts: list[dict],
     is written, and the draft's first line says so. A person records the marks,
     after reading them, with the CLI and their name.
     """
-    from .ledger import preview_entries
     from .learn import Knowledge
+    from .ledger import preview_entries
     from .review import MARK, render, select
 
     proposals = _proposals(verdicts)

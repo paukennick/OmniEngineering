@@ -18,8 +18,8 @@ from arbiter.policy import load_config
 # ===========================================================================
 
 def test_every_probe_declares_a_scope_we_understand():
-    from arbiter.probes import REGISTRY
     from arbiter.adapters import register_adapters
+    from arbiter.probes import REGISTRY
     register_adapters()
     bad = [p.name for p in REGISTRY if p.scope not in ("file", "repo", "change")]
     assert bad == [], f"probes with an unrecognised scope: {bad}"
@@ -45,8 +45,8 @@ def test_every_shipped_adapter_declares_its_scope_rather_than_inheriting_one():
 
 
 def test_an_adapter_backed_probe_carries_the_scope_its_manifest_declared():
+    from arbiter.adapters import SCOPE_REASON, load_all, register_adapters
     from arbiter.probes import REGISTRY
-    from arbiter.adapters import register_adapters, load_all, SCOPE_REASON
     register_adapters()
     declared = {a.name: a.scope for a in load_all()}
     seen = {p.name: p for p in REGISTRY if p.name in declared}

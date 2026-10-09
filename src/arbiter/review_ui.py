@@ -43,7 +43,6 @@ scan and the review happen in the same sitting.
 """
 from __future__ import annotations
 
-import html
 import json
 from pathlib import Path
 
@@ -292,9 +291,9 @@ window.__APPLY_CMD__ = {json.dumps(apply_cmd)};
 def _getch() -> str:
     """One keypress, without waiting for enter. Falls back to a line read."""
     try:
+        import sys as _sys
         import termios
         import tty
-        import sys as _sys
         fd = _sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:

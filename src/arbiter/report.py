@@ -13,7 +13,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from .core import sev_at_least, SARIF_LEVEL, Finding, Report
+from .core import SARIF_LEVEL, Finding, Report, sev_at_least
 
 SEV_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -721,6 +721,7 @@ def render_html(report: Report) -> str:
  · stacks: {e(', '.join(report.stacks) or 'none detected')} · {report.duration_s:.1f}s · {e(report.started_at)}</p>
 <div class="banner {gate_cls}"><b>{gate_txt}</b></div>
 {grade}
+{bluf_html}
 <div class="cards">{cards}</div>
 <h2>Dimensions</h2><div class="tw"><table>
 <thead><tr><th>Dimension</th><th>Score</th><th>Coverage</th><th>Checks</th><th>Findings</th></tr></thead>

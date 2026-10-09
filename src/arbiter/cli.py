@@ -12,9 +12,14 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, client
+from . import __version__, client, history
 from .ab import (
-    Arm, arm_from_dict, load_ab_spec, render_ab_console, render_ab_html, run_ab,
+    Arm,
+    arm_from_dict,
+    load_ab_spec,
+    render_ab_console,
+    render_ab_html,
+    run_ab,
 )
 from .adapters import register_adapters
 from .core import SEVERITIES, Report
@@ -22,7 +27,6 @@ from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
 from .report import render_annotations, render_console, write_all
-from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
 
@@ -551,10 +555,11 @@ def cmd_ab(args) -> int:
 
 def cmd_probes(args) -> int:
     _load_adapters(args.no_adapters)
+    import shutil as _sh
+
     from .engine import resolve_targets
     from .graph import build_graph
     from .inventory import build_inventory
-    import shutil as _sh
 
     name, repos, tmps, manifest = resolve_targets([args.target], None)
     try:
@@ -648,7 +653,7 @@ def cmd_feedback(args) -> int:
 
 
 def cmd_learn(args) -> int:
-    from .claims import nines, observations_needed
+    from .claims import observations_needed
     from .learn import MIN_OBSERVATIONS, Knowledge, calibrated_confidence
     knowledge = Knowledge.load(args.knowledge)
     print()
@@ -708,8 +713,9 @@ def cmd_verify(args) -> int:
 
 
 def cmd_review(args) -> int:
-    from .learn import Knowledge, MIN_OBSERVATIONS
-    from .review import apply as apply_marks, newly_proven, render, select
+    from .learn import MIN_OBSERVATIONS, Knowledge
+    from .review import apply as apply_marks
+    from .review import newly_proven, render, select
 
     path = Path(args.report)
     if not path.is_file():
@@ -776,8 +782,8 @@ def cmd_review(args) -> int:
         repo_paths[rid or "root"] = path or rid
 
     if args.interactive:
-        from .review_ui import run_terminal
         from .learn import record
+        from .review_ui import run_terminal
         reviewer = _reviewer_or_refuse(args.reviewer)
         if reviewer is None:
             return EXIT_ERROR
@@ -840,9 +846,16 @@ def cmd_controls(args) -> int:
     a reader most needs to know and the thing every other compliance report
     buries. Satisfied comes last.
     """
-    from .controls import (NOT_ASSESSED, NOT_AUTOMATABLE, NO_COVERAGE, SATISFIED,
-                           STATES, STATE_MEANING, VIOLATED, evaluate_all,
-                           load_frameworks)
+    from .controls import (
+        NO_COVERAGE,
+        NOT_ASSESSED,
+        SATISFIED,
+        STATE_MEANING,
+        STATES,
+        VIOLATED,
+        evaluate_all,
+        load_frameworks,
+    )
     from .core import Finding
 
     if args.list:

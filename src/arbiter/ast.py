@@ -14,7 +14,6 @@ from __future__ import annotations
 import functools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 # Arbiter language name -> tree-sitter-language-pack name
 LANG_MAP = {

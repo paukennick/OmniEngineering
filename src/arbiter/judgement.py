@@ -54,7 +54,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .core import Finding, Location

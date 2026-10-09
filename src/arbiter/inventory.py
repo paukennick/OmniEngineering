@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .core import RepoInfo

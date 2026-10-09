@@ -128,8 +128,9 @@ def test_sample_size_maths_is_stated_not_assumed():
 # ---------------------------------------------------------------------------
 
 def _fw(tmp_path, controls, declared=100):
-    from arbiter.controls import load_pack
     import yaml as _yaml
+
+    from arbiter.controls import load_pack
     p = tmp_path / "f.yaml"
     p.write_text(_yaml.safe_dump({
         "framework": {"id": "TEST", "title": "Test", "declared_controls": declared},
@@ -388,8 +389,8 @@ def test_judgement_probe_always_counts_against_coverage(tmp_path, monkeypatch):
 
 
 def test_inferred_findings_do_not_gate_by_default():
-    from arbiter.policy import evaluate_gate
     from arbiter.core import Report, Scorecard
+    from arbiter.policy import evaluate_gate
     rep = Report()
     rep.findings = [Finding(rule_id="arbiter/judgement.claim-contradicts-code",
                             title="doc disagrees", severity="high",

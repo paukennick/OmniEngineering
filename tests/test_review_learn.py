@@ -94,7 +94,7 @@ def test_an_overridden_batch_verdict_says_it_was_not_typed(tmp_path, monkeypatch
     record it leaves, not the obstacle it fails to be: anything an agent cannot
     pass is something a person cannot pass either."""
     from arbiter.cli import main
-    from arbiter.learn import Knowledge, NON_INTERACTIVE_ENTRY_POINTS
+    from arbiter.learn import NON_INTERACTIVE_ENTRY_POINTS, Knowledge
     report, fid = _one_finding_report(tmp_path)
     ledger = tmp_path / "knowledge.json"
     monkeypatch.setattr(sys, "stdin", _NotATerminal())
@@ -134,7 +134,7 @@ def test_a_schema_1_ledger_migrates_without_losing_a_verdict(tmp_path):
     """Schema 1 stored a bare string. Those verdicts are real evidence and must
     survive, but they carry no attribution and must not acquire a plausible one
     on the way through — an invented name would read as a fact later."""
-    from arbiter.learn import Knowledge, UNATTRIBUTED
+    from arbiter.learn import UNATTRIBUTED, Knowledge
     old = tmp_path / "knowledge.json"
     old.write_text(json.dumps({
         "schema_version": 1,
@@ -252,7 +252,7 @@ def test_adaptive_is_off_unless_asked(tmp_path):
 def test_review_prefers_rules_close_to_the_proven_threshold(tmp_path):
     """Getting one rule from nineteen to twenty crosses a threshold. One
     observation each on five rules crosses nothing."""
-    from arbiter.learn import Knowledge, MIN_OBSERVATIONS, RuleStats
+    from arbiter.learn import MIN_OBSERVATIONS, Knowledge, RuleStats
     from arbiter.review import select
     k = Knowledge()
     k.rules["arbiter/near"] = RuleStats(rule_id="arbiter/near",
@@ -320,7 +320,8 @@ def test_review_never_re_asks_an_adjudicated_finding(tmp_path):
 
 def test_review_round_trip_records_marks(tmp_path):
     from arbiter.learn import Knowledge
-    from arbiter.review import apply as apply_marks, render, select
+    from arbiter.review import apply as apply_marks
+    from arbiter.review import render, select
     findings = [_finding("arbiter/a", "a.tf"), _finding("arbiter/b", "b.tf"),
                 _finding("arbiter/c", "c.tf")]
     k = Knowledge()
@@ -349,8 +350,9 @@ def test_review_ignores_marks_for_findings_not_in_the_report(tmp_path):
 
 
 def test_review_reports_which_rules_became_proven(tmp_path):
-    from arbiter.learn import Knowledge, MIN_OBSERVATIONS, RuleStats
-    from arbiter.review import apply as apply_marks, newly_proven
+    from arbiter.learn import MIN_OBSERVATIONS, Knowledge, RuleStats
+    from arbiter.review import apply as apply_marks
+    from arbiter.review import newly_proven
     k = Knowledge()
     k.rules["arbiter/a"] = RuleStats(rule_id="arbiter/a",
                                      true_positives=MIN_OBSERVATIONS - 1)
@@ -443,7 +445,8 @@ def test_review_page_output_is_the_same_format_apply_reads(tmp_path):
     """The page writes exactly what `arbiter review --apply` already parses, so
     there is one format and one parser rather than two that can drift."""
     from arbiter.learn import Knowledge
-    from arbiter.review import apply as apply_marks, parse
+    from arbiter.review import apply as apply_marks
+    from arbiter.review import parse
     _, picked = _review_page(tmp_path)
     text = "\n".join(f"[{'y' if i % 2 == 0 else 'n'}] {f.id}  {f.title}"
                      for i, f in enumerate(picked))
@@ -453,8 +456,8 @@ def test_review_page_output_is_the_same_format_apply_reads(tmp_path):
 
 
 def test_terminal_review_records_the_same_verdicts(tmp_path, monkeypatch):
-    from arbiter.learn import Knowledge
     from arbiter import review_ui
+    from arbiter.learn import Knowledge
     _, picked = _review_page(tmp_path, n=3)
     keys = iter(["y", "n", "s"])
     monkeypatch.setattr(review_ui, "_getch", lambda: next(keys))
@@ -465,8 +468,8 @@ def test_terminal_review_records_the_same_verdicts(tmp_path, monkeypatch):
 
 
 def test_terminal_review_can_go_back(tmp_path, monkeypatch):
-    from arbiter.learn import Knowledge
     from arbiter import review_ui
+    from arbiter.learn import Knowledge
     _, picked = _review_page(tmp_path, n=2)
     keys = iter(["y", "b", "n", "q"])
     monkeypatch.setattr(review_ui, "_getch", lambda: next(keys))
@@ -518,6 +521,7 @@ def test_a_drafted_entry_satisfies_the_workspace_ledger_check(tmp_path):
     """The file is OmniEngineering's; its own `omni failure check` is the
     authority on whether an entry is well formed."""
     import subprocess
+
     from arbiter.ledger import draft_entries
     findings = _two_findings()
     (tmp_path / ".ai" / "failures").mkdir(parents=True)

@@ -72,7 +72,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from arbiter.probes import _load_resource_rules  # noqa: E402
-from corpus import CORPUS  # noqa: E402
 
 # A language needs at least this many lines in the well-maintained population
 # before its lack of a broken counterpart is worth raising. Below it, the

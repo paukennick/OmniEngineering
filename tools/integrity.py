@@ -26,8 +26,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from arbiter.claims import INVARIANTS, build_claims, verify, wilson_lower_bound, nines  # noqa: E402
-from arbiter.core import DimensionScore, Finding, Location, ProbeOutcome, Report  # noqa: E402
+from arbiter.claims import INVARIANTS, nines, verify, wilson_lower_bound  # noqa: E402
+from arbiter.core import (  # noqa: E402
+    DimensionScore,
+    Finding,
+    Location,
+    ProbeOutcome,
+    Report,
+)
 from arbiter.policy import DEFAULTS, compute_scorecard, evaluate_gate  # noqa: E402
 
 STATUSES = ("ran", "skipped", "error")
@@ -371,7 +377,7 @@ def main() -> int:
     checked, failures = enumerate_space(args.probes, args.max_findings, thresholds)
     elapsed = time.time() - t0
 
-    print(f"  Direction 1 — no false alarms (exhaustive over the bounded space)")
+    print("  Direction 1 — no false alarms (exhaustive over the bounded space)")
     print(f"    {args.probes} probes x {len(STATUSES)} statuses x "
           f"{args.max_findings + 1} finding counts x 2 suppression states x "
           f"{len(thresholds)} thresholds")
@@ -388,7 +394,7 @@ def main() -> int:
                   f"{[v.invariant for v in f[4]]}")
 
     tested, unenforced = check_enforcement()
-    print(f"\n  Direction 2 — every invariant is enforced")
+    print("\n  Direction 2 — every invariant is enforced")
     print(f"    invariants declared : {len(INVARIANTS)}")
     print(f"    mutations tested    : {tested}")
     print(f"    unenforced          : {len(unenforced)}"
@@ -398,7 +404,7 @@ def main() -> int:
     cacheable = [p.name for p in REGISTRY if p.cacheable]
     tested13, failures13, skipped13 = check_file_locality(REGISTRY)
     enforced13 = check_ci13_enforced()
-    print(f"\n  Direction 3 — CI-13: cacheable probes are file-local")
+    print("\n  Direction 3 — CI-13: cacheable probes are file-local")
     print(f"    cacheable probes    : {len(cacheable)} ({', '.join(cacheable)})")
     print(f"    probes tested       : {tested13}")
     print(f"    skipped             : {len(skipped13)}"
@@ -411,7 +417,7 @@ def main() -> int:
 
     ok14, why14 = check_adapter_memo()
     enforced14 = check_ci14_enforced()
-    print(f"\n  Direction 4 — CI-14: a changed inventory file misses the adapter memo")
+    print("\n  Direction 4 — CI-14: a changed inventory file misses the adapter memo")
     print(f"    cold, replay, edit  : {'PASS' if ok14 else 'FAIL'}"
           + (f" ({why14})" if why14 else ""))
     print(f"    enforced            : {'yes' if enforced14 else 'NO'} "

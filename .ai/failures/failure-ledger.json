@@ -1176,6 +1176,31 @@
       ],
       "prevention_notes": "A flag that promises to keep something out of a run is enforced where the run happens, not only where the thing is registered; the regression test registers an external probe first and asserts the flag still skips it. Fast tier: 28 minutes to 1 minute 53 seconds.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-045",
+      "date": "2026-10-09",
+      "title": "The HTML report built its 'Read first' block and never rendered it",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "render_html assembled bluf_html (partial-scan fraction, withheld grade, skipped probes, scope notes) and the HTML page never contained it: the Markdown report showed the caveats, the HTML showed a clean-looking table with nothing above it. ruff F841 reported the local as never used.",
+      "how_detected": "ruff F841 on the ARB-049 self-scan",
+      "root_cause": "The commit that added the block (c86ba7b) interpolated it into the Markdown template and built the HTML string but left {bluf_html} out of the HTML f-string; no test rendered an HTML report with a caveat to show.",
+      "requirement": "ARB-049",
+      "affected": [
+        "src/arbiter/report.py"
+      ],
+      "fix_summary": "The HTML template interpolates {bluf_html} between the grade banner and the severity cards.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_report_output.py::test_html_puts_the_read_first_block_above_the_findings"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.regression_test"
+      ],
+      "prevention_notes": "An unused local that holds rendered output is a rendering that never happened; the regression test renders a report with a skipped probe and asserts the block sits above the findings table in both formats.",
+      "recurrence_of": ""
     }
   ]
 }

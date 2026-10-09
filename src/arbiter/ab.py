@@ -21,12 +21,11 @@ import shlex
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
 
 from .core import Finding, Report
-from .report import SEV_ORDER, _HTML_CSS
+from .report import _HTML_CSS, SEV_ORDER
 
 STOPWORDS = {
     "the", "a", "an", "is", "are", "not", "no", "in", "on", "for", "of", "to",
@@ -214,10 +213,11 @@ def run_arm(arm: Arm, targets: list[str], system_path: str | None, base_config: 
                     res.probes_skipped = sum(1 for p in rep.probes if p.status != "ran")
 
         elif arm.kind == "tool":
+            import shutil as _sh
+
             from .adapters import load_all
             from .engine import resolve_targets
             from .probes import ProbeContext
-            import shutil as _sh
             adapters = {a.name: a for a in load_all()}
             ad = adapters.get(arm.tool or "")
             if ad is None:

@@ -92,7 +92,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .inventory import Inventory, FileInfo
+from .inventory import FileInfo, Inventory
 
 # Files always kept in a partial scan regardless of whether they changed.
 # These are what the file-scoped probes need in order not to lie: a manifest

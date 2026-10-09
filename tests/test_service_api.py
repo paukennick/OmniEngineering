@@ -97,6 +97,7 @@ def test_an_uploaded_archive_cannot_escape_the_extraction_root(tmp_path):
     """
     import tarfile
     import zipfile
+
     from arbiter import service
 
     slip = tmp_path / "slip.zip"
@@ -121,6 +122,7 @@ def test_an_uploaded_archive_cannot_escape_the_extraction_root(tmp_path):
 def test_an_honest_archive_extracts_intact(tmp_path):
     """The refusals above are worthless if they also refuse ordinary uploads."""
     import tarfile
+
     from arbiter import service
     (tmp_path / "app.py").write_text("print(1)\n")
     archive = tmp_path / "repo.tar.gz"
@@ -250,6 +252,7 @@ def test_a_hosted_scan_keeps_nothing_and_returns_no_server_paths(tmp_path):
     and would tell a caller about the machine.
     """
     import tarfile
+
     from arbiter import api
     (tmp_path / "billing.py").write_text('KEY = "sk_live_51H8xQ2LkdIwHu7ix' + "Z" * 20 + '"\n')
     archive = tmp_path / "repo.tar.gz"
@@ -276,7 +279,7 @@ def test_the_api_says_how_to_install_itself_when_fastapi_is_absent():
     """A missing optional extra must produce an instruction, not a traceback."""
     from arbiter import api, service
     try:
-        import fastapi  # noqa: F401
+        import fastapi  # noqa: F401 - imported only to learn whether the extra is installed
     except ImportError:
         with pytest.raises(service.ServiceError, match=r"arbiter-eval\[api\]"):
             api.create_app()

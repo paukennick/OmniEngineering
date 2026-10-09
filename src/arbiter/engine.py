@@ -17,7 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .core import Finding, ProbeOutcome, Report, RepoInfo
+from .core import Finding, ProbeOutcome, RepoInfo, Report
 from .graph import build_graph
 from .inventory import acquire_one, build_inventory
 from .policy import (
@@ -27,8 +27,8 @@ from .policy import (
     compute_scorecard,
     evaluate_gate,
 )
-from .scope_notes import apply_scope_notes
 from .probes import REGISTRY, Probe, ProbeContext
+from .scope_notes import apply_scope_notes
 
 ARBITER_VERSION = "0.1.0"
 
@@ -81,7 +81,7 @@ def apply_baseline(findings: list[Finding], baseline_path: str | None) -> None:
         return
     try:
         known = set(json.loads(p.read_text(encoding="utf-8")).get("ids", []))
-    except Exception:
+    except (OSError, ValueError, AttributeError, TypeError):
         return
     for f in findings:
         f.status = "existing" if f.id in known else "new"
@@ -192,7 +192,7 @@ def _run_external_probes(
                 continue
             try:
                 replay = [Finding.from_dict(d) for d in cached]
-            except Exception:  # noqa: BLE001 - a malformed entry is a miss
+            except (AttributeError, KeyError, TypeError, ValueError):  # a malformed entry is a miss
                 to_run.append((slot, probe, oc, k, None))
                 continue
             hits.append((slot, probe, oc, k, cached))
@@ -215,7 +215,7 @@ def _run_external_probes(
         t0 = time.time()
         try:
             produced = probe.run(copy.copy(ctx)) or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a probe that raises becomes an error outcome, never a silent pass
             _record_probe_error(oc, exc)
             produced = None
         oc.duration_s = round(time.time() - t0, 3)
@@ -451,7 +451,7 @@ def run_scan(
             oc.status = "ran"
             oc.finding_count = len(produced)
             findings_by_slot[slot] = list(produced)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - a probe that raises becomes an error outcome, never a silent pass
             _record_probe_error(oc, exc)
         oc.duration_s = round(time.time() - t0, 3)
 
@@ -558,7 +558,7 @@ def run_scan(
                 "not_enumerated": res["not_enumerated"],
                 "assessed_fraction": res["assessed_fraction"],
             })
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - control coverage is a summary; a broken pack must not fail the scan
         pass
 
     report.gate = evaluate_gate(report, config)

@@ -92,7 +92,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .inventory import Inventory, FileInfo
+from .inventory import FileInfo, Inventory
 
 # Files always kept in a partial scan regardless of whether they changed.
 # These are what the file-scoped probes need in order not to lie: a manifest
@@ -156,7 +156,7 @@ def git_changed(repo_path: str, ref: str) -> tuple[set[str], str]:
         try:
             r = subprocess.run(["git", "-C", repo_path, *args],
                                capture_output=True, text=True, timeout=120)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - no git, or a hung one: the caller treats both as a failed comparison
             return 1, str(exc)
         return r.returncode, r.stdout
 
@@ -274,7 +274,7 @@ def requirement_ids_by_path(repo_path: str, ref: str, prefix: str = "REQ",
                             f"--format={_RS}%H{_FS}%B{_FS}"],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=120)
-    except Exception:  # noqa: BLE001 - no git, or a hung one, both mean "unknown"
+    except (OSError, subprocess.SubprocessError):  # no git, or a hung one: both mean "unknown"
         return by_path, all_ids
     if r.returncode != 0:
         return by_path, all_ids

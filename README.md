@@ -332,7 +332,11 @@ skill is `.claude/skills/arbiter/SKILL.md`; the commercial control packs
 five government packs in `src/arbiter/packs/controls/`, each declaring the
 scanner-relevant subset it covers and the human work that remains. Arbiter
 also runs on itself: `pr-check` gates every pull request with
-`arbiter gate .` under `arbiter.yaml`.
+`arbiter gate .` under `arbiter.yaml`. The ARB-049 debt sweep worked the
+self-scan through the review flow: 482 active findings became 321 (score 71
+to 81), 55 of the remainder are accepted complexity and length debt
+suppressed per file until 2027-04-01, and the gate's baseline was re-cut from
+the result.
 
 ## Versioning
 

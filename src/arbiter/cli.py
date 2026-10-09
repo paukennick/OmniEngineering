@@ -12,9 +12,14 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, client
+from . import __version__, client, history
 from .ab import (
-    Arm, arm_from_dict, load_ab_spec, render_ab_console, render_ab_html, run_ab,
+    Arm,
+    arm_from_dict,
+    load_ab_spec,
+    render_ab_console,
+    render_ab_html,
+    run_ab,
 )
 from .adapters import register_adapters
 from .core import SEVERITIES, Report
@@ -22,7 +27,6 @@ from .engine import run_scan, write_baseline
 from .policy import PROFILES, load_config
 from .probes import REGISTRY, ProbeContext
 from .report import render_annotations, render_console, write_all
-from . import history
 
 EXIT_OK, EXIT_GATE_FAIL, EXIT_ERROR = 0, 1, 2
 
@@ -53,7 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"arbiter {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
+    _add_scan_commands(sub)
+    _add_report_commands(sub)
+    _add_service_commands(sub)
+    return p
 
+
+def _add_scan_commands(sub) -> None:
+    """`scan` and `gate`: the local analyzers, sharing one argument set."""
     def common(sp):
         sp.add_argument("targets", nargs="*", help="paths or git URLs")
         sp.add_argument("--system", help="arbiter-system.yaml describing several repos")
@@ -115,6 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     gt.add_argument("--format", default="json,console",
                     help="json,sarif,html,markdown,console,pr-comment,annotations")
 
+
+def _add_report_commands(sub) -> None:
+    """Everything that reads a report or the knowledge file rather than scanning."""
     db = sub.add_parser("dashboard",
                         help="render the run history as a self-contained trend page")
     db.add_argument("--history", default="arbiter-out/history.jsonl",
@@ -213,6 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("finding_id")
     ex.add_argument("--report", default="arbiter-out/report.json")
 
+
+def _add_service_commands(sub) -> None:
+    """The hosted surfaces -- api, mcp, bundle -- and the remote client."""
     ap = sub.add_parser("api",
                         help="serve the hosted API, and issue the keys that reach it")
     ap.add_argument("--keys", help="key file (default ~/.arbiter/keys.json, or $ARBITER_KEYS)")
@@ -343,7 +360,6 @@ def build_parser() -> argparse.ArgumentParser:
         "health", help="what the server is, and what it will allow"))
     rh.set_defaults(needs_key=False)
 
-    return p
 
 
 def _resolve_reviewer(explicit: str) -> str:
@@ -484,7 +500,7 @@ def cmd_scan(args, gate_mode: bool = False) -> int:
     if open_report and "html" in written:
         try:
             webbrowser.open(Path(written["html"]).resolve().as_uri())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a browser that will not open must never fail the scan
             print(f"  (could not open the report automatically: {exc})")
 
     if gate_mode and not (report.gate or {}).get("passed"):
@@ -551,10 +567,11 @@ def cmd_ab(args) -> int:
 
 def cmd_probes(args) -> int:
     _load_adapters(args.no_adapters)
+    import shutil as _sh
+
     from .engine import resolve_targets
     from .graph import build_graph
     from .inventory import build_inventory
-    import shutil as _sh
 
     name, repos, tmps, manifest = resolve_targets([args.target], None)
     try:
@@ -648,7 +665,7 @@ def cmd_feedback(args) -> int:
 
 
 def cmd_learn(args) -> int:
-    from .claims import nines, observations_needed
+    from .claims import observations_needed
     from .learn import MIN_OBSERVATIONS, Knowledge, calibrated_confidence
     knowledge = Knowledge.load(args.knowledge)
     print()
@@ -708,8 +725,9 @@ def cmd_verify(args) -> int:
 
 
 def cmd_review(args) -> int:
-    from .learn import Knowledge, MIN_OBSERVATIONS
-    from .review import apply as apply_marks, newly_proven, render, select
+    from .learn import MIN_OBSERVATIONS, Knowledge
+    from .review import apply as apply_marks
+    from .review import newly_proven, render, select
 
     path = Path(args.report)
     if not path.is_file():
@@ -776,8 +794,8 @@ def cmd_review(args) -> int:
         repo_paths[rid or "root"] = path or rid
 
     if args.interactive:
-        from .review_ui import run_terminal
         from .learn import record
+        from .review_ui import run_terminal
         reviewer = _reviewer_or_refuse(args.reviewer)
         if reviewer is None:
             return EXIT_ERROR
@@ -840,9 +858,16 @@ def cmd_controls(args) -> int:
     a reader most needs to know and the thing every other compliance report
     buries. Satisfied comes last.
     """
-    from .controls import (NOT_ASSESSED, NOT_AUTOMATABLE, NO_COVERAGE, SATISFIED,
-                           STATES, STATE_MEANING, VIOLATED, evaluate_all,
-                           load_frameworks)
+    from .controls import (
+        NO_COVERAGE,
+        NOT_ASSESSED,
+        SATISFIED,
+        STATE_MEANING,
+        STATES,
+        VIOLATED,
+        evaluate_all,
+        load_frameworks,
+    )
     from .core import Finding
 
     if args.list:
@@ -1160,7 +1185,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_remote(args)
     except KeyboardInterrupt:
         return EXIT_ERROR
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - the top-level handler: one line on stderr instead of a traceback
         print(f"arbiter: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     return EXIT_ERROR

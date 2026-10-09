@@ -304,6 +304,39 @@ def test_a_stub_on_a_security_path_outranks_a_stub_anywhere_else(tmp_path):
     assert by_name["render_footer"].severity == "low"
 
 
+def test_a_suppression_inside_a_python_string_is_not_a_suppression(tmp_path):
+    """A `# noqa` in a string literal or a docstring is prose or a fixture: this
+    probe's own module docstring explains the directive, and its tests write
+    `"x = 1  # noqa\\n"` into temporary files. The regex census read both as
+    blanket suppressions on the self-scan (FAIL-048). Only a comment counts."""
+    (tmp_path / "a.py").write_text(
+        '"""A bare `# noqa` silences every rule; `# type: ignore` does too."""\n'
+        'FIXTURE = "x = 1  # noqa\\ny = 2  # nosec\\n"\n'
+        'import os  # noqa\n'
+    )
+    found = _scan_text(tmp_path, "b.txt", "", ["assurance"])
+    blanket = [f for f in found if "blanket-suppression" in f.rule_id]
+    assert [f.location.start_line for f in blanket] == [3]
+    census = [f for f in found if "suppression-census" in f.rule_id]
+    assert census and "1 inline suppression" in census[0].description
+
+
+def test_a_requirement_quoted_inside_a_one_line_list_is_declared(tmp_path):
+    """`ast = ["tree-sitter>=0.23", "tree-sitter-language-pack>=0.9"]` is how a
+    PEP 621 extra is usually written. The manifest reader anchored every name
+    to the start of a line, so a package declared past the first position of
+    an inline list was reported as undeclared (FAIL-049)."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = \"x\"\ndependencies = [\"PyYAML>=6.0\"]\n"
+        "[project.optional-dependencies]\n"
+        "ast = [\"tree-sitter>=0.23\", \"tree-sitter-language-pack>=0.9\"]\n"
+    )
+    (tmp_path / "app.py").write_text("import yaml\nimport tree_sitter\nimport tree_sitter_language_pack\nimport nothing_declares_me\n")
+    rep = run_scan([str(tmp_path)], load_config(None), only=["authored"], use_adapters=False)
+    names = {f.evidence.rsplit(":", 1)[-1] for f in rep.active() if "undeclared-import" in f.rule_id}
+    assert names == {"nothing_declares_me"}
+
+
 def test_prose_discussing_a_suppression_is_not_a_suppression(tmp_path):
     """README and the decision log explain what `# noqa` means. The
     suppression probe reported them as blanket suppressions."""

@@ -12,7 +12,7 @@ import os
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .core import RepoInfo
@@ -333,7 +333,7 @@ def _git_commit(path: Path) -> str:
         )
         if r.returncode == 0:
             return r.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
     return ""
 

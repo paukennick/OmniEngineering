@@ -17,6 +17,7 @@ def test_adapter_timeout_kills_the_whole_process_group(tmp_path):
     orphaned workers competing for CPU with every scan that followed — observed
     after checkov deadlocked on a one-million-line repository."""
     import subprocess
+
     from arbiter.adapters import Adapter
 
     # A shell that spawns a child and then sleeps. If only the direct child is
@@ -94,7 +95,8 @@ def test_adapter_report_file_is_cleaned_up_even_when_the_tool_never_writes_it(tm
 # ---------------------------------------------------------------------------
 
 def test_measurement_cannot_promote_a_check_to_high():
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     ce = importlib.import_module("calibrate_external")
     assert ce.band(float("inf")) == "medium"
@@ -103,7 +105,8 @@ def test_measurement_cannot_promote_a_check_to_high():
 
 
 def test_measurement_demotes_a_check_that_carries_no_signal():
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     ce = importlib.import_module("calibrate_external")
     assert ce.band(0.12) == "info"
@@ -115,7 +118,8 @@ def test_measurement_demotes_a_check_that_carries_no_signal():
 def test_a_single_repository_cannot_drive_a_promotion():
     """The first table promoted a documentation-hygiene check to high because
     one repository was the whole sample."""
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     ce = importlib.import_module("calibrate_external")
     assert ce.band(float("inf"), repos=1) == "low"
@@ -124,7 +128,8 @@ def test_a_single_repository_cannot_drive_a_promotion():
 
 def test_measured_severity_replaces_the_invented_constant(tmp_path):
     from arbiter.core import Finding, Location
-    from arbiter.learn import Knowledge, apply as apply_knowledge
+    from arbiter.learn import Knowledge
+    from arbiter.learn import apply as apply_knowledge
     k = Knowledge()
     k.external_severity = {"checkov/CKV_AWS_16": "info"}
     f = Finding(rule_id="checkov/CKV_AWS_16", title="x", severity="medium",
@@ -138,7 +143,8 @@ def test_a_native_rules_severity_is_never_touched_by_measurement(tmp_path):
     """The standing rule. A native rule's severity is a policy statement; only
     an external check whose tool supplied no severity may be graded."""
     from arbiter.core import Finding, Location
-    from arbiter.learn import Knowledge, apply as apply_knowledge
+    from arbiter.learn import Knowledge
+    from arbiter.learn import apply as apply_knowledge
     k = Knowledge()
     k.external_severity = {"arbiter/resource.unencrypted-database": "info"}
     f = Finding(rule_id="arbiter/resource.unencrypted-database", title="x",
@@ -203,6 +209,7 @@ def test_a_timeout_still_kills_the_process_where_there_are_no_process_groups(mon
     `_kill_group` raised before killing anything, so the analyzer ran on.
     """
     import subprocess
+
     from arbiter.adapters import Adapter
 
     _no_process_groups(monkeypatch)

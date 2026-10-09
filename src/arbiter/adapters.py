@@ -15,7 +15,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,7 +33,7 @@ def _toml_loads(text: str) -> dict:
     try:
         import tomllib
     except ModuleNotFoundError:  # pragma: no cover - exercised on 3.10 only
-        import tomli as tomllib  # type: ignore[no-redef]
+        import tomli as tomllib  # type: ignore[no-redef] - the 3.10 fallback rebinds the same name on purpose
     return tomllib.loads(text)
 
 
@@ -269,7 +268,7 @@ class Adapter:
         try:
             r = subprocess.run(version_argv, capture_output=True, text=True, timeout=20)
             return (r.stdout or r.stderr).strip().split("\n")[0][:60]
-        except Exception:
+        except (OSError, subprocess.SubprocessError, ValueError):
             return ""
 
     def invoke(self, workdir: str) -> tuple[str, int]:
@@ -348,7 +347,7 @@ class Adapter:
                 except OSError:
                     pass  # tool crashed before writing it; stdout/stderr already tell that story
             return out, proc.returncode
-        except BaseException:
+        except BaseException:  # KeyboardInterrupt included: the tool's process group dies with us, then re-raised
             self._kill_group(proc)
             raise
         finally:
@@ -417,19 +416,19 @@ class Adapter:
                     continue
                 try:
                     rows.append(json.loads(line))
-                except Exception:
+                except ValueError:
                     continue
             return rows
         try:
             doc = json.loads(out)
-        except Exception:
+        except ValueError:
             # tools sometimes emit a banner before the JSON body
             m = re.search(r"[\[{]", out)
             if not m:
                 return []
             try:
                 doc = json.loads(out[m.start():])
-            except Exception:
+            except ValueError:
                 return []
         expr = self.mapping.get("findings", "$")
         rows = select(doc, expr)
@@ -616,7 +615,7 @@ def load_all(extra_dirs: list[str] | None = None) -> list[Adapter]:
         for p in sorted(d.glob("*.adapter.toml")):
             try:
                 out.append(load_adapter(p))
-            except Exception:
+            except Exception:  # noqa: BLE001 - one malformed manifest must not take the other adapters down
                 continue
     return out
 

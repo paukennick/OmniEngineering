@@ -276,6 +276,12 @@ def _declared_dependencies(ctx: ProbeContext, repo_id: str) -> tuple[set[str], b
             names.add(raw.lower().split("/")[-1].replace("_", "-"))
         for m in re.finditer(r"^\s*([A-Za-z0-9_.-]{2,})\s*(?:==|>=|<=|~=|$)", text, re.M):
             names.add(m.group(1).lower().replace("_", "-"))
+        # A requirement quoted inside a list on one line, as a PEP 621 extra
+        # often is (`ast = ["tree-sitter>=0.23", ...]`): the two patterns above
+        # read only the start of a line, so every name past the first was
+        # undeclared (FAIL-049).
+        for m in re.finditer(r"[\"']([A-Za-z0-9_.-]{2,})(?:\[[^\]]*\])?\s*(?:[<>=~!;]|[\"'])", text):
+            names.add(m.group(1).lower().replace("_", "-"))
     return names, seen_manifest
 
 
@@ -293,7 +299,7 @@ def _workspace_packages(ctx: ProbeContext, repo_id: str) -> set[str]:
             continue
         try:
             doc = _json.loads(_read(f) or "{}")
-        except Exception:  # noqa: BLE001
+        except ValueError:
             continue
         if isinstance(doc.get("name"), str):
             out.add(doc["name"].lower())
@@ -519,7 +525,7 @@ def package_exists(ecosystem: str, name: str, timeout: int = 8) -> bool | None:
         # 404 is the answer. Anything else is the registry having a bad day,
         # and must not be read as absence.
         result = False if e.code == 404 else None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - any other failure is "unknown", never a finding
         result = None
     _EXISTENCE_CACHE[key] = result
     return result

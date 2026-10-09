@@ -19,7 +19,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from .core import Finding, Location
 from .graph import Resource
@@ -602,11 +602,11 @@ register(Probe(name="secrets", scope="file", cacheable=True, dimensions=["securi
 
 def _load_resource_rules() -> list[dict]:
     path = PACKS / "rules" / "resource.yaml"
+    import yaml
     try:
-        import yaml  # type: ignore
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return data.get("rules", []) if isinstance(data, dict) else []
-    except Exception:
+    except (OSError, yaml.YAMLError):
         return []
 
 
@@ -956,8 +956,6 @@ def probe_quality(ctx: ProbeContext) -> list[Finding]:
     out: list[Finding] = []
     cfg = (ctx.config.get("quality") or {})
     max_file = int(cfg.get("max_file_lines", 800))
-    max_func = int(cfg.get("max_function_lines", 120))
-    max_cx = int(cfg.get("max_complexity", 20))
 
     source_files = [f for f in ctx.inventory.text_files() if f.role in ("source", "iac")]
     test_files = [f for f in ctx.inventory.text_files() if f.role == "test"]
@@ -1125,7 +1123,7 @@ def probe_supply_chain(ctx: ProbeContext) -> list[Finding]:
             import json as _json
             try:
                 doc = _json.loads(text)
-            except Exception:
+            except ValueError:
                 continue
             for section in ("dependencies", "devDependencies"):
                 for name, spec in (doc.get(section) or {}).items():
@@ -2015,8 +2013,9 @@ def probe_house_rules_ast(ctx: ProbeContext) -> list[Finding]:
     Structural rather than textual: `(except_clause) @hit` finds bare excepts
     wherever they are formatted, which a regex cannot promise.
     """
-    from . import ast as ts
     import fnmatch
+
+    from . import ast as ts
 
     rules = [r for r in (ctx.config.get("rules") or []) if r.get("type") == "ast_query"]
     if not rules:
@@ -2225,7 +2224,7 @@ def probe_by_name(name: str) -> Probe | None:
 try:
     from .judgement import register_judgement as _register_judgement
     _register_judgement()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 # Assurance asks whether the CHECKING is switched on, rather than whether the
@@ -2233,7 +2232,7 @@ except Exception:  # noqa: BLE001
 try:
     from .assurance import register_assurance as _register_assurance
     _register_assurance()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 
@@ -2243,7 +2242,7 @@ except Exception:  # noqa: BLE001
 try:
     from .authored import register_authored as _register_authored
     _register_authored()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass
 
 
@@ -2254,5 +2253,5 @@ except Exception:  # noqa: BLE001
 try:
     from .contract import register_contract as _register_contract
     _register_contract()
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 - an optional probe module must not break the registry import
     pass

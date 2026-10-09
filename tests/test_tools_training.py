@@ -178,7 +178,8 @@ def test_worklist_flags_a_control_mapped_to_a_check_that_never_fires(tmp_path):
     """A control whose every covering check never fires reads as SATISFIED
     forever, in a compliance report, on any codebase. A permanent pass is the
     worst thing such a report can contain, because it looks like evidence."""
-    import subprocess, textwrap
+    import subprocess
+    import textwrap
     packs = tmp_path / "packs"
     packs.mkdir()
     (packs / "x.yaml").write_text(textwrap.dedent("""
@@ -224,7 +225,8 @@ def test_worklist_flags_a_control_mapped_to_a_check_that_never_fires(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _dis():
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     return importlib.import_module("disagree")
 
@@ -304,7 +306,8 @@ def test_log_is_not_matched_inside_unrelated_words():
 def test_the_holdout_is_real_and_spans_the_populations(tmp_path):
     """Every figure in this project was measured on repositories the rules were
     tuned against. That is how a tool ends up fitted to its own practice set."""
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     corpus = importlib.import_module("corpus")
     importlib.reload(corpus)
@@ -322,7 +325,8 @@ def test_worklist_items_are_numbered_consecutively(tmp_path):
     same name inside main() silently resets it. That happened, and the queue
     printed items 1, 2, 15, 2, 3 — which reads as a broken tool and hides
     whether anything was missed."""
-    import subprocess, re as _re
+    import re as _re
+    import subprocess
     disc = tmp_path / "d.json"
     disc.write_text(json.dumps({"rows": [
         {"rule": "arbiter/resource.x", "severity": "high", "dimension": "security",
@@ -372,7 +376,8 @@ def test_a_commit_message_ranks_a_fix_pair_but_never_confirms_it():
     """Commit messages are not used to FIND pairs — libraries are full of
     feature commits mentioning encryption that fix nothing. They only order the
     queue so a person's first verdicts land on the clearest cases."""
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     fp = importlib.import_module("fixpairs")
     assert fp.corroborated("arbiter/supply.unpinned-action",
@@ -426,7 +431,8 @@ def test_install_script_pins_every_version():
 
 
 def test_bootstrap_refuses_when_it_is_not_a_repository(tmp_path):
-    import subprocess, shutil
+    import shutil
+    import subprocess
     (tmp_path / "tools").mkdir()
     shutil.copy(ROOT / "tools" / "bootstrap_repo.sh", tmp_path / "tools")
     r = subprocess.run([_bash(), "tools/bootstrap_repo.sh", "--dry-run"],
@@ -444,7 +450,8 @@ def test_bootstrap_never_force_pushes_or_rewrites_history():
 
 
 def test_bootstrap_is_idempotent_about_an_existing_remote(tmp_path):
-    import subprocess, shutil
+    import shutil
+    import subprocess
     subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     (tmp_path / "f.txt").write_text("x")
     (tmp_path / "tools").mkdir()
@@ -612,7 +619,8 @@ def test_ci_records_why_each_platform_skipped_what_it_skipped():
 # ---------------------------------------------------------------------------
 
 def _corpus_module():
-    import importlib, sys as _sys
+    import importlib
+    import sys as _sys
     _sys.path.insert(0, str(ROOT / "tools"))
     m = importlib.import_module("corpus")
     importlib.reload(m)

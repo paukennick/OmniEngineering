@@ -18,7 +18,7 @@ violated when a claim's strength exceeds its basis.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 from .core import Report
 

@@ -254,7 +254,7 @@ def dispatch(name: str, arguments: dict, caller: dict | None = None,
     except ServiceError:
         log.record(event, caller, status=400, started=started)
         raise
-    except Exception:
+    except Exception:  # audited as a 500, then re-raised unchanged
         log.record(event, caller, status=500, started=started)
         raise
     log.record(event, caller, status=200, started=started)
@@ -310,7 +310,7 @@ def _build_server(audit: Any = None, root: str | Path | None = None):
             return await asyncio.to_thread(
                 dispatch_call_tool, params.name, params.arguments)
 
-        return Server("arbiter", version=__version__,  # type: ignore[call-arg]
+        return Server("arbiter", version=__version__,  # type: ignore[call-arg] - mcp 2.2 takes the handlers here; older stubs do not know them
                       on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     server = Server("arbiter", version=__version__)

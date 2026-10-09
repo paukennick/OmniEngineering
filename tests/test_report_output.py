@@ -47,6 +47,20 @@ def test_html_and_markdown_render(legacy_report):
     assert md.startswith("# Arbiter report")
 
 
+def test_html_puts_the_read_first_block_above_the_findings(legacy_report):
+    """The Markdown report has carried the "Read first" block since it was
+    added; the HTML renderer built the same block into a local and never
+    interpolated it (FAIL-045), so the HTML page showed a clean-looking table
+    with no caveats above it. A skipped probe is the simplest caveat."""
+    from arbiter.core import ProbeOutcome
+    rep = Report.from_dict(json.loads(json.dumps(legacy_report.to_dict())))
+    rep.probes.append(ProbeOutcome(name="semgrep", status="skipped", reason="missing binary: semgrep"))
+    html = render_html(rep)
+    assert "Read first" in html and "probe(s) not assessed" in html
+    assert html.index("Read first") < html.index("<h2>Findings")
+    assert "Read first" in render_markdown(rep)
+
+
 # --------------------------------------------------------------------------
 # A/B harness
 # --------------------------------------------------------------------------

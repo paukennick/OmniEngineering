@@ -222,8 +222,9 @@ def test_the_read_cache_is_correct_without_anyone_clearing_it(tmp_path):
 
     So this calls _read directly, with no scan and no clearing, exactly as the
     harness does."""
-    from arbiter.probes import _read
     import time as _t
+
+    from arbiter.probes import _read
 
     class F:
         def __init__(self, p):

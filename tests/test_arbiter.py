@@ -4130,8 +4130,8 @@ def test_the_service_layer_exposes_no_way_to_record_a_verdict():
     of that capability rather than trusting a reviewer to notice it returning.
     """
     from arbiter import mcp, service
-    assert set(service.OPERATIONS) == {"scan", "gate", "review_queue"}
-    assert set(mcp.HANDLERS) == {"arbiter_scan", "arbiter_gate", "arbiter_review_queue"}
+    assert set(service.OPERATIONS) == {"scan", "gate", "review_queue", "review_draft"}
+    assert set(mcp.HANDLERS) == {"arbiter_scan", "arbiter_gate", "arbiter_review_queue", "arbiter_review_draft"}
     for name in dir(service):
         assert "apply" not in name.lower(), f"service grew {name}"
         assert "adjudicat" not in name.lower(), f"service grew {name}"
@@ -5401,7 +5401,7 @@ def test_the_mcp_surface_still_records_no_verdict_over_http():
     public = {n for n in dir(mcp) if not n.startswith("_")}
     for banned in ("record", "apply", "adjudicate", "verdict", "feedback"):
         assert not any(banned in n.lower() for n in public), f"{banned} is reachable"
-    assert set(mcp.HANDLERS) == {"arbiter_scan", "arbiter_gate", "arbiter_review_queue"}
+    assert set(mcp.HANDLERS) == {"arbiter_scan", "arbiter_gate", "arbiter_review_queue", "arbiter_review_draft"}
 
 def test_scope_note_annotates_but_never_suppresses(tmp_path):
     """A repo's own docs can point a reviewer at a control that covers a

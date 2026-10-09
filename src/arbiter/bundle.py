@@ -203,9 +203,21 @@ def build(out_dir: str | Path, *, include_deps: bool = True,
     argv = [python, "-m", "pip", "wheel", "--no-deps", "-w", str(wheels)]
     offline_build = _setuptools_available(python)
     if offline_build:
-        argv.append("--no-build-isolation")
-    argv.append(str(src))
-    _run(argv, runner)
+        # An importable setuptools is not always one that can build: a
+        # distribution-patched copy (Debian's, with its `install_layout`
+        # option) fails against a newer pip. When the offline attempt fails,
+        # the isolated build is tried, which fetches the backend from an
+        # index, and the manifest records that the wheel was not built offline.
+        try:
+            _run([*argv, "--no-build-isolation", str(src)], runner)
+        except BundleError as exc:
+            offline_build = False
+            try:
+                _run([*argv, str(src)], runner)
+            except BundleError as retry:
+                raise BundleError(f"{exc}\n\nisolated retry also failed:\n{retry}") from retry
+    else:
+        _run([*argv, str(src)], runner)
     built = [p.name for p in _files_under(wheels) if p.suffix == ".whl"]
     if not any(name.startswith("arbiter_eval-") for name in built):
         raise BundleError(f"pip wheel wrote no arbiter_eval wheel into {wheels}: {built}")

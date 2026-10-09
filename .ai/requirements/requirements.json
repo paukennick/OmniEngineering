@@ -78,7 +78,8 @@
       ],
       "risk_notes": [
         "Requires qualified legal review and cannot be completed by engineering alone",
-        "the air-gapped bundle roadmap item stays blocked until the semgrep LGPL-2.1 redistribution question is answered"
+        "the air-gapped bundle roadmap item stays blocked until the semgrep LGPL-2.1 redistribution question is answered",
+        "2026-10-09: the air-gapped bundle now ships without the analyzers (ARB-051); only including them in the bundle stays blocked on the L-6 redistribution review."
       ]
     },
     {
@@ -1034,7 +1035,7 @@
       "title": "The doc-drift probe ignores generated output, git-ignored paths and cross-repository references",
       "description": "doc_drift flagged output filenames (REPORT.md under an --out directory) and a handbook that lives in another repository. A backticked path is skipped when it matches the repository's .gitignore, sits under the configured output directory or an arbiter-out prefix, contains :// or shares its line with an http(s) URL. A plainly missing file still fires.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/probes.py",
         "fixtures/doc-drift/",
@@ -1057,7 +1058,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "a .gitignore pattern that is too broad hides real drift; only exact-path and directory patterns are honoured"
+        "a .gitignore pattern that is too broad hides real drift; only exact-path and directory patterns are honoured",
+        "doc_drift skips git-ignored paths, output directories (out: key, this run's --out, any arbiter-out segment), scheme-carrying link targets and backticked paths beside an http(s) URL on the same or adjacent paragraph line; self-scan doc-drift findings 30 to 20; fixtures/doc-drift plants the cases; 37 tests. Also FAIL-042: the stub detector counts a marker only at the body's own indentation. Validated: full suite, integrity PASS, 8 mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {
@@ -1100,7 +1102,7 @@
       "title": "arbiter_review_draft: an assistant proposes marks with reasons and never records one",
       "description": "docs/mcp.md rules out any tool that records a verdict. arbiter_review_draft(report_path, output_dir, limit, rule, verdicts) writes review-draft.md in the exact review.parse format with the reason under each mark and a header saying who drafted it and that nothing is recorded, and returns the ledger entries the y marks would draft, as text. arbiter review --apply --reviewer stays the only writer; the no-verdict test is extended to the new tool.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/service.py",
         "src/arbiter/mcp.py",
@@ -1125,7 +1127,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "a person applying a draft without reading it; the header says so in the first line"
+        "a person applying a draft without reading it; the header says so in the first line",
+        "arbiter_review_draft (service.review_draft) writes review-draft.md in review.parse format with the assistant's reasons, records nothing (knowledge byte-identical, proven for every tool in TOOLS), returns the ledger entries the y marks would draft as text; docs/mcp.md explains why drafting is allowed and applying is not; the skill describes the inline flow. Validated: 18 tests, full suite, integrity PASS, mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {
@@ -1134,7 +1137,7 @@
       "title": "The air-gapped bundle ships Arbiter without the analyzers; the hosted API's limiter is shared across processes",
       "description": "arbiter bundle build writes wheels for Arbiter and its two runtime dependencies, the packs, the knowledge file, install scripts and a MANIFEST.json with a SHA-256 per file that states no analyzer is included (ARB-005); arbiter bundle verify fails on any altered or extra file. RateLimiter gains a SQLite-backed mode beside the key store (--limiter file) so uvicorn workers share one budget, proven by a multi-process test; memory stays the single-process default. The README's not-yet-built paragraph and docs/hosted-api.md are updated.",
       "priority": "high",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         "src/arbiter/bundle.py",
         "src/arbiter/cli.py",
@@ -1161,7 +1164,8 @@
         "README.md"
       ],
       "risk_notes": [
-        "pip wheel needs setuptools available offline; the two dependency wheels are downloaded once and documented"
+        "pip wheel needs setuptools available offline; the two dependency wheels are downloaded once and documented",
+        "arbiter bundle build/verify (wheels for Arbiter and its two runtime deps, knowledge file when present, install scripts, MANIFEST.json with SHA-256 per file and the analyzers-not-included statement); a real bundle built, verified and installed offline into a fresh venv; FileRateLimiter in limiter.db with BEGIN IMMEDIATE per decision, proven by six spawned processes against a cap of two; --limiter memory|file on api serve and mcp --http. Validated: 28 tests, full suite 581 passed, integrity PASS, mutations caught, doctor 0 errors, gate PASS."
       ]
     },
     {

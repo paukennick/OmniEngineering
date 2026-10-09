@@ -1109,7 +1109,7 @@
       "status": "fixed",
       "severity": "low",
       "symptom": "Code scanning on OmniEngineering PR #5 raised 'store_mcp_probe_memo is a stub' (arbiter/authored.stub-on-production-path) for a function that writes a JSON file and swallows a failed write with except OSError: pass.",
-      "how_detected": "code scanning alert from the SARIF the omni gate uploaded on OmniEngineering PR #5",
+      "how_detected": "code scanning alert from the SARIF the omni gate uploaded on OmniEngineering PR #5 (finding f:3780e4a24676)",
       "root_cause": "_stubs searched the first eight body lines for any marker line (pass, ..., raise NotImplementedError, a temporary constant return) regardless of indentation, so a pass that was the body of a nested except, if or with branch counted as the body of the function.",
       "requirement": "ARB-048",
       "affected": [

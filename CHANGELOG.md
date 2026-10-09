@@ -12,14 +12,67 @@ under `[Unreleased]` (there are no release tags yet) and reference the
 - ARB-045 | (in progress) Tool versions are memoised so adapter registration costs milliseconds.
 - ARB-046 | (in progress) The suite runs in a fast and a slow tier and CI shards them.
 - ARB-047 | (in progress) Adapters run concurrently and replay when nothing they read changed.
-- ARB-048 | (in progress) The doc-drift probe ignores generated output, git-ignored paths and cross-repository references.
+- ARB-048 | The doc-drift probe leaves generated output, git-ignored paths and
+  cross-repository references alone. Scanning Arbiter with itself, `doc_drift`
+  reported every path the root `.gitignore` keeps out of a checkout
+  (`.claude/settings.local.json`, `.ai/project-graph.json`, `.arbiter/cache.json`),
+  a report file under an `--out` directory, and the OmniEngineering handbook
+  named beside its URL. The backticked-path and markdown-link checks now skip a
+  candidate the root `.gitignore` matches (comments, `dir/`, `*.ext`, `path/**`,
+  a leading `/` and `!` re-inclusion are read, nothing broader), one under the
+  output directory (the new optional `out:` key, this run's `--out` when it sits
+  inside the tree, or any `arbiter-out` segment) and a link target carrying a
+  scheme; a backticked path is also skipped when an `http(s)://` URL sits on its
+  line or the adjacent line of the paragraph, since hard wrapping split the
+  motivating case. A relative link is never excused that way and a plainly
+  missing file still fires. The engine hands `--out` to `ProbeContext.out_dir`
+  rather than the config, so cache keys do not change with the output directory.
+  `fixtures/doc-drift` plants the four cases and one real one; the self-scan
+  drops from 30 doc-drift findings to 20.
 - FAIL-042 (ARB-048) | The stub detector counts a marker only at the function body's own
   indentation: a `pass` under `except`, `if` or `with` is a branch, not a body. Found by
   code scanning on OmniEngineering pull request #5, where `store_mcp_probe_memo`, which
   writes a file and swallows a failed write, was reported as a stub.
 - ARB-049 | (in progress) Arbiter's own debt is worked through the review flow and the baseline is re-cut.
-- ARB-050 | (in progress) `arbiter_review_draft` proposes marks with reasons and never records one.
-- ARB-051 | (in progress) The air-gapped bundle without the analyzers; the hosted API's limiter shared across processes.
+- ARB-050 | `arbiter_review_draft`: an assistant proposes marks with reasons and
+  never records one. `docs/mcp.md` rules out any tool that records a verdict,
+  and the rule stands. The new MCP tool (`service.review_draft`) draws the queue
+  `review_queue` draws (same report, selection and knowledge, read and never
+  saved), fills in the marks an assistant proposed with a reason on the line
+  beneath each, and writes `review-draft.md` under `output_dir` in the exact
+  format `review.parse` reads; its first line says every mark was proposed by an
+  assistant and nothing has been recorded. The result carries counts, the ids
+  not in the queue (reported, not raised) and, as text, the failure-ledger
+  entries the `y` marks would draft (`ledger.preview_entries`, which opens no
+  ledger). A `y` or `n` without a reason is refused. No new path argument, so
+  HTTPS confinement is unchanged. `arbiter review --apply --reviewer` stays the
+  only writer; the no-verdict test is extended to every tool in `TOOLS`, each of
+  which must leave the knowledge file byte-identical. The skill describes the
+  inline flow: draft with reasons, the person reads, the person applies.
+- ARB-051 | The air-gapped bundle, without the analyzers, and the hosted
+  limiter shared across processes. `arbiter bundle build --out DIR` writes
+  Arbiter and its runtime dependencies as wheels (`pip wheel` of the checkout,
+  offline when setuptools can build without isolation, with an isolated retry
+  when a distribution-patched setuptools cannot; `pip download` for PyYAML and
+  tomli, the one step that needs an index, skipped by `--no-deps-download`), the
+  checkout's `.arbiter/knowledge.json` when present, `install.sh` /
+  `install.ps1` (`pip install --no-index --find-links wheels arbiter-eval`), a
+  README and a `MANIFEST.json` with the version, Python floor, build time and a
+  SHA-256 per file; the packs ride inside the wheel and are not copied. The
+  five analyzers are not included and the manifest says why (their
+  redistribution review, ARB-005 L-6, is pending); operators install them from
+  their own mirror. `arbiter bundle verify DIR` recomputes every hash and exits
+  1 on a missing, altered or extra file. `api.FileRateLimiter` keeps the same
+  caps in `limiter.db` beside the key file, one `BEGIN IMMEDIATE` transaction
+  per decision, slots released on exit and expired after the scan ceiling when
+  a process dies holding one; `--limiter memory|file` on `arbiter api serve`
+  and `arbiter mcp --http` selects it through `api.configure_limiter`, both
+  doors reading `api.LIMITER` at call time. Memory stays the single-process
+  default. Proven by six spawned processes never exceeding a cap of two, and by
+  a real bundle built, verified and installed with `--no-index` into a fresh
+  virtualenv. `docs/bundle.md` is new; README, `docs/cli.md`,
+  `docs/hosted-api.md`, `docs/mcp.md`, `NOTICE.md` and `docs/licensing.md` no
+  longer call the bundle unbuilt or the shared limiter a gap.
 - ARB-044 | Requirements use the `ARB` prefix. Two registries on `REQ` collided the
   moment Arbiter was vendored into OmniEngineering (each had reached number 035
   with a different requirement), so `omni requirement renumber --prefix ARB`

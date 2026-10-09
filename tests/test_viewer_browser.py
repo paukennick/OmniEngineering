@@ -1,9 +1,12 @@
 """REQ-048: the graph viewer exercised in a real browser.
 
-A tiny fixture repository (two Python modules, one importing the other), one requirement, one failure-ledger entry and a
-synthetic Arbiter report go through `omni graph build` and `omni graph view --all --mode 2d`; the page is opened with
-file:// in headless Chromium through Playwright, and the Findings tab, the search results, the detail panel (source row
-and breadcrumb), both trace buttons and the severity colour mode are driven and read back from the DOM.
+A tiny fixture repository (two Python modules, one importing the other), two requirements, one failure-ledger entry, a
+vendored workspace `sub/` with a ledger of its own (REQ-052) and a synthetic Arbiter report go through `omni graph build`
+and `omni graph view --all --mode 2d`; the page is opened with file:// in headless Chromium through Playwright, and the
+Findings tab, the search results, the detail panel (source row, breadcrumb, the Introduced by row of REQ-051), the trace
+buttons and the severity colour mode are driven and read back from the DOM. The repository is a real git repository with
+two commits, one per requirement; the second writes the flagged line, so git blame ties the finding to REQ-002 while its
+req: tag names REQ-001 as context.
 
 The test skips itself unless `playwright.sync_api` imports, a Chromium can be launched, and the [graph] extra (tree-sitter)
 that `omni graph build` needs is installed. CI runs it for real in the viewer-browser job. Run with:
@@ -42,6 +45,19 @@ REGISTRY = {
         {"id": "REQ-001", "category": "Feature", "title": "Add numbers", "description": "d", "priority": "high",
          "status": "completed", "minimum_access_scope": ["src/app.py"], "acceptance_criteria": [],
          "validation_required": [], "documentation_required": [], "risk_notes": []},
+        {"id": "REQ-002", "category": "Feature", "title": "Return the sum", "description": "d", "priority": "high",
+         "status": "completed", "minimum_access_scope": ["src/app.py"], "acceptance_criteria": [],
+         "validation_required": [], "documentation_required": [], "risk_notes": []},
+    ],
+}
+
+# REQ-052: a vendored workspace below the root, with its own ledger numbered from FAIL-001; its entry records f:aaa111
+SUB_LEDGER = {
+    "version": "1.0.0",
+    "failure_id_prefix": "FAIL",
+    "failures": [
+        {"id": "FAIL-001", "date": "2026-10-02", "title": "Key leaked in the subtree", "status": "open", "symptom": "s",
+         "how_detected": "arbiter gate finding f:aaa111 on PR #5", "affected": ["lib.py"]},
     ],
 }
 
@@ -67,7 +83,8 @@ REPORT = {
     ],
 }
 
-APP_PY = "import helper\n\n\ndef main():\n    return helper.add(1, 2)\n"   # line 5 sits inside main()
+APP_PY_FIRST = "import helper\n\n\ndef main():\n    pass\n"                   # commit 1 (REQ-001): main() does nothing yet
+APP_PY = "import helper\n\n\ndef main():\n    return helper.add(1, 2)\n"   # commit 2 (REQ-002) writes line 5, inside main()
 HELPER_PY = "def add(a, b):\n    return a + b\n"
 
 
@@ -127,7 +144,25 @@ class TestViewerInChromium(unittest.TestCase):
         write(self.root / "src/helper.py", HELPER_PY)
         write(self.root / ".ai/requirements/requirements.json", json.dumps(REGISTRY))
         write(self.root / ".ai/failures/failure-ledger.json", json.dumps(LEDGER))
-        write(self.root / "arbiter-out/omni-gate/report.json", json.dumps(REPORT))   # the default report path omni graph build reads
+        write(self.root / "sub/.ai/omni-version.json", "{}")                          # REQ-052: what marks a vendored workspace
+        write(self.root / "sub/.ai/failures/failure-ledger.json", json.dumps(SUB_LEDGER))
+        write(self.root / "sub/lib.py", "KEY = 1\n")
+        write(self.root / ".gitignore", "arbiter-out/\n.ai/project-graph.*\n")
+        # REQ-051: two commits, one per requirement; the second writes the flagged line
+        write(self.root / "src/app.py", APP_PY_FIRST)
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "Add numbers (REQ-001)")
+        write(self.root / "src/app.py", APP_PY)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "Return the sum (REQ-002)")
+        self.head = self.git("rev-parse", "HEAD").stdout.strip()
+        report = dict(REPORT, repos=[{"id": "root", "path": str(self.root), "commit": self.head[:7]}])   # the commit Arbiter scanned
+        write(self.root / "arbiter-out/omni-gate/report.json", json.dumps(report))   # the default report path omni graph build reads
+
+    def git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True, encoding="utf-8", env=env)
 
     def omni(self, *args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run([sys.executable, str(ROOT / "make_ai.py"), *args], cwd=self.root, capture_output=True, text=True, encoding="utf-8")
@@ -200,7 +235,7 @@ class TestViewerInChromium(unittest.TestCase):
                 for text in ("arbiter/secrets.aws-access-key", "security", "high", "Key in source"):
                     self.assertIn(text, detail)
 
-                # 5. Trace to requirement: the trace steps and the bar over the picture name REQ-001
+                # 5. Trace to requirement: the trace steps and the bar over the picture name REQ-001 (the req: tag, context)
                 page.click("#detail button:has-text('Trace to requirement')")
                 page.wait_for_selector("#tsteps .step")
                 steps = [s.inner_text().splitlines()[0] for s in page.query_selector_all("#tsteps .step")]
@@ -210,6 +245,42 @@ class TestViewerInChromium(unittest.TestCase):
                 self.assertIn("f:aaa111 → REQ-001", page.inner_text("#tracebar"))
                 self.assertEqual(page.evaluate("window.omniGraphViewer.state().path"), 2)
 
+                # 5b. REQ-051: the Introduced by row names the second commit and REQ-002 (git blame at the scanned commit), the
+                #     req: tag is shown as context, and the trace through the commit lists finding, commit, requirement
+                short = self.head[:7]
+                intro_row = page.wait_for_selector("#detail .edge:has(.t:text-is('introduced by'))")
+                self.assertEqual(intro_row.query_selector("button").inner_text(), short)
+                self.assertIn("Return the sum (REQ-002)", intro_row.inner_text())
+                self.assertIn("(REQ-002)", intro_row.query_selector(".n").inner_text())
+                context_row = page.query_selector("#detail .edge:has(.t:text-is('context'))")
+                self.assertEqual(context_row.query_selector(".n").inner_text(), "REQ-001 · being worked when the scan ran")
+                page.click("#detail button:has-text('Trace to introducing requirement')")
+                page.wait_for_function("document.querySelector('#tracebar').textContent.indexOf('REQ-002') > -1")
+                steps = [s.inner_text().splitlines()[0] for s in page.query_selector_all("#tsteps .step")]
+                self.assertEqual(steps, ["1. f:aaa111 (finding)", f"2. {short} (commit)", "3. REQ-002 (requirement)"])
+                self.assertIn("introduced_by", page.inner_text("#tsteps"))
+                self.assertIn("delivers", page.inner_text("#tsteps"))
+                self.assertIn("f:aaa111 → REQ-002", page.inner_text("#tracebar"))
+                self.assertEqual(page.evaluate("window.omniGraphViewer.state().path"), 3)
+
+                # 5c. REQ-052: Trace to failure reaches the vendored workspace's entry, under its prefixed name
+                page.click("#detail button:has-text('Trace to failure')")
+                page.wait_for_function("document.querySelector('#tracebar').textContent.indexOf('sub/FAIL-001') > -1")
+                steps = [s.inner_text().splitlines()[0] for s in page.query_selector_all("#tsteps .step")]
+                self.assertEqual(steps, ["1. f:aaa111 (finding)", "2. sub/FAIL-001 (failure)"])
+                page.evaluate("window.omniGraphViewer.select('failure:sub/FAIL-001')")
+                page.wait_for_selector("#detail h3:has-text('sub/FAIL-001')")
+                self.assertIn("workspace sub/", page.inner_text("#detail .where"))
+                crumbs = [c.inner_text() for c in page.query_selector_all("#detail .crumbs button")]
+                self.assertEqual(crumbs, ["sub · file", "failure-ledger.json · file", "sub/FAIL-001 · failure"])
+                names_js = "Array.from(document.querySelectorAll('#results .res .nm')).map(function (e) { return e.textContent; }).sort().join()"
+                page.fill("#q", "sub/FAIL-001")                                  # the prefixed id finds exactly it
+                page.wait_for_function(names_js + " === 'sub/FAIL-001'")
+                page.fill("#q", "FAIL-001")                                      # the bare id finds both ledgers' entries
+                page.wait_for_function(names_js + " === 'FAIL-001,sub/FAIL-001'")
+                page.fill("#q", "kind:finding")
+                page.wait_for_function(names_js + " === 'f:aaa111,f:bbb222'")   # the debounced search has replaced the FAIL-001 rows
+
                 # 6. the second finding's Trace to failure reaches the ledger entry whose how_detected names it
                 page.click("#results .res:nth-child(2)")
                 page.wait_for_selector("#detail h3:has-text('f:bbb222')")
@@ -217,10 +288,12 @@ class TestViewerInChromium(unittest.TestCase):
                 self.assertEqual([c.inner_text() for c in page.query_selector_all("#detail .crumbs button")],
                                  ["src · file", "helper · module", "add · function", "f:bbb222 · finding"])
                 page.click("#detail button:has-text('Trace to failure')")
-                page.wait_for_function("document.querySelector('#tracebar').textContent.indexOf('FAIL-001') > -1")
+                page.wait_for_function("document.querySelector('#tracebar').textContent.indexOf('→ FAIL-001') > -1")
                 steps = [s.inner_text().splitlines()[0] for s in page.query_selector_all("#tsteps .step")]
                 self.assertEqual(steps, ["1. f:bbb222 (finding)", "2. FAIL-001 (failure)"])
                 self.assertIn("recorded_as", page.inner_text("#tsteps"))
+                intro_row = page.query_selector("#detail .edge:has(.t:text-is('introduced by'))")   # helper.py:2 is commit 1's line
+                self.assertIn("Add numbers (REQ-001)", intro_row.inner_text())
 
                 # 7. colour by severity: the node colour and the key strip switch from the dimension palette to the severity one
                 page.select_option("#colormode", "severity")

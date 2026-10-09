@@ -304,5 +304,65 @@ class TestDefectCategoryPattern(unittest.TestCase):
             self.assertIs(ma.defect_category_pattern(), ma.DEFECT_CATEGORY)
 
 
+class TestVendoredWorkspaces(GateRuleFixture):
+    """A subtree with its own workspace carries its own registry; its commit messages cite ids this
+    registry does not hold, and the gate must read them as theirs, not as typos here."""
+
+    def vendor(self, ids: list[str], with_marker: bool = True) -> None:
+        (self.root / "subtree" / ".ai" / "requirements").mkdir(parents=True)
+        if with_marker:
+            (self.root / "subtree" / ".ai" / "omni-version.json").write_text('{"source": "x", "ref": "abc"}', encoding="utf-8")
+        (self.root / "subtree" / ".ai" / "requirements" / "requirements.json").write_text(json.dumps({
+            "version": "1.0.0", "requirement_id_prefix": "REQ",
+            "requirements": [{"id": i, "category": "Feature", "title": i, "description": "d", "priority": "low",
+                               "status": "completed", "minimum_access_scope": [], "acceptance_criteria": [],
+                               "validation_required": [], "documentation_required": [], "risk_notes": []} for i in ids],
+        }), encoding="utf-8")
+
+    def rule(self) -> dict:
+        return {"id": "x.req_entry", "severity": "required", "statement": "s",
+                "validation": {"type": "requirement_registry_entry", "target": ".ai/requirements/requirements.json"}}
+
+    def commits_citing(self, text: str) -> str:
+        Path("a.py").write_text("x = 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        parent = self.git("rev-parse", "HEAD").strip()
+        Path("b.py").write_text("y = 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", text)
+        return parent
+
+    def test_an_id_from_a_vendored_registry_is_known(self) -> None:
+        self.write_rulepack([self.rule()])
+        self.write_requirements(["REQ-001"])
+        self.vendor(["REQ-900"])
+        parent = self.commits_citing("Vendored change (REQ-900)")
+        self.assertEqual(ma.vendored_requirement_ids(), {"REQ-900"})
+        self.assertEqual(ma.gate_evaluate({"b.py"}, {}, base=parent)[0], [])
+
+    def test_a_directory_without_the_adoption_marker_is_not_a_workspace(self) -> None:
+        self.write_rulepack([self.rule()])
+        self.write_requirements(["REQ-001"])
+        self.vendor(["REQ-900"], with_marker=False)
+        parent = self.commits_citing("Vendored change (REQ-900)")
+        self.assertEqual(ma.vendored_workspace_dirs(), [])
+        self.assertEqual(len(ma.gate_evaluate({"b.py"}, {}, base=parent)[0]), 1)
+
+    def test_doctor_reports_tooling_drift_in_a_vendored_workspace(self) -> None:
+        self.vendor(["REQ-900"])
+        Path("make_ai.py").write_text("# root\n", encoding="utf-8")
+        (self.root / "subtree" / "make_ai.py").write_text("# root\n", encoding="utf-8")
+        report = ma.DoctorReport()
+        ma.validate_vendored_workspaces(report)
+        self.assertEqual(report.warnings, [])
+        self.assertTrue(any("subtree/" in line for line in report.passed))
+        (self.root / "subtree" / "make_ai.py").write_text("# older\n", encoding="utf-8")
+        report = ma.DoctorReport()
+        ma.validate_vendored_workspaces(report)
+        self.assertEqual(len(report.warnings), 1)
+        self.assertIn("cd subtree && python omni update --source ..", report.warnings[0])
+
+
 if __name__ == "__main__":
     unittest.main()

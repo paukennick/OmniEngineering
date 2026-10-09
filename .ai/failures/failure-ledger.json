@@ -241,6 +241,130 @@
       "prevention_rules": [],
       "prevention_notes": "Any GitHub Actions step name or other string value containing a colon needs quoting; run yaml.safe_load locally before pushing a workflow edit.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-011",
+      "date": "2026-10-09",
+      "title": "The withdrawn status reached the CLI but not the schema; the failing test was misread as the known failure",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "test_schema_enum_matches_the_cli_vocabulary failed on main since REQ-031: the schema enum lacked 'withdrawn' while REQUIREMENT_STATUSES had it.",
+      "how_detected": "full suite run before REQ-034, read by test name",
+      "root_cause": "The schema edit was overwritten in the working tree by a shell command that ran in the wrong directory before the REQ-031 commit, and every later suite run reported one failure, which was assumed to be the pre-existing hook test without checking the name.",
+      "requirement": "REQ-031",
+      "affected": [
+        ".ai/schemas/requirements.schema.json"
+      ],
+      "fix_summary": "withdrawn restored in the enum; the existing test now passes.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_requirement_archive.py::TestStatusVocabulary::test_schema_enum_matches_the_cli_vocabulary"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Read a failing suite by test name, never by failure count; a known failure does not license ignoring the next one.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-012",
+      "date": "2026-10-09",
+      "title": "Arbiter's own reports were committed and then gated: the output directory was not ignored before the first run",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "On the arbiter branch every Python 3.12 CI cell failed omni gate: the completion.arbiter_gate command exited 1 with 10 new high findings, all authored.security-check-disabled, located in arbiter-out/check/report.json and arbiter-out/omni-gate/report.json.",
+      "how_detected": "CI run on the arbiter branch, reproduced locally with the analyzers removed from PATH",
+      "root_cause": "The branch wired Arbiter by hand before arbiter_install existed, ran arbiter check and arbiter gate, then committed with git add -A while .gitignore did not yet list arbiter-out/. Arbiter's --changed scan reads everything the diff touches, so the previous reports (whose finding titles quote the TLS-off patterns) became scan input and matched as new high findings. --out only excludes its own directory, not sibling runs under arbiter-out/.",
+      "requirement": "REQ-034",
+      "affected": [
+        ".github/workflows/ci.yml",
+        ".gitignore"
+      ],
+      "fix_summary": "The two reports are untracked on the arbiter branch (git rm --cached); arbiter-out/ stays in .gitignore and in allowed_root_paths. arbiter_install already writes the ignore entry; the README now says a hand-wired workspace must do the same before its first run.",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A repository-state defect (a committed output directory), not a code path: the fix is the untracking and the ignore entry, which git enforces from now on.",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Ignore a tool's output directory before its first run, and review git add -A output for generated files; Arbiter reads its own reports as source if they are tracked.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-013",
+      "date": "2026-10-09",
+      "title": "omni test run's timeout waited for the whole command on Windows",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "tests/test_test_run.py::TestRunOneSuite::test_a_command_that_overruns_the_timeout_is_timeout_not_a_hang failed on both Windows CI cells: a 0.5 s timeout returned TIMEOUT after 30.03 s, the full sleep of the command.",
+      "how_detected": "CI on PR #2 (windows-latest, Python 3.10 and 3.12), read by test name",
+      "root_cause": "subprocess.run(shell=True, timeout=...) kills only the shell it started; on Windows the child python process kept the inherited stdout and stderr pipes open, so communicate() blocked until the grandchild exited. The timeout therefore bounded nothing.",
+      "requirement": "REQ-040",
+      "affected": [
+        "make_ai.py"
+      ],
+      "fix_summary": "run_test_suite starts the command in its own process group (CREATE_NEW_PROCESS_GROUP on Windows, start_new_session elsewhere) and on timeout kills the whole tree (taskkill /F /T on Windows, killpg elsewhere) before collecting output.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_test_run.py::TestRunOneSuite::test_a_command_that_overruns_the_timeout_is_timeout_not_a_hang"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "A subprocess timeout must kill the process tree, not the shell; the test bounds the measured duration so a regression shows on every platform.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-014",
+      "date": "2026-10-09",
+      "title": "A version-file test compared a POSIX path string on Windows",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "tests/test_arbiter_install.py::TestRecordVersion::test_write_omni_version_file_preserves_the_arbiter_key failed on Windows: '\\\\src\\\\Omni' != '/src/Omni'.",
+      "how_detected": "CI on PR #2 (windows-latest), read by test name",
+      "root_cause": "write_omni_version_file stores str(Path(source)), which Windows renders with backslashes; the test asserted the POSIX literal.",
+      "requirement": "REQ-042",
+      "affected": [
+        "tests/test_arbiter_install.py"
+      ],
+      "fix_summary": "The assertion compares against str(Path('/src/Omni')).",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter_install.py::TestRecordVersion::test_write_omni_version_file_preserves_the_arbiter_key"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Compare paths through pathlib in tests; CI runs three operating systems for exactly this.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-015",
+      "date": "2026-10-09",
+      "title": "omni adopt --include-cli into an empty target always exited 1",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "The adopt-loop CI script died at the adopt step: omni adopt --target <empty dir> --include-cli reported the three .ai/graph-viewer files as 'skip existing' and returned 1, although the adoption had copied everything.",
+      "how_detected": "the adopt-loop CI script and test (REQ-041), by exit code",
+      "root_cause": "ADOPTION_CLI_FILES lists .ai/graph-viewer/viewer.html, 3d-force-graph.min.js and THIRD_PARTY_NOTICES.md, which are already present once .ai is copied whole in the same run; copy_adoption_path then saw them as pre-existing and the skip was counted as a failure. Present since REQ-021; never seen because adopt had only been run into targets that already carried .ai.",
+      "requirement": "REQ-041",
+      "affected": [
+        "make_ai.py"
+      ],
+      "fix_summary": "run_adopt tracks the directories it copied in the same run and reports a nested path as copied with its directory; targets that already had .ai keep the previous behaviour.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_adopt_loop.py::TestAdoptCopiesNestedCliFilesWithTheirDirectory"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "The adopt loop now runs end to end in CI and in a test from an empty directory, so a regression in adopt itself fails the build.",
+      "recurrence_of": ""
     }
   ]
 }

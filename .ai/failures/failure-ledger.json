@@ -340,6 +340,31 @@
       ],
       "prevention_notes": "Compare paths through pathlib in tests; CI runs three operating systems for exactly this.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-015",
+      "date": "2026-10-09",
+      "title": "omni adopt --include-cli into an empty target always exited 1",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "The adopt-loop CI script died at the adopt step: omni adopt --target <empty dir> --include-cli reported the three .ai/graph-viewer files as 'skip existing' and returned 1, although the adoption had copied everything.",
+      "how_detected": "the adopt-loop CI script and test (REQ-041), by exit code",
+      "root_cause": "ADOPTION_CLI_FILES lists .ai/graph-viewer/viewer.html, 3d-force-graph.min.js and THIRD_PARTY_NOTICES.md, which are already present once .ai is copied whole in the same run; copy_adoption_path then saw them as pre-existing and the skip was counted as a failure. Present since REQ-021; never seen because adopt had only been run into targets that already carried .ai.",
+      "requirement": "REQ-041",
+      "affected": [
+        "make_ai.py"
+      ],
+      "fix_summary": "run_adopt tracks the directories it copied in the same run and reports a nested path as copied with its directory; targets that already had .ai keep the previous behaviour.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_adopt_loop.py::TestAdoptCopiesNestedCliFilesWithTheirDirectory"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "The adopt loop now runs end to end in CI and in a test from an empty directory, so a regression in adopt itself fails the build.",
+      "recurrence_of": ""
     }
   ]
 }

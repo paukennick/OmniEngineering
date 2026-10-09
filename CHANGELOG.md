@@ -2,18 +2,24 @@
 
 ## 2026-10-09
 
-### In progress
-
-- `REQ-045` | Documentation | The integration handbook `docs/arbiter-integration.md` and the dated
-  release notes `docs/release-notes-2026-10-09.md`, linked from the README, the context brief and
-  the pull requests, so the Arbiter loop is understood from the repository, not from a PR body.
-
-- `REQ-041` | CI / repo hygiene | The adopt loop proven end to end: a CI job and a unittest adopt the
-  workspace with Arbiter into a temp directory, plant a defect, prove `omni gate` fails on
-  `completion.arbiter_gate` and passes after the fix; CI uploads the gate's SARIF to code scanning and
-  reads Arbiter's Python floor from `arbiter/pyproject.toml`.
-
 ### Completed
+
+- `REQ-045` | Documentation | The integration handbook `docs/arbiter-integration.md` (division of
+  labour, the three topologies, the wiring written at install, the edit-to-adjudication loop, findings in
+  the graph and the four tracing axes, impact and test selection, PR output, what each CI job proves,
+  keeping both level, requirement ids across the two, the off switches) and the dated release notes
+  `docs/release-notes-2026-10-09.md`, linked from the README (a new Arbiter section after Quick Start
+  and the design list), the Arbiter section and `.ai/context-brief.md`; `docs/` is an allowed root path.
+
+- `REQ-041` | CI / repo hygiene | The adopt loop is proven end to end. A CI job and
+  `tests/test_adopt_loop.py` adopt the workspace with Arbiter into an empty directory, commit, plant
+  `requests.get(url, verify=False)`, prove `omni gate` exits 1 with `completion.arbiter_gate` as the
+  only failing rule, fix it, and prove the gate passes; the test skips without `arbiter` and prints
+  every transcript on an unexpected result. CI uploads the gate's SARIF to code scanning
+  (`continue-on-error`; the gate's exit code stays the verdict) and reads Arbiter's Python floor from
+  `arbiter/pyproject.toml` instead of hard-coding 3.11. Found and fixed on the way: `omni adopt
+  --include-cli` into an empty target always exited 1 because the graph-viewer files were counted as
+  already present once `.ai` had been copied in the same run (FAIL-015).
 
 - `REQ-044` | CLI / template maintainability | Requirement id aliases and `omni requirement renumber
   --prefix NEW`. Two workspaces on the `REQ` prefix collide the moment one is vendored into the other

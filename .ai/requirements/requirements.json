@@ -1360,7 +1360,7 @@
       "title": "The adopt loop is proven end to end in CI and a test",
       "description": "No test proved adopt, wire Arbiter, plant a defect, gate fails, fix, gate passes. A CI job and a unittest adopt the workspace into a temp directory with --with-arbiter from the vendored subtree, commit, add verify=False in Python, assert omni gate fails naming completion.arbiter_gate, fix it, assert it passes. CI also uploads the gate's SARIF to code scanning and reads requires-python from arbiter/pyproject.toml to decide which cells can run a vendored Arbiter.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         ".github/workflows/ci.yml",
         "tests/test_adopt_loop.py"
@@ -1487,7 +1487,7 @@
       "title": "Integration handbook and dated release notes for the Arbiter loop",
       "description": "The README and PR bodies described pieces; nothing explained how Arbiter and OmniEngineering run as one loop. docs/arbiter-integration.md covers the division of labour, the three topologies, the wiring written at install, the edit-to-adjudication loop, findings in the graph and how to trace one along four axes, impact and test selection, PR output, what each CI job proves, keeping both level, requirement ids across the two, and the off switches. docs/release-notes-2026-10-09.md lists every requirement landed on the date and the adopter steps. Both are linked from the README design list, the Arbiter section and the context brief.",
       "priority": "high",
-      "status": "proposed",
+      "status": "completed",
       "minimum_access_scope": [
         "docs/arbiter-integration.md",
         "docs/release-notes-2026-10-09.md",

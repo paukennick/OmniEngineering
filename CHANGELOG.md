@@ -4,6 +4,10 @@
 
 ### In progress
 
+- `REQ-045` | Documentation | The integration handbook `docs/arbiter-integration.md` and the dated
+  release notes `docs/release-notes-2026-10-09.md`, linked from the README, the context brief and
+  the pull requests, so the Arbiter loop is understood from the repository, not from a PR body.
+
 - `REQ-041` | CI / repo hygiene | The adopt loop proven end to end: a CI job and a unittest adopt the
   workspace with Arbiter into a temp directory, plant a defect, prove `omni gate` fails on
   `completion.arbiter_gate` and passes after the fix; CI uploads the gate's SARIF to code scanning and

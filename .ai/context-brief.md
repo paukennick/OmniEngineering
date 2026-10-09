@@ -55,3 +55,8 @@ Before claiming completion, confirm:
   `./omni waive <rule-id> --reason "..."`.
 - Docs or changelog impact was handled according to project policy.
 - Final response includes remaining risk or follow-up, if any.
+
+## When The Task Touches Arbiter
+
+Read `docs/arbiter-integration.md` once: it says how `omni gate` runs `arbiter gate`,
+how findings reach the ledger and the graph, and which switches turn each piece off.

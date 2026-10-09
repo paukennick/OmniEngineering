@@ -1480,6 +1480,36 @@
       "risk_notes": [
         "text rewriting is limited to governance files by an explicit allow list"
       ]
+    },
+    {
+      "id": "REQ-045",
+      "category": "Documentation",
+      "title": "Integration handbook and dated release notes for the Arbiter loop",
+      "description": "The README and PR bodies described pieces; nothing explained how Arbiter and OmniEngineering run as one loop. docs/arbiter-integration.md covers the division of labour, the three topologies, the wiring written at install, the edit-to-adjudication loop, findings in the graph and how to trace one along four axes, impact and test selection, PR output, what each CI job proves, keeping both level, requirement ids across the two, and the off switches. docs/release-notes-2026-10-09.md lists every requirement landed on the date and the adopter steps. Both are linked from the README design list, the Arbiter section and the context brief.",
+      "priority": "high",
+      "status": "proposed",
+      "minimum_access_scope": [
+        "docs/arbiter-integration.md",
+        "docs/release-notes-2026-10-09.md",
+        "README.md",
+        ".ai/context-brief.md"
+      ],
+      "acceptance_criteria": [
+        "both documents exist and are linked from README and the context brief",
+        "every command named in them exists",
+        "doctor's markdown checks pass"
+      ],
+      "validation_required": [
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "docs/arbiter-integration.md",
+        "docs/release-notes-2026-10-09.md"
+      ],
+      "risk_notes": [
+        "command names must be re-checked against the final Arbiter release"
+      ]
     }
   ]
 }

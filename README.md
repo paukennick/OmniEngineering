@@ -87,6 +87,10 @@ and operations, decision records, and supporting diagrams.
 
 Start with:
 
+- [Arbiter and OmniEngineering: how the two run as one loop](docs/arbiter-integration.md)
+  -- the integration handbook: the wiring, the edit-to-adjudication loop, tracing a
+  finding through the graph, CI, keeping both level, the off switches
+- [Release notes, 2026-10-09](docs/release-notes-2026-10-09.md)
 - [Design overview](design/README.md)
 - [System architecture](design/system-architecture.md)
 - [Context routing diagram](design/diagrams/context-routing.svg)
@@ -429,8 +433,9 @@ diffs against later.
 
 [Arbiter](https://github.com/paukennick/arbiter) is the repository evaluator
 this workspace pairs with: it scans the code and refuses to grade what it did
-not inspect, and its gate is the product-side half of `omni gate`. Bring it in
-with the adoption, or add it to a repository adopted earlier:
+not inspect, and its gate is the product-side half of `omni gate`. The whole
+loop is written up in [docs/arbiter-integration.md](docs/arbiter-integration.md).
+Bring it in with the adoption, or add it to a repository adopted earlier:
 
 ```bash
 ./omni adopt --target ../your-project --include-cli --with-arbiter ../arbiter   # a checkout

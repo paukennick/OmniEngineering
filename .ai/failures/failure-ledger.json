@@ -1026,6 +1026,33 @@
       ],
       "prevention_notes": "Scope is decided in one place, the inventory; a tool's own traversal is an implementation detail its output must be reconciled with.",
       "recurrence_of": "FAIL-023"
+    },
+    {
+      "id": "FAIL-039",
+      "date": "2026-10-09",
+      "title": "A missing python package read as not applicable, so the AST probes left the coverage denominator",
+      "status": "fixed",
+      "severity": "high",
+      "symptom": "pr-check (windows-latest), no tree-sitter: test_a_dimension_with_no_basis_cannot_claim_complete failed because the coverage claim read 'not applicable here: ast_metrics, interface, house_rules_ast'. Two probes with a question to answer here were counted as having none.",
+      "how_detected": "CI, first Windows run after REQ-033 (the Linux job has tree-sitter)",
+      "root_cause": "Probe.applicable() answered two different questions with one False: a missing python module (prevented) and a single-repository or stack mismatch (nothing to assess). The engine set applicable=False for both, and the new coverage rule dropped both from the denominator. CI-12's reason check did not list 'missing python package'.",
+      "requirement": "REQ-033",
+      "affected": [
+        "src/arbiter/probes.py",
+        "src/arbiter/engine.py",
+        "src/arbiter/claims.py"
+      ],
+      "fix_summary": "Probe.prevented() reports missing modules and the engine records them as skipped with applicable=True, like a missing binary; applicable() keeps only the nothing-to-assess cases; CI-12 lists the new wording.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_arbiter.py::test_a_missing_dependency_is_prevented_not_inapplicable"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "The Windows matrix is the machine without the optional dependency; a scoring rule that depends on applicability must be tested there, which the matrix now does on every pull request.",
+      "recurrence_of": "FAIL-036"
     }
   ]
 }

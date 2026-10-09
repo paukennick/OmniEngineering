@@ -69,13 +69,21 @@ class Probe:
     scope_reason: str = "this check reads relationships between files"
     version: str = "0.1.0"
 
-    def applicable(self, ctx: ProbeContext) -> tuple[bool, str]:
-        if self.multi_repo_only and len(ctx.repos) < 2:
-            return False, "system has a single repo; no seams to check"
+    def prevented(self) -> tuple[bool, str]:
+        """A dependency this machine lacks. Different fact from `applicable`:
+        the probe had a question to answer here and could not. It stays in
+        the coverage denominator, like a missing binary. The Windows job
+        found the two conflated: tree-sitter absent read as "not applicable"
+        and the AST probes left coverage instead of lowering it."""
         for mod in self.modules:
             import importlib.util
             if importlib.util.find_spec(mod) is None:
-                return False, f"missing python package: {mod}"
+                return True, f"missing python package: {mod}"
+        return False, ""
+
+    def applicable(self, ctx: ProbeContext) -> tuple[bool, str]:
+        if self.multi_repo_only and len(ctx.repos) < 2:
+            return False, "system has a single repo; no seams to check"
         if self.stacks is not None:
             present = set(getattr(ctx.inventory, "stacks", set()) or set())
             if not (set(self.stacks) & present):

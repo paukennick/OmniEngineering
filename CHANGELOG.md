@@ -53,7 +53,14 @@ under `[Unreleased]` (there are no release tags yet) and reference the
   probe that was prevented from running stays in it; claim invariant CI-12
   refuses a report that marks a prevented probe as not applicable, and
   `tools/integrity.py` proves it does. Coverage on this repository went from
-  22% (grade withheld) to 99% with the analyzers installed. (REQ-033)
+  22% (grade withheld) to 99% with the analyzers installed. The Windows job,
+  which has no tree-sitter, then showed the rule's one hole: a missing python
+  package also read as not applicable, so the two AST probes left the
+  denominator instead of lowering coverage. `Probe.prevented()` now reports a
+  missing dependency separately and the engine records it as a prevented
+  skip, like a missing binary; `applicable()` keeps only the cases where
+  there is nothing to assess, and CI-12 names the new wording (FAIL-039).
+  (REQ-033)
 - `arbiter review --apply --ledger FILE` drafts an open OmniEngineering
   failure-ledger entry for every verdict recorded as a true positive: title,
   severity, rule, location and the finding id, nothing the scanner cannot

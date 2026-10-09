@@ -1809,6 +1809,30 @@ def test_a_not_applicable_probe_leaves_the_coverage_denominator():
     assert "interface" not in with_na.dimensions
 
 
+def test_a_missing_dependency_is_prevented_not_inapplicable(tmp_path):
+    """The Windows job has no tree-sitter. Its AST probes reported themselves
+    not applicable and left the coverage denominator, which is the exact
+    laundering CI-12 exists to refuse: a check with a question to answer here
+    that could not answer it. A missing package is a prevented probe."""
+    from arbiter.probes import Probe
+    ghost = Probe(name="ghost", dimensions=["quality"], checks=2, run=lambda ctx: [],
+                  modules=["arbiter_no_such_module_xyz"])
+    blocked, why = ghost.prevented()
+    assert blocked and "missing python package" in why
+    (tmp_path / "a.py").write_text("x = 1\n")
+    import arbiter.probes as probes_mod
+    probes_mod.REGISTRY.append(ghost)
+    try:
+        rep = run_scan([str(tmp_path)], load_config(None), only=["ghost"], use_adapters=False)
+    finally:
+        probes_mod.REGISTRY.remove(ghost)
+    outcome = next(p for p in rep.probes if p.name == "ghost")
+    assert outcome.status == "skipped" and outcome.applicable is True
+    assert "missing python package" in outcome.reason
+    from arbiter.claims import verify
+    assert not [v for v in verify(rep, load_config(None)) if v.invariant == "CI-12"]
+
+
 def test_not_applicable_cannot_launder_a_prevented_probe():
     """CI-12: a report may mark a probe not applicable only when it could
     never have applied. Pairing applicable=False with the engine's own

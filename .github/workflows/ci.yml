@@ -29,11 +29,23 @@ jobs:
 
       # A vendored Arbiter (the `arbiter` branch) registers `arbiter mcp` in .mcp.json and a command rule
       # that runs `arbiter gate`; doctor starts that server for real and the gate runs that command, so
-      # the package has to be installed wherever the subtree is present. No-op on branches without it.
-      - name: Install a vendored Arbiter when the subtree is present
+      # the package has to be installed wherever the subtree is present. Arbiter needs Python 3.11+, so
+      # on an older interpreter the subtree cannot be installed: the unit tests still run there, and the
+      # doctor and gate steps (which would fail only on the missing `arbiter` executable) are skipped
+      # with a note instead; both still run on every 3.12 cell. No-op on branches without the subtree.
+      - name: Is a vendored Arbiter present, and can this Python run it?
+        id: vendored
         shell: bash
         run: |
-          if [ -f arbiter/pyproject.toml ]; then python -m pip install -e "./arbiter[mcp]"; else echo "no vendored arbiter/"; fi
+          if [ -f arbiter/pyproject.toml ]; then present=true; else present=false; fi
+          supported=$(python -c "import sys; print('true' if sys.version_info >= (3, 11) else 'false')")
+          echo "present=$present" >> "$GITHUB_OUTPUT"
+          echo "supported=$supported" >> "$GITHUB_OUTPUT"
+          echo "vendored arbiter present=$present, interpreter supported=$supported"
+
+      - name: Install the vendored Arbiter
+        if: steps.vendored.outputs.present == 'true' && steps.vendored.outputs.supported == 'true'
+        run: python -m pip install -e "./arbiter[mcp]"
 
       # `python <script>` (not `./omni` or `python3`) so this step is identical on Linux, macOS and Windows:
       # it doesn't depend on the executable bit or on which of python/python3 is on PATH.
@@ -44,10 +56,19 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Run omni doctor
+        if: steps.vendored.outputs.present != 'true' || steps.vendored.outputs.supported == 'true'
         run: python omni doctor
 
       - name: Run omni gate
+        if: steps.vendored.outputs.present != 'true' || steps.vendored.outputs.supported == 'true'
         run: python omni gate
+
+      - name: Doctor and gate skipped on this interpreter
+        if: steps.vendored.outputs.present == 'true' && steps.vendored.outputs.supported != 'true'
+        shell: bash
+        run: |
+          echo "The vendored Arbiter requires Python 3.11+; doctor's live 'arbiter mcp' check and the gate's"
+          echo "'arbiter gate' command rule cannot run on Python ${{ matrix.python-version }}. Both run on the 3.12 cells."
 
   graph-extra:
     name: Optional [graph] extra installs and builds (ubuntu-latest, Python 3.12)

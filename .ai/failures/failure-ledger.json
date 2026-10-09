@@ -266,6 +266,31 @@
       ],
       "prevention_notes": "Read a failing suite by test name, never by failure count; a known failure does not license ignoring the next one.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-012",
+      "date": "2026-10-09",
+      "title": "Arbiter's own reports were committed and then gated: the output directory was not ignored before the first run",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "On the arbiter branch every Python 3.12 CI cell failed omni gate: the completion.arbiter_gate command exited 1 with 10 new high findings, all authored.security-check-disabled, located in arbiter-out/check/report.json and arbiter-out/omni-gate/report.json.",
+      "how_detected": "CI run on the arbiter branch, reproduced locally with the analyzers removed from PATH",
+      "root_cause": "The branch wired Arbiter by hand before arbiter_install existed, ran arbiter check and arbiter gate, then committed with git add -A while .gitignore did not yet list arbiter-out/. Arbiter's --changed scan reads everything the diff touches, so the previous reports (whose finding titles quote the TLS-off patterns) became scan input and matched as new high findings. --out only excludes its own directory, not sibling runs under arbiter-out/.",
+      "requirement": "REQ-034",
+      "affected": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "arbiter.yaml"
+      ],
+      "fix_summary": "The two reports are untracked on the arbiter branch (git rm --cached); arbiter-out/ stays in .gitignore and in allowed_root_paths. arbiter_install already writes the ignore entry; the README now says a hand-wired workspace must do the same before its first run.",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A repository-state defect (a committed output directory), not a code path: the fix is the untracking and the ignore entry, which git enforces from now on.",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Ignore a tool's output directory before its first run, and review git add -A output for generated files; Arbiter reads its own reports as source if they are tracked.",
+      "recurrence_of": ""
     }
   ]
 }

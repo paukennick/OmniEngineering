@@ -22,6 +22,11 @@
   - The main matrix installs a vendored Arbiter when `arbiter/pyproject.toml` exists, because doctor
     starts the `arbiter mcp` server the branch registers and the gate runs `arbiter gate`; the first run
     on the `arbiter` branch failed all six matrix jobs on exactly that live check.
+  - That install only happens on Python 3.11+, which Arbiter requires: on 3.10 the unit tests still run
+    and the doctor and gate steps are skipped with a note (both run on every 3.12 cell). The second run
+    on the `arbiter` branch had failed the 3.10 cells on the install itself and the 3.12 cells on
+    `arbiter gate` reading two of its own earlier reports that had been committed before `arbiter-out/`
+    was ignored: those are untracked there now and the lesson is FAIL-012.
 
 - `REQ-033` | Feature | Arbiter installs alongside the workspace.
   - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -376,3 +377,20 @@ def test_the_cache_is_capped_and_written_atomically(tmp_path, monkeypatch):
 def test_every_cacheable_probe_is_file_scoped_and_attributes_every_finding(name):
     probe = probe_by_name(name)
     assert probe.scope == "file", "cacheable is a stronger claim than file-scoped"
+
+
+def test_a_same_size_edit_within_one_mtime_tick_changes_the_key(tmp_path):
+    """FAIL-041: the digest is of the bytes, never of (path, mtime, size). Two
+    same-size writes with the timestamp pinned must still key differently."""
+    f = tmp_path / "b.py"
+    f.write_text("y = 2\n", encoding="utf-8")
+    pinned = f.stat().st_mtime
+    before = C.key(str(f), "rules", "b.py", "root")
+    f.write_text("y = 3\n", encoding="utf-8")
+    os.utime(f, (pinned, pinned))                      # same size, same mtime
+    assert f.stat().st_size == len("y = 2\n")
+    assert C.key(str(f), "rules", "b.py", "root") != before
+    # Control: writing the original bytes back restores the original key.
+    f.write_text("y = 2\n", encoding="utf-8")
+    os.utime(f, (pinned, pinned))
+    assert C.key(str(f), "rules", "b.py", "root") == before

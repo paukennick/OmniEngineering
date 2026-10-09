@@ -1053,6 +1053,54 @@
       ],
       "prevention_notes": "The Windows matrix is the machine without the optional dependency; a scoring rule that depends on applicability must be tested there, which the matrix now does on every pull request.",
       "recurrence_of": "FAIL-036"
+    },
+    {
+      "id": "FAIL-040",
+      "date": "2026-10-09",
+      "title": "The Python 3.10 CI cell segfaulted: checkov installs the pyston JIT into Arbiter's interpreter",
+      "status": "fixed",
+      "severity": "high",
+      "symptom": "pr-check (ubuntu-latest, 3.10): pytest died with 'Fatal Python error: Segmentation fault' inside pytest's tmp_path fixture (posixpath.realpath), 'Extension modules: pyston, yaml._yaml', exit 139, after 25% of the suite.",
+      "how_detected": "pr-check on PR #5, the new 3.10 cell introduced by REQ-040",
+      "root_cause": "checkov==3.3.17 depends on pyston==2.3.5 and pyston-autoload on CPython < 3.11 (linux and macOS x86_64). tools/install_tools.sh installed checkov with plain pip into Arbiter's own interpreter, and pyston-autoload switches the JIT on in every process of that interpreter; pyston 2.3.5 crashes under pytest on 3.10. The 3.11 cells never saw it because the dependency marker excludes them.",
+      "requirement": "REQ-040",
+      "affected": [
+        "tools/install_tools.sh"
+      ],
+      "fix_summary": "checkov is installed into its own venv (install_checkov_isolated, mirroring semgrep's isolation) with the launcher copied onto PATH, and any checkov, pyston and pyston-autoload left in Arbiter's interpreter are uninstalled.",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "The crash lives in a third-party JIT under a specific interpreter; the 3.10 CI cell is the regression test and runs on every pull request.",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "Every external analyzer that is a Python package is installed isolated from Arbiter's interpreter; a dependency marker that only fires on an older interpreter is why the matrix carries that interpreter.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-041",
+      "date": "2026-10-09",
+      "title": "The cache digest was memoised on (path, mtime, size), so a same-size edit in one mtime tick was served stale",
+      "status": "fixed",
+      "severity": "medium",
+      "symptom": "pr-check (windows-latest, 3.11): tests/test_cache.py::test_an_edited_file_misses_the_cache failed: after rewriting b.py from 'y = 2' to 'y = 3' the cache key was unchanged.",
+      "how_detected": "pr-check on PR #5 (windows-latest), read by test name",
+      "root_cause": "file_digest memoised the sha256 under (abspath, st_mtime_ns, st_size). Windows reported the same mtime for two writes in quick succession, the size was identical, and the memo returned the previous digest, so the cache would have answered from the old findings.",
+      "requirement": "REQ-041",
+      "affected": [
+        "src/arbiter/cache.py"
+      ],
+      "fix_summary": "file_digest reads and hashes the bytes on every call; the memo table is gone. The cost is one read per file per cacheable probe, which the operating system cache absorbs.",
+      "fix_commits": [],
+      "regression_tests": [
+        "tests/test_cache.py::test_a_same_size_edit_within_one_mtime_tick_changes_the_key"
+      ],
+      "no_test_reason": "",
+      "prevention_rules": [
+        "completion.validation"
+      ],
+      "prevention_notes": "A content key is computed from content; file metadata is never a proxy for it. The regression test pins the mtime so it fails on every platform if the memo returns.",
+      "recurrence_of": ""
     }
   ]
 }

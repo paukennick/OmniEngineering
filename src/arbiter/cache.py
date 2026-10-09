@@ -83,31 +83,20 @@ def _sha(*parts: str) -> str:
     return hashlib.sha256(_SEP.join(parts).encode("utf-8")).hexdigest()
 
 
-# Keyed on (path, mtime_ns, size) for the same reason the read cache is: a
-# harness that rewrites one path twenty thousand times must never be served
-# the first version's digest.
-_FILE_DIGESTS: dict[tuple[str, int, int], str] = {}
-_FILE_DIGESTS_MAX = 50_000
 
 
 def file_digest(abspath: str) -> str:
-    """sha256 of the file's bytes; empty when the file cannot be read."""
+    """sha256 of the file's bytes; empty when the file cannot be read.
+
+    Read from disk every time, never memoised on (path, mtime, size): a
+    same-size edit inside one mtime tick is invisible to that key, and on
+    Windows the tick is coarse enough that the test suite hit it (FAIL-041).
+    The bytes are what the cache promises to key on, so the bytes are read.
+    """
     try:
-        st = os.stat(abspath)
+        return hashlib.sha256(Path(abspath).read_bytes()).hexdigest()
     except OSError:
         return ""
-    memo_key = (abspath, st.st_mtime_ns, st.st_size)
-    cached = _FILE_DIGESTS.get(memo_key)
-    if cached is not None:
-        return cached
-    try:
-        digest = hashlib.sha256(Path(abspath).read_bytes()).hexdigest()
-    except OSError:
-        return ""
-    if len(_FILE_DIGESTS) >= _FILE_DIGESTS_MAX:
-        _FILE_DIGESTS.clear()
-    _FILE_DIGESTS[memo_key] = digest
-    return digest
 
 
 _CODE_DIGEST: dict[str, str] = {}

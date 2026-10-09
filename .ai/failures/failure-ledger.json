@@ -365,6 +365,52 @@
       ],
       "prevention_notes": "The adopt loop now runs end to end in CI and in a test from an empty directory, so a regression in adopt itself fails the build.",
       "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-016",
+      "date": "2026-10-09",
+      "title": "Every action in ci.yml was pinned by a mutable major tag",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "Code scanning on upstream OmniEngineering PR #3 raised four 'Action actions/checkout pinned to a mutable ref (v5)' notes (arbiter/supply.unpinned-action) on .github/workflows/ci.yml; the same finding was an open entry (FAIL-046) in the vendored Arbiter's ledger.",
+      "how_detected": "code scanning on upstream OmniEngineering PR #3 (Arbiter SARIF)",
+      "root_cause": "The workflow referenced actions/checkout@v5, actions/setup-python@v5, actions/cache@v4 and github/codeql-action/upload-sarif@v3 by major tag; a tag can be moved, so the workflow ran whatever the tag pointed at on the day.",
+      "requirement": "REQ-041",
+      "affected": [
+        ".github/workflows/ci.yml"
+      ],
+      "fix_summary": "Every uses: line names the tag's commit SHA with the tag in a trailing comment (checkout fbc6f399, setup-python a26af69b, cache 0057852b, upload-sarif 9f759ee6, resolved with git ls-remote --tags).",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "A workflow file has no unit test; Arbiter's supply.unpinned-action rule in the self-gate is the check that catches a return to tags.",
+      "prevention_rules": [
+        "completion.arbiter_gate"
+      ],
+      "prevention_notes": "Arbiter's supply-chain probe reports a mutable action ref on every gate run; the SARIF upload makes it a code-scanning alert.",
+      "recurrence_of": ""
+    },
+    {
+      "id": "FAIL-017",
+      "date": "2026-10-09",
+      "title": "History-layer test teardown raced git's detached auto-gc on macOS CI",
+      "status": "fixed",
+      "severity": "low",
+      "symptom": "CI (macos-latest, Python 3.10) on pull request #6: ERROR in test_graph_layers.TestHistoryLayer.test_a_squash_commit_without_an_id_is_tied_to_the_requirement_its_changelog_entry_records: TemporaryDirectory cleanup raised OSError Errno 66 Directory not empty: 'pack'. The same test passed on the previous head and on every other cell.",
+      "how_detected": "CI on pull request #6, read by test name",
+      "root_cause": "The test commits several times into a temporary repository; git may detach an automatic gc that writes into .git/objects/pack after the commit returns, so shutil.rmtree listed the pack directory, git added a file, and rmdir failed.",
+      "requirement": "REQ-041",
+      "affected": [
+        "tests/test_graph_layers.py"
+      ],
+      "fix_summary": "Every temporary repository in the history-layer tests sets gc.auto 0 right after git init, so no background process writes into the directory the test removes.",
+      "fix_commits": [],
+      "regression_tests": [],
+      "no_test_reason": "The defect is a timing race in test teardown; the fix removes the background process rather than asserting on it.",
+      "prevention_rules": [
+        "completion.verify_target_environment"
+      ],
+      "prevention_notes": "A test that creates a git repository and removes it disables auto-gc; the macOS cell is the control that showed the race.",
+      "recurrence_of": ""
     }
   ]
 }

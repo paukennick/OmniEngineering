@@ -1062,7 +1062,8 @@
       ],
       "risk_notes": [
         "a .gitignore pattern that is too broad hides real drift; only exact-path and directory patterns are honoured",
-        "doc_drift skips git-ignored paths, output directories (out: key, this run's --out, any arbiter-out segment), scheme-carrying link targets and backticked paths beside an http(s) URL on the same or adjacent paragraph line; self-scan doc-drift findings 30 to 20; fixtures/doc-drift plants the cases; 37 tests. Also FAIL-042: the stub detector counts a marker only at the body's own indentation. Validated: full suite, integrity PASS, 8 mutations caught, doctor 0 errors, gate PASS."
+        "doc_drift skips git-ignored paths, output directories (out: key, this run's --out, any arbiter-out segment), scheme-carrying link targets and backticked paths beside an http(s) URL on the same or adjacent paragraph line; self-scan doc-drift findings 30 to 20; fixtures/doc-drift plants the cases; 37 tests. Also FAIL-042: the stub detector counts a marker only at the body's own indentation. Validated: full suite, integrity PASS, 8 mutations caught, doctor 0 errors, gate PASS.",
+        "2026-10-09: code scanning on upstream OmniEngineering PR #3 showed two more precision gaps, both fixed: an environment-variable name assigned to a credential-named symbol is not a credential (FAIL-050), and the workflows are pinned to commit SHAs (FAIL-046)."
       ]
     },
     {

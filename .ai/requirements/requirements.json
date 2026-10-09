@@ -1420,7 +1420,8 @@
         "CHANGELOG.md"
       ],
       "risk_notes": [
-        "doctor's live MCP probes run inside the gate so the test takes tens of seconds"
+        "doctor's live MCP probes run inside the gate so the test takes tens of seconds",
+        "2026-10-09: the upstream's first CI run on PR #3 raised Arbiter alerts on this loop's own files; ci.yml now pins every action to its tag's commit SHA (FAIL-016) and arbiter.yaml suppresses the planted TLS-verification-off literal in the CI script and the test, with reasons and 2027-10-01 expiries."
       ]
     },
     {

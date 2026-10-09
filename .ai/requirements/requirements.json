@@ -154,9 +154,9 @@
       "id": "REQ-024",
       "category": "developer-tooling",
       "title": "Exercise the Windows code paths in CI",
-      "description": "Originally: no workflow ran on Windows, so no Windows path was ever exercised by automation. REQ-006 fixed a crash that occurred on every adapter timeout on Windows and it survived to be found by hand because nothing tested it. Closed 2026-09-14 except for one point. pr-check.yml is now a matrix over ubuntu-latest and windows-latest with fail-fast false and no continue-on-error, running the suite with -rs so each platform's skips appear with reasons, then tools/integrity.py -- which was verified on Windows first. Seven tests were added; four of them delete os.killpg so the taskkill fallback, unreachable on a machine that has process groups, is exercised on Linux too. Still pending: the run is non-advisory but not required, because this repository has no rulesets and main is unprotected, so no check is required at all. Making one required is a repository setting rather than a file and is the owner's call.",
+      "description": "Originally: no workflow ran on Windows, so no Windows path was ever exercised by automation. REQ-006 fixed a crash that occurred on every adapter timeout on Windows and it survived to be found by hand because nothing tested it. pr-check.yml is a matrix over ubuntu-latest and windows-latest with fail-fast false and no continue-on-error, running the suite with -rs so each platform's skips appear with reasons, then tools/integrity.py and tools/mutate_tests.py, omni doctor and omni gate, and on Linux the analyzers and arbiter's own gate. Seven tests were added; four of them delete os.killpg so the taskkill fallback is exercised on Linux too. The matrix ran for the first time on 2026-10-09 (PR #3) and found two real defects (FAIL-035, FAIL-039). The last criterion, making the check required rather than advisory, was decided against on 2026-10-09: a required check only blocks the merge button, which a sole committer already reads, and the strict variant would make every pull request stale after each nightly training commit. Revisit when a second committer or automated merging arrives.",
       "priority": "medium",
-      "status": "pending",
+      "status": "completed",
       "minimum_access_scope": [
         ".github/workflows/",
         "tests/test_arbiter.py",
@@ -175,7 +175,8 @@
       ],
       "risk_notes": [
         "Adding a matrix to the nightly training workflow would double a two-hour job so the test run belongs in a separate fast workflow/Windows runners are slower and some adapter binaries are unavailable there so expect new legitimate skips",
-        "2026-10-09: the first Windows run of pr-check (PR #3) failed three setup-script tests that spawned bare 'bash' and got the WSL launcher; fixed by resolving bash through PATH as the writeback test already did (FAIL-035). The workflow itself had never run before."
+        "2026-10-09: the first Windows run of pr-check (PR #3) failed three setup-script tests that spawned bare 'bash' and got the WSL launcher; fixed by resolving bash through PATH as the writeback test already did (FAIL-035). The workflow itself had never run before.",
+        "2026-10-09: completed with the check deliberately advisory. Branch protection is a repository setting the owner weighed and declined for now; the acceptance criterion 'required rather than advisory' is superseded by this note. Revisit when a second committer or auto-merge appears."
       ]
     },
     {

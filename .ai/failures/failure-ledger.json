@@ -18,8 +18,8 @@
       "fix_summary": "The cache key is now (path, st_mtime_ns, st_size) with a bounded size, so the cache cannot be wrong regardless of who calls it.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_the_read_cache_is_correct_without_anyone_clearing_it",
-        "tests/test_arbiter.py::test_the_read_cache_never_serves_one_scans_bytes_for_another"
+        "tests/test_graph_system.py::test_the_read_cache_is_correct_without_anyone_clearing_it",
+        "tests/test_graph_system.py::test_the_read_cache_never_serves_one_scans_bytes_for_another"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -70,11 +70,11 @@
       "fix_summary": "`_kill_group` delegates to a new `Adapter._kill_tree` when `os.killpg` is absent; it runs `taskkill /T /F /PID` and falls back to `proc.kill()` if taskkill is missing or fails. The one-line `getattr(_signal, 'SIGKILL', SIGTERM)` repair was rejected because signalling the direct child alone leaves fanned-out workers running. POSIX path unchanged.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_adapter_timeout_kills_the_whole_process_group",
-        "tests/test_arbiter.py::test_a_timeout_still_kills_the_process_where_there_are_no_process_groups",
-        "tests/test_arbiter.py::test_the_no_process_group_path_kills_the_whole_tree_not_just_the_child",
-        "tests/test_arbiter.py::test_the_no_process_group_path_falls_back_when_taskkill_is_missing",
-        "tests/test_arbiter.py::test_the_no_process_group_path_falls_back_when_taskkill_fails"
+        "tests/test_adapters.py::test_adapter_timeout_kills_the_whole_process_group",
+        "tests/test_adapters.py::test_a_timeout_still_kills_the_process_where_there_are_no_process_groups",
+        "tests/test_adapters.py::test_the_no_process_group_path_kills_the_whole_tree_not_just_the_child",
+        "tests/test_adapters.py::test_the_no_process_group_path_falls_back_when_taskkill_is_missing",
+        "tests/test_adapters.py::test_the_no_process_group_path_falls_back_when_taskkill_fails"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -99,9 +99,9 @@
       "fix_summary": "The rule uses `_normalize_relative()`, the helper the sibling link rule in probes.py already used, and skips paths that escape the repository root; 187 findings to 28.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_dotted_paths_in_prose_resolve",
-        "tests/test_arbiter.py::test_missing_file_in_prose_still_found",
-        "tests/test_arbiter.py::test_prose_path_escaping_the_repository_is_not_checked"
+        "tests/test_probes_drift.py::test_dotted_paths_in_prose_resolve",
+        "tests/test_probes_drift.py::test_missing_file_in_prose_still_found",
+        "tests/test_probes_drift.py::test_prose_path_escaping_the_repository_is_not_checked"
       ],
       "no_test_reason": "",
       "prevention_rules": [],
@@ -127,7 +127,7 @@
       "fix_summary": "Every write of an Arbiter-authored artifact, and the matching reads, name encoding='utf-8'.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_text_artifacts_are_written_as_utf8",
+        "tests/test_report_output.py::test_text_artifacts_are_written_as_utf8",
         "tests/test_invariants.py::test_every_text_read_and_write_names_its_encoding"
       ],
       "no_test_reason": "",
@@ -154,7 +154,7 @@
       "fix_summary": "`run_scan` takes `out_dir`, threads it through inventory building, and `walk_repo` skips the resolved output directory. Two consecutive scans into the default path now produce identical findings.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_output_directory_is_not_scanned"
+        "tests/test_graph_system.py::test_output_directory_is_not_scanned"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -180,7 +180,7 @@
       "fix_summary": "All target-file reads pass encoding='utf-8' with errors='replace' retained.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_evidence_from_a_utf8_source_file_is_not_mangled",
+        "tests/test_report_output.py::test_evidence_from_a_utf8_source_file_is_not_mangled",
         "tests/test_invariants.py::test_every_text_read_and_write_names_its_encoding"
       ],
       "no_test_reason": "",
@@ -208,8 +208,8 @@
       "fix_summary": "Both rules in probe_doc_drift confirm existence on disk before reporting. .arbiter/baseline.json, documented but genuinely absent, still reports, which is the evidence the fix is precise rather than blanket.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_documented_file_in_a_skipped_directory_is_not_missing",
-        "tests/test_arbiter.py::test_link_into_a_skipped_directory_is_not_broken"
+        "tests/test_probes_drift.py::test_documented_file_in_a_skipped_directory_is_not_missing",
+        "tests/test_probes_drift.py::test_link_into_a_skipped_directory_is_not_broken"
       ],
       "no_test_reason": "",
       "prevention_rules": [],
@@ -233,7 +233,7 @@
       "fix_summary": "The three doc_drift Finding sites in probes.py pass repo_id into the Location.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_doc_drift_findings_name_their_repository"
+        "tests/test_probes_drift.py::test_doc_drift_findings_name_their_repository"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -259,7 +259,7 @@
       "fix_summary": "`review.where()` qualifies the path from the Finding's repo_id when the Location is blank, without double-prefixing one that carries it; both the markdown and HTML (review_ui) front ends use it. The probe sites were left wrong and recorded as residual risk, so SARIF, HTML and console output stayed unqualified.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_queue_line_names_the_repository"
+        "tests/test_graph_system.py::test_queue_line_names_the_repository"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -284,9 +284,9 @@
       "fix_summary": "Every Location built in probes.py carries its Finding's repo_id; granted_services records a Location so the finding cites the file of the grant; file_exists/file_absent are evaluated per repository. Re-measured: 3,564 findings before and after, unattributed 3,227 to 0, no finding changed repository.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_every_finding_names_its_repository_in_the_location",
-        "tests/test_arbiter.py::test_unused_permission_cites_the_grant_it_found",
-        "tests/test_arbiter.py::test_house_rule_required_path_is_asked_per_repository",
+        "tests/test_graph_system.py::test_every_finding_names_its_repository_in_the_location",
+        "tests/test_graph_system.py::test_unused_permission_cites_the_grant_it_found",
+        "tests/test_probes_quality.py::test_house_rule_required_path_is_asked_per_repository",
         "tests/test_invariants.py::test_every_finding_in_a_system_scan_names_its_repository",
         "tests/test_invariants.py::test_reported_repo_ids_are_repositories_that_exist"
       ],
@@ -313,7 +313,7 @@
       "fix_summary": "select() round-robins across repositories and keeps file spread as the secondary axis inside each; population is deliberately not an input, since that label lives in tools/corpus.py and the library must not import the test harness. Average distinct repositories per queue 6.0 to 12.2, largest single-repository share 64.2% to 30.0%.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_review_spreads_across_repositories_within_a_rule"
+        "tests/test_review_learn.py::test_review_spreads_across_repositories_within_a_rule"
       ],
       "no_test_reason": "",
       "prevention_rules": [],
@@ -338,9 +338,9 @@
         "50903e8"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_an_oversized_upload_is_refused_by_the_endpoint",
-        "tests/test_arbiter.py::test_a_request_is_audited_end_to_end",
-        "tests/test_arbiter.py::test_a_report_with_nothing_to_review_is_an_empty_queue_not_an_error"
+        "tests/test_api_app.py::test_an_oversized_upload_is_refused_by_the_endpoint",
+        "tests/test_api_app.py::test_a_request_is_audited_end_to_end",
+        "tests/test_api_app.py::test_a_report_with_nothing_to_review_is_an_empty_queue_not_an_error"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -367,7 +367,7 @@
         "50903e8"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_a_report_with_nothing_to_review_is_an_empty_queue_not_an_error"
+        "tests/test_api_app.py::test_a_report_with_nothing_to_review_is_an_empty_queue_not_an_error"
       ],
       "no_test_reason": "",
       "prevention_rules": [],
@@ -393,8 +393,8 @@
         "d8433dd"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_the_stdio_server_actually_starts_and_answers_a_real_client",
-        "tests/test_arbiter.py::test_the_tool_schemas_still_build_against_the_installed_sdk"
+        "tests/test_mcp_api.py::test_the_stdio_server_actually_starts_and_answers_a_real_client",
+        "tests/test_mcp_api.py::test_the_tool_schemas_still_build_against_the_installed_sdk"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -420,9 +420,9 @@
       "fix_summary": "`training/*` is ignored with negations for WORKLIST.md, fix-pairs.json and disagreements.json, so the accumulating files are tracked while stamped per-run logs stay out.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_the_accumulating_training_files_are_committable",
-        "tests/test_arbiter.py::test_the_writeback_check_refuses_a_ledger_it_could_not_commit",
-        "tests/test_arbiter.py::test_the_writeback_check_lists_what_gitignore_keeps"
+        "tests/test_tools_training.py::test_the_accumulating_training_files_are_committable",
+        "tests/test_tools_training.py::test_the_writeback_check_refuses_a_ledger_it_could_not_commit",
+        "tests/test_tools_training.py::test_the_writeback_check_lists_what_gitignore_keeps"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -498,7 +498,7 @@
         "96cf1f8"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_a_schema_1_ledger_migrates_without_losing_a_verdict"
+        "tests/test_review_learn.py::test_a_schema_1_ledger_migrates_without_losing_a_verdict"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -528,7 +528,7 @@
         "7035178"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_an_adapter_backed_probe_carries_the_scope_its_manifest_declared"
+        "tests/test_incremental_scan.py::test_an_adapter_backed_probe_carries_the_scope_its_manifest_declared"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -555,7 +555,7 @@
         "b53b58a"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_pem_header_quoted_in_code_is_not_a_key"
+        "tests/test_probes_security.py::test_pem_header_quoted_in_code_is_not_a_key"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -582,9 +582,9 @@
         "b53b58a"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_renamed_cdk_output_directory_is_still_generated",
-        "tests/test_arbiter.py::test_cdk_synthesized_template_is_iac_not_generated",
-        "tests/test_arbiter.py::test_secrets_probe_skips_a_vendored_bundle_under_a_renamed_cdk_output_dir"
+        "tests/test_graph_system.py::test_renamed_cdk_output_directory_is_still_generated",
+        "tests/test_graph_system.py::test_cdk_synthesized_template_is_iac_not_generated",
+        "tests/test_probes_security.py::test_secrets_probe_skips_a_vendored_bundle_under_a_renamed_cdk_output_dir"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -630,15 +630,15 @@
       "root_cause": "The tests read .inputSchema, .serverInfo and .isError off objects the installed mcp SDK returns; those models take the camelCase alias on construction but expose the field as the snake_case Python attribute via an alias generator, confirmed from model_fields on the installed SDK.",
       "requirement": "ARB-027",
       "affected": [
-        "tests/test_arbiter.py"
+        "tests/test_mcp_api.py"
       ],
       "fix_summary": "The two tests read .input_schema, .server_info and .is_error.",
       "fix_commits": [
         "b53b58a"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_the_tool_schemas_still_build_against_the_installed_sdk",
-        "tests/test_arbiter.py::test_the_stdio_server_actually_starts_and_answers_a_real_client"
+        "tests/test_mcp_api.py::test_the_tool_schemas_still_build_against_the_installed_sdk",
+        "tests/test_mcp_api.py::test_the_stdio_server_actually_starts_and_answers_a_real_client"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -666,8 +666,8 @@
         "51df5e9"
       ],
       "regression_tests": [
-        "tests/test_arbiter.py::test_adapter_reads_a_tool_that_only_writes_a_report_file",
-        "tests/test_arbiter.py::test_adapter_report_file_is_cleaned_up_even_when_the_tool_never_writes_it"
+        "tests/test_adapters.py::test_adapter_reads_a_tool_that_only_writes_a_report_file",
+        "tests/test_adapters.py::test_adapter_report_file_is_cleaned_up_even_when_the_tool_never_writes_it"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -746,7 +746,7 @@
         "51df5e9"
       ],
       "regression_tests": [],
-      "no_test_reason": "No test creates an ignored directory and asserts walk_repo skips it; tests/test_arbiter.py::test_output_directory_is_not_scanned covers only the current run's out_dir.",
+      "no_test_reason": "No test creates an ignored directory and asserts walk_repo skips it; tests/test_graph_system.py::test_output_directory_is_not_scanned covers only the current run's out_dir.",
       "prevention_rules": [
         "data.scope_boundary"
       ],
@@ -936,14 +936,14 @@
       "root_cause": "subprocess.run(['bash', ...]) hands the bare name to CreateProcess, which searches the System32 directory before PATH; System32\\bash.exe is the WSL launcher, so Git Bash (on PATH) was never reached. shutil.which searches PATH only, which is why the writeback test that resolved bash that way passed on the same runner.",
       "requirement": "ARB-024",
       "affected": [
-        "tests/test_arbiter.py"
+        "tests/test_tools_training.py"
       ],
       "fix_summary": "A _bash() helper resolves the shell with shutil.which and skips only when none exists; the three tests use it.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_install_script_never_fails_a_build",
-        "tests/test_arbiter.py::test_bootstrap_refuses_when_it_is_not_a_repository",
-        "tests/test_arbiter.py::test_bootstrap_is_idempotent_about_an_existing_remote"
+        "tests/test_tools_training.py::test_install_script_never_fails_a_build",
+        "tests/test_tools_training.py::test_bootstrap_refuses_when_it_is_not_a_repository",
+        "tests/test_tools_training.py::test_bootstrap_is_idempotent_about_an_existing_remote"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -968,7 +968,7 @@
       "fix_summary": "_blank_comments blanks triple-quoted strings for Python using the existing _PY_DOCSTRING regex.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_a_docstring_listing_the_dangerous_settings_is_not_the_setting"
+        "tests/test_probes_security.py::test_a_docstring_listing_the_dangerous_settings_is_not_the_setting"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -993,7 +993,7 @@
       "fix_summary": "Query narrowed with (#match? @t ...) to Exception and BaseException; bare except: is left to ruff E722, which the pull-request job now installs.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_the_broad_except_house_rule_matches_only_broad_clauses"
+        "tests/test_probes_quality.py::test_the_broad_except_house_rule_matches_only_broad_clauses"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -1018,7 +1018,7 @@
       "fix_summary": "Adapter.run keeps only findings whose path the inventory scanned (in_scope), so the boundary is enforced once for every tool rather than per manifest.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_adapter_findings_outside_the_inventory_are_dropped"
+        "tests/test_adapters.py::test_adapter_findings_outside_the_inventory_are_dropped"
       ],
       "no_test_reason": "",
       "prevention_rules": [
@@ -1045,7 +1045,7 @@
       "fix_summary": "Probe.prevented() reports missing modules and the engine records them as skipped with applicable=True, like a missing binary; applicable() keeps only the nothing-to-assess cases; CI-12 lists the new wording.",
       "fix_commits": [],
       "regression_tests": [
-        "tests/test_arbiter.py::test_a_missing_dependency_is_prevented_not_inapplicable"
+        "tests/test_policy_gate.py::test_a_missing_dependency_is_prevented_not_inapplicable"
       ],
       "no_test_reason": "",
       "prevention_rules": [

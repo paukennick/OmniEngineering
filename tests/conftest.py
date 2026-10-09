@@ -45,3 +45,25 @@ def legacy_report():
 def system_report():
     cfg = load_config(None)
     return run_scan([], cfg, system_path=str(SYSTEM), skip=EXTERNAL)
+
+
+# The Terraform plan fixture is scanned twice (with the plan and without it)
+# by tests/test_probes_iac.py and once more by the claim-integrity check in
+# tests/test_policy_gate.py, so it lives here for the same reason as the two
+# above.
+TFPLAN = ROOT / "fixtures" / "tfplan"
+
+
+@pytest.fixture(scope="session")
+def plan_report():
+    return run_scan([str(TFPLAN)], load_config(None), only=["resource_policy"])
+
+
+@pytest.fixture(scope="session")
+def source_only_report(tmp_path_factory):
+    """The same repository with the plan removed — the old behaviour."""
+    import shutil
+    dst = tmp_path_factory.mktemp("srconly") / "repo"
+    shutil.copytree(TFPLAN, dst)
+    (dst / "tfplan.json").unlink()
+    return run_scan([str(dst)], load_config(None), only=["resource_policy"])

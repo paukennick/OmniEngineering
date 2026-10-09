@@ -210,7 +210,10 @@ profile cost you.
 ### Output and exit codes
 
 `--format json,sarif,html,markdown,console`. JSON is canonical and written
-first; every other format is a rendering of it.
+first; every other format is a rendering of it. Under GitHub Actions
+(`--github`, automatic when `GITHUB_ACTIONS=true`) `gate` also prints each
+finding as a workflow-command annotation and appends the pull-request comment
+to the job summary; see [docs/ci.md](docs/ci.md#github-actions).
 
 Every scan and gate also appends one summary line — time, commit, grade,
 coverage, counts, gate result; no evidence and no paths — to

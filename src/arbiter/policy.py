@@ -233,18 +233,25 @@ def evaluate_gate(report: Report, config: dict) -> dict:
     ]
 
     reasons: list[str] = []
+    # The findings behind the severity and new-finding reasons, by id, so a
+    # renderer can single out what actually failed the build (the GitHub
+    # annotations mark exactly these as errors) instead of every finding at
+    # once. Coverage and probe-error reasons have no finding to name.
+    failing: set[str] = set()
 
     sev_threshold = fail_on.get("severity")
     if sev_threshold:
         hits = [f for f in considered if sev_at_least(f.severity, sev_threshold)]
         if hits:
             reasons.append(f"{len(hits)} finding(s) at or above {sev_threshold}")
+            failing.update(f.id for f in hits)
 
     new_threshold = fail_on.get("new")
     if new_threshold:
         hits = [f for f in considered if f.status == "new" and sev_at_least(f.severity, new_threshold)]
         if hits:
             reasons.append(f"{len(hits)} new finding(s) at or above {new_threshold}")
+            failing.update(f.id for f in hits)
 
     cov_below = fail_on.get("coverage_below")
     if cov_below is not None and report.scorecard.coverage < float(cov_below):
@@ -261,4 +268,5 @@ def evaluate_gate(report: Report, config: dict) -> dict:
         "reasons": reasons,
         "considered": len(considered),
         "gate_on_inferred": gate_inferred,
+        "failing_ids": sorted(failing),
     }

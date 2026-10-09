@@ -192,6 +192,48 @@ def write_sarif(report: Report, path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GitHub workflow commands
+# ---------------------------------------------------------------------------
+
+def _wc_message(text: str) -> str:
+    """Escape a workflow-command message the way the runner expects."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _wc_property(text: str) -> str:
+    """Property values additionally escape the separators of the syntax."""
+    return _wc_message(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def render_annotations(report: Report) -> str:
+    """One GitHub workflow command per active finding.
+
+    `::error` for the findings that failed the gate (`gate.failing_ids`),
+    `::notice` for findings in files the change did not touch (tagged
+    `outside-this-change`), `::warning` for everything else. Only the rule id,
+    the title and the location are printed: never evidence or a snippet, so
+    the build log is not where a credential gets reprinted.
+    """
+    failing = set((report.gate or {}).get("failing_ids") or [])
+    lines: list[str] = []
+    for f in report.active():
+        if f.id in failing:
+            level = "error"
+        elif "outside-this-change" in f.tags:
+            level = "notice"
+        else:
+            level = "warning"
+        props = []
+        if f.location.path:
+            props.append(f"file={_wc_property(f.location.path)}")
+            if f.location.start_line:
+                props.append(f"line={f.location.start_line}")
+        props.append(f"title={_wc_property(f.rule_id)}")
+        lines.append(f"::{level} {','.join(props)}::{_wc_message(f.title)}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 
 def render_console(report: Report, color: bool | None = None, limit: int = 40) -> str:
     if color is None:
@@ -617,4 +659,10 @@ def write_all(report: Report, outdir: str, formats: list[str]) -> dict[str, str]
         from .diff import render_pr_comment
         p = str(Path(outdir) / "pr-comment.md")
         Path(p).write_text(render_pr_comment(report), encoding="utf-8"); written["pr-comment"] = p
+    if "annotations" in formats:
+        # The CLI also prints these to stdout, which is where the runner reads
+        # them; the file is the same text kept with the other outputs.
+        p = str(Path(outdir) / "annotations.txt")
+        Path(p).write_text(render_annotations(report) + "\n", encoding="utf-8")
+        written["annotations"] = p
     return written

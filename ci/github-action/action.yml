@@ -34,7 +34,7 @@ runs:
       shell: bash
       run: |
         set +e
-        ARGS="--profile ${{ inputs.profile }} --out arbiter-out --format json,sarif,markdown"
+        ARGS="--profile ${{ inputs.profile }} --out arbiter-out --format json,sarif,markdown --github"
         if [ -n "${{ inputs.baseline }}" ]; then ARGS="$ARGS --baseline ${{ inputs.baseline }}"; fi
         if [ -n "${{ inputs.system }}" ]; then
           arbiter gate --system "${{ inputs.system }}" $ARGS

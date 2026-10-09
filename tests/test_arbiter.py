@@ -3570,6 +3570,12 @@ def test_the_windows_run_is_required_rather_than_advisory():
     assert not job.get("continue-on-error"), "the whole job is advisory"
     assert job["strategy"].get("fail-fast") is False,         "a Linux failure cancels Windows, which is the result being sought"
     for step in job["steps"]:
+        if "upload-sarif" in str(step.get("uses", "")):
+            # Publishes the self-gate's SARIF to code scanning (REQ-039); the
+            # verdict it carries was already delivered by the gate step above
+            # it, and code scanning is not enabled on every fork or mirror.
+            # test_annotations.py holds the upload step to its own shape.
+            continue
         assert not step.get("continue-on-error"),             f"step {step.get('name', '?')!r} cannot fail the run"
 
 
@@ -4075,8 +4081,8 @@ def test_no_output_format_reprints_a_secret(tmp_path):
     rep = run_scan([str(tmp_path)], load_config(None), only=["secrets"], use_adapters=False)
     assert rep.findings, "fixture produced nothing, so this proves nothing"
     out = tmp_path / "out"
-    written = write_all(rep, str(out), ["json", "sarif", "html", "markdown"])
-    assert len(written) == 4
+    written = write_all(rep, str(out), ["json", "sarif", "html", "markdown", "annotations"])
+    assert len(written) == 5
     for kind, path in written.items():
         assert value not in Path(path).read_text(), f"{kind} reprinted the secret"
     from arbiter.report import render_console

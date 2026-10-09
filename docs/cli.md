@@ -82,6 +82,7 @@ See [evidence.md](evidence.md#claim-integrity) and
 
 ```bash
 arbiter scan . --format json,sarif,html,markdown,console
+arbiter gate . --format json,sarif,annotations --github   # inside GitHub Actions
 ```
 
 JSON is canonical and is written first; every other format is a rendering of it.
@@ -91,9 +92,11 @@ a fact the JSON does not.
 | Format | Use |
 |---|---|
 | `json` | canonical record; input to `baseline`, `diff`, `verify`, `controls`, `review` |
-| `sarif` | inline annotations on a pull request |
+| `sarif` | code scanning: findings under the Security tab and inline on a pull request |
 | `html` | a self-contained page, no server and no network |
 | `markdown` | PR comments and reports for people |
+| `pr-comment` | the compact verdict `diff` posts, rendered from one report |
+| `annotations` | GitHub workflow commands, one line per finding, printed to stdout after the console output and kept as `annotations.txt` |
 | `console` | terminal output, the default alongside `json` |
 
 ## Run history
@@ -114,6 +117,18 @@ coverage, new-high count and gate as tiles, score and coverage over time,
 findings stacked by severity per run, and the runs newest first. It exits 0
 on an empty or missing history and says so on the page; a corrupt line is
 skipped, not fatal.
+
+
+`annotations` marks the findings named in `gate.failing_ids` as `::error`, findings
+tagged `outside-this-change` as `::notice`, and every other active finding as
+`::warning`. Each line carries the file, the line, the rule id and the title, and
+nothing else: never the evidence, so a build log cannot reprint a credential.
+Suppressed findings are not printed.
+
+`--github` / `--no-github` on `scan` and `gate` turns GitHub Actions mode on or
+off. The default is automatic: on when `GITHUB_ACTIONS=true`. When on, `annotations`
+is added to the formats and the pull-request comment is appended to the job summary
+(`$GITHUB_STEP_SUMMARY`) when that variable is set.
 
 ## Exit codes
 

@@ -24,8 +24,23 @@
     baseline: .arbiter/baseline.json
 ```
 
-The action uploads SARIF so findings render inline on the pull request, and
-posts the Markdown report as a comment.
+The action runs `arbiter gate --github`, so one run reaches the pull request
+three ways:
+
+| Where | What | How |
+|---|---|---|
+| the job log and the diff | one annotation per finding: `::error` for what failed the gate, `::notice` for findings in files the change did not touch, `::warning` for the rest | workflow commands on stdout, on automatically when `GITHUB_ACTIONS=true` |
+| the job summary | the pull-request comment: verdict, reasons, grade, what was not assessed | appended to `$GITHUB_STEP_SUMMARY` |
+| the Security tab | every active finding, with its rule and remediation | `report.sarif` uploaded with `github/codeql-action/upload-sarif` |
+
+The SARIF upload needs `permissions: security-events: write` (and `contents:
+read`) on the job or the workflow; the annotations and the summary need
+nothing beyond the default token. The upload step runs with
+`continue-on-error: true` and `if: always()`: code scanning is not enabled on
+every fork or mirror, and a refused upload must not turn the gate's own
+verdict into a failure, while a failed gate is exactly the run whose findings
+should be visible. Annotations never carry evidence, only the rule id, the
+title and the location, so the log is not where a credential gets reprinted.
 
 ## GitLab CI
 

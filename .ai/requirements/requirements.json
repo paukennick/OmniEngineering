@@ -1059,6 +1059,113 @@
       "risk_notes": [
         "Follow-up: the first push of this fix broke .github/workflows/ci.yml itself (an unquoted colon in a step name parsed as YAML; FAIL-010). Quoted it and validated locally before pushing again."
       ]
+    },
+    {
+      "id": "REQ-031",
+      "category": "Feature",
+      "title": "Terminal 'withdrawn' status, targeted archiving, and a live check of registered MCP servers",
+      "description": "Ported from the arbiter adopter's fork of make_ai.py, where both had proven useful: (1) a requirement can be withdrawn (terminal, like completed) and archive moves withdrawn entries too; archive --id names specific entries and refuses pending, blocked or proposed work instead of silently hiding it. (2) omni doctor launches every stdio MCP server .mcp.json registers, runs the real initialize + tools/list handshake, and fails if the server does not start or lists no tools -- a static read of the file cannot tell that a server's SDK or entry point has moved. Remote (url) servers are not probed. .mcp.json is an allowed root file.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_doctor_mcp.py",
+        "tests/test_requirement_archive.py",
+        ".ai/schemas/requirements.schema.json",
+        ".ai/rules/universal-engineering-ruleset.json",
+        "README.md",
+        "design/cli-design.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "withdrawn is accepted by requirement update/add and the schema",
+        "archive moves completed-beyond-keep-recent plus withdrawn and --id refuses non-terminal ids",
+        "doctor probes each stdio server in .mcp.json and reports a FAIL when it cannot start or lists no tools",
+        "new tests pass under python3 -m unittest"
+      ],
+      "validation_required": [
+        "python3 -m unittest discover -s tests",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "The live probe starts a subprocess per registered server and waits up to 30s each; a server that needs credentials or a network is better registered as a remote url",
+        "which is not probed.",
+        "Also: exclude_code_globs for the graph's code layer, dated ### sections under an Unreleased heading parsed as entries, and the doctor's partially-readable registry warning scoped to its own errors."
+      ]
+    },
+    {
+      "id": "REQ-032",
+      "category": "Feature",
+      "title": "A command validation type for the gate, and a configurable defect-category pattern",
+      "description": "omni gate could only check co-change, registry citations and forbidden content; a project's own scanner or test suite had to be wired into CI separately. The command validation type runs it inside the gate when a changed path matches, with {base} substituted, a timeout, and failure on non-zero exit or a missing executable. omni requirement complete recognised defect work by a hardcoded regex over the category name; configuration.defect_category_pattern now overrides it.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_gate_rules.py",
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "a command rule passes on exit 0 and fails with the output tail on non-zero",
+        "missing executable and timeout are failures",
+        "when_changed and ignore gate whether it runs",
+        "defect_category_pattern from configuration is honoured and an invalid one falls back"
+      ],
+      "validation_required": [
+        "python3 -m unittest discover -s tests",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "gate_status over MCP evaluates the same rules",
+        "so a command rule runs there too; keep it to checks that only read."
+      ]
+    },
+    {
+      "id": "REQ-033",
+      "category": "Feature",
+      "title": "Arbiter installs alongside the workspace: omni adopt --with-arbiter and omni arbiter install",
+      "description": "Adopting the workspace should bring the evaluator it pairs with. omni adopt --with-arbiter [SOURCE] and omni arbiter install pip-install arbiter-eval[mcp] from a checkout or the GitHub URL and write the wiring: the arbiter MCP server in .mcp.json, a completion.arbiter_gate command rule so omni gate runs arbiter gate --changed, a starter arbiter.yaml, and arbiter-out/ in .gitignore. Idempotent, never overwrites, --skip-pip and --dry-run.",
+      "priority": "medium",
+      "status": "completed",
+      "minimum_access_scope": [
+        "make_ai.py",
+        "tests/test_arbiter_install.py",
+        "README.md",
+        "design/cli-design.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance_criteria": [
+        "omni arbiter install writes the four wiring artefacts and reports each as already present on rerun",
+        "existing .mcp.json servers and an existing arbiter.yaml are kept",
+        "--dry-run writes nothing",
+        "adopt --with-arbiter accepts a source or defaults to the GitHub URL",
+        "omni doctor in an adopted directory starts arbiter mcp and lists its tools"
+      ],
+      "validation_required": [
+        "python3 -m unittest tests.test_arbiter_install",
+        "end-to-end adopt into a scratch directory with a local arbiter checkout",
+        "./omni doctor",
+        "./omni gate"
+      ],
+      "documentation_required": [
+        "changelog",
+        "readme"
+      ],
+      "risk_notes": [
+        "Arbiter is proprietary and not on PyPI; the default source is its GitHub URL",
+        "which needs access. The pip step reports failure with the output tail and leaves the wiring in place."
+      ]
     }
   ]
 }

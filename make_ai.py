@@ -4,10 +4,14 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import queue
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,7 +39,12 @@ FAILURE_LEDGER_PATH = Path(".ai/failures/failure-ledger.json")
 TEST_SUITES_PATH = Path(".ai/test-suites.json")
 GATE_WAIVERS_PATH = Path(".ai/gate-waivers.jsonl")
 RULESET_PATH = Path(".ai/rules/universal-engineering-ruleset.json")
-REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_review"]
+REQUIREMENT_STATUSES = ["completed", "pending", "proposed", "blocked", "needs_review", "withdrawn"]
+# Only these leave the live registry: a requirement that is still pending or blocked is live work, and
+# archiving it would hide it from every session that loads the registry.
+TERMINAL_REQUIREMENT_STATUSES = {"completed", "withdrawn"}
+MCP_REGISTRATION_PATH = Path(".mcp.json")
+MCP_PROBE_TIMEOUT_SECONDS = 30.0
 REQUIREMENT_PRIORITIES = ["critical", "high", "medium", "low"]
 REQUIREMENT_STRING_FIELDS = ("id", "category", "title", "description")
 REQUIREMENT_LIST_FIELDS = (
@@ -465,6 +474,7 @@ ALLOWED_ROOT_FILES = {
     "LICENSE",
     "LLM_CONTEXT.md",
     "NOTICE",
+    ".mcp.json",
     "README.md",
     "TRADEMARKS.md",
     "make_ai.py",
@@ -549,6 +559,25 @@ ADOPTION_PRESENTATION_FILES = [
 ]
 
 OMNI_VERSION_FILE = ".ai/omni-version.json"
+
+# Arbiter (github.com/paukennick/arbiter) is the repository evaluator this
+# workspace pairs with: `omni gate` can run `arbiter gate` through a
+# `command` rule, and `omni doctor` starts its MCP server. Adopting with
+# --with-arbiter installs the package and writes the wiring files.
+ARBITER_DEFAULT_SOURCE = "git+https://github.com/paukennick/arbiter"
+ARBITER_PIP_EXTRAS = "mcp"
+ARBITER_GATE_RULE_ID = "completion.arbiter_gate"
+ARBITER_STARTER_CONFIG = """# Arbiter policy for this repository. See docs/configuration.md in the
+# arbiter checkout for every key; this is the minimum `omni gate` relies on.
+version: 1
+profile: offline
+
+gate:
+  fail_on:
+    severity: critical
+    new: high
+  gate_on_inferred: false
+"""
 
 # Files an adopter owns outright once copied -- omni update never touches
 # these, no matter what changes upstream.
@@ -981,6 +1010,7 @@ def validate_requirements(requirements: Any, report: DoctorReport) -> None:
         report.error("Requirements registry must contain a requirements array")
         return
 
+    errors_before = len(report.errors)
     seen_ids: set[str] = set()
     check_requirement_entries(items, "Requirement", report, seen_ids)
 
@@ -995,7 +1025,7 @@ def validate_requirements(requirements: Any, report: DoctorReport) -> None:
         elif archive is not None:
             report.error(f"{REQUIREMENTS_ARCHIVE_PATH} must contain a requirements array")
 
-    if not report.errors:
+    if len(report.errors) == errors_before:
         report.pass_check("Requirements registry is structurally valid (types and enums checked)")
     elif seen_ids:
         report.warning("Requirements registry was partially readable")
@@ -1487,6 +1517,155 @@ def validate_omni_version_present(report: DoctorReport) -> None:
         )
     else:
         report.pass_check(f"{OMNI_VERSION_FILE} is present")
+
+
+def probe_mcp_server(
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None,
+    cwd: Path,
+    timeout: float = MCP_PROBE_TIMEOUT_SECONDS,
+) -> tuple[list[str] | None, str]:
+    """Launch a stdio MCP server the way a client would and ask it for its tools.
+
+    Returns (tool names, server name) on success and (None, reason) on failure. The handshake is the real one
+    (initialize, notifications/initialized, tools/list over newline-delimited JSON-RPC 2.0), not a grep of the
+    registration file: a server whose SDK, entry point or import path has moved fails here, where a static check
+    would have passed. Stdin is only closed after the answers arrive, because SDK-based servers may treat EOF as a
+    shutdown and drop requests still in flight.
+    """
+    executable = shutil.which(command) or (command if Path(command).is_file() else None)
+    if executable is None:
+        return None, f"command not found on PATH: {command}"
+    try:
+        process = subprocess.Popen(
+            [executable, *args],
+            cwd=str(cwd),
+            env={**os.environ, **(env or {})},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+    except OSError as exc:
+        return None, f"could not start {executable}: {exc}"
+    assert process.stdin is not None and process.stdout is not None
+
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + timeout
+
+    def send(message: dict[str, Any]) -> None:
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def wait_for(request_id: int) -> dict[str, Any]:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                line = lines.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise TimeoutError from exc
+            if line is None:
+                raise EOFError
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a log line on stdout; not ours to judge
+            if isinstance(message, dict) and message.get("id") == request_id:
+                return message
+
+    try:
+        send({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "omni doctor", "version": "1"}},
+        })
+        initialized = wait_for(1)
+        if "error" in initialized:
+            return None, f"initialize was rejected: {initialized['error'].get('message', initialized['error'])}"
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        listed = wait_for(2)
+        if "error" in listed:
+            return None, f"tools/list was rejected: {listed['error'].get('message', listed['error'])}"
+        tools = listed.get("result", {}).get("tools", []) if isinstance(listed.get("result"), dict) else []
+        names = [str(tool.get("name")) for tool in tools if isinstance(tool, dict) and tool.get("name")]
+        server_info = initialized.get("result", {}).get("serverInfo", {}) if isinstance(initialized.get("result"), dict) else {}
+        return names, str(server_info.get("name", "unnamed server"))
+    except TimeoutError:
+        return None, f"no answer within {timeout:.0f}s"
+    except (EOFError, BrokenPipeError, OSError):
+        return None, "exited before answering initialize and tools/list"
+    finally:
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+
+
+def validate_mcp_registrations(report: DoctorReport) -> None:
+    """`.mcp.json` tells assistants which MCP servers to start for this repo. A registration that looks right
+    but cannot start is worse than none, because the assistant silently falls back to shelling out, so every
+    stdio server listed is launched for real and must answer with at least one tool. Remote (`url`) servers
+    are not probed: reaching them is a network question, not a workspace one."""
+    if not MCP_REGISTRATION_PATH.is_file():
+        return
+    try:
+        registration = load_json(MCP_REGISTRATION_PATH)
+    except json.JSONDecodeError as exc:
+        report.error(f"Invalid JSON in {MCP_REGISTRATION_PATH}: line {exc.lineno}, column {exc.colno}")
+        return
+    servers = registration.get("mcpServers") if isinstance(registration, dict) else None
+    if not isinstance(servers, dict) or not servers:
+        report.error(f"{MCP_REGISTRATION_PATH} must contain a non-empty mcpServers object")
+        return
+
+    for name, config in servers.items():
+        if not isinstance(config, dict):
+            report.error(f"MCP server {name!r} in {MCP_REGISTRATION_PATH} must be an object")
+            continue
+        if config.get("url") and not config.get("command"):
+            report.pass_check(f"MCP server {name!r} is remote ({config['url']}); not probed")
+            continue
+        command = config.get("command")
+        args = config.get("args", [])
+        env = config.get("env", {})
+        if not isinstance(command, str) or not command.strip():
+            report.error(f"MCP server {name!r} has no command")
+            continue
+        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+            report.error(f"MCP server {name!r} args must be an array of strings")
+            continue
+        if not isinstance(env, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
+            report.error(f"MCP server {name!r} env must be an object of string values")
+            continue
+        tools, detail = probe_mcp_server(command, args, env, Path.cwd())
+        rendered = " ".join([command, *args])
+        if tools is None:
+            report.error(f"MCP server {name!r} (`{rendered}`) failed its live check: {detail}")
+        elif not tools:
+            report.error(f"MCP server {name!r} (`{rendered}`) started but lists no tools")
+        else:
+            report.pass_check(f"MCP server {name!r} ({detail}) answers initialize and lists {len(tools)} tool(s)")
 
 
 def find_placeholders(value: Any) -> set[str]:
@@ -2818,6 +2997,7 @@ def build_doctor_report() -> DoctorReport:
     validate_project_graph(report)
     validate_recent_commits_tracked(report)
     validate_cli_entrypoints(report)
+    validate_mcp_registrations(report)
     validate_omni_version_present(report)
     return report
 
@@ -2968,9 +3148,135 @@ def run_adopt(args: argparse.Namespace) -> int:
             "-- future template improvements can be pulled in with `omni update`."
         )
 
+    with_arbiter = getattr(args, "with_arbiter", None)
+    if with_arbiter is not None:
+        print("")
+        print("Arbiter alongside the workspace:")
+        if arbiter_install(target_root, with_arbiter, skip_pip=getattr(args, "skip_pip", False), dry_run=args.dry_run) != 0:
+            return 1
+
     if missing:
         return 1
     return 1 if skipped and not args.dry_run else 0
+
+
+def _arbiter_pip_command(source: str) -> list[str]:
+    """`pip install` for a local checkout (editable, so a developer's fixes
+    land immediately) or for a git/PyPI spec, both with the extra the MCP
+    server needs."""
+    local = Path(source).expanduser()
+    if local.is_dir() and (local / "pyproject.toml").is_file():
+        return [sys.executable, "-m", "pip", "install", "-e", f"{local.resolve()}[{ARBITER_PIP_EXTRAS}]"]
+    if source.startswith(("git+", "http://", "https://")):
+        return [sys.executable, "-m", "pip", "install", f"arbiter-eval[{ARBITER_PIP_EXTRAS}] @ {source}"]
+    return [sys.executable, "-m", "pip", "install", f"{source}[{ARBITER_PIP_EXTRAS}]"]
+
+
+def arbiter_install(target_root: Path, source: str, skip_pip: bool = False, dry_run: bool = False) -> int:
+    """Install Arbiter beside the workspace and wire the two together.
+
+    Four things, each skipped when already present so the command is safe to
+    rerun: the package (pip), the `arbiter` entry in `.mcp.json`, the
+    `completion.arbiter_gate` command rule in the completion rulepack, and a
+    starter `arbiter.yaml`. Nothing is overwritten; a project that tuned any
+    of them keeps its version.
+    """
+    verb = "would " if dry_run else ""
+    status = 0
+
+    if skip_pip:
+        print("- pip: skipped (--skip-pip); make sure `arbiter` is on PATH before `omni gate` runs")
+    else:
+        command = _arbiter_pip_command(source)
+        print(f"- pip: {verb}run {' '.join(command)}")
+        if not dry_run:
+            completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if completed.returncode != 0:
+                tail = "\n".join((completed.stdout + "\n" + completed.stderr).strip().splitlines()[-5:])
+                print(f"  pip failed (exit {completed.returncode}):\n{tail}", file=sys.stderr)
+                status = 1
+            elif shutil.which("arbiter") is None:
+                print("  installed, but `arbiter` is not on PATH in this shell; open a new one or check pip's script directory")
+
+    mcp_path = target_root / MCP_REGISTRATION_PATH
+    registration: dict[str, Any] = {"mcpServers": {}}
+    if mcp_path.is_file():
+        try:
+            loaded = load_json(mcp_path)
+            if isinstance(loaded, dict):
+                registration = loaded
+        except json.JSONDecodeError:
+            print(f"- {MCP_REGISTRATION_PATH}: not valid JSON; fix it by hand, then rerun", file=sys.stderr)
+            return 1
+    servers = registration.setdefault("mcpServers", {})
+    if "arbiter" in servers:
+        print(f"- {MCP_REGISTRATION_PATH}: `arbiter` already registered")
+    else:
+        servers["arbiter"] = {"command": "arbiter", "args": ["mcp"]}
+        print(f"- {MCP_REGISTRATION_PATH}: {verb}register `arbiter mcp`")
+        if not dry_run:
+            write_json(mcp_path, registration)
+
+    rulepack_path = target_root / ".ai" / "rules" / "completion-workflow.json"
+    if not rulepack_path.is_file():
+        print(f"- {rulepack_path.relative_to(target_root)}: missing; adopt the workspace first, then rerun")
+        status = 1
+    else:
+        rulepack = load_json(rulepack_path)
+        rules = rulepack.setdefault("rules", [])
+        if any(isinstance(r, dict) and r.get("id") == ARBITER_GATE_RULE_ID for r in rules):
+            print(f"- completion rulepack: `{ARBITER_GATE_RULE_ID}` already present")
+        else:
+            rules.append({
+                "id": ARBITER_GATE_RULE_ID,
+                "severity": "required",
+                "statement": "A change passes Arbiter's own gate (`arbiter gate . --changed <base>` under arbiter.yaml) before it is reported complete.",
+                "scope": ["completion", "validation"],
+                "validation": {
+                    "type": "command",
+                    "run": "arbiter gate . --changed {base} --profile offline --out arbiter-out/omni-gate --format json",
+                    "when_changed": ["**"],
+                    "ignore": [".ai/**", "CHANGELOG.md", "*.md", "docs/**"],
+                    "timeout": 600,
+                },
+            })
+            print(f"- completion rulepack: {verb}add `{ARBITER_GATE_RULE_ID}` (type command)")
+            if not dry_run:
+                write_json(rulepack_path, rulepack)
+
+    config_path = target_root / "arbiter.yaml"
+    if config_path.is_file():
+        print("- arbiter.yaml: already present, left alone")
+    else:
+        print(f"- arbiter.yaml: {verb}write a starter policy (fail on critical, fail on new high)")
+        if not dry_run:
+            config_path.write_text(ARBITER_STARTER_CONFIG, encoding="utf-8")
+
+    gitignore = target_root / ".gitignore"
+    if gitignore.is_file() and "arbiter-out" in gitignore.read_text(encoding="utf-8", errors="replace"):
+        print("- .gitignore: arbiter-out/ already ignored")
+    else:
+        print(f"- .gitignore: {verb}ignore arbiter-out/ (scan output)")
+        if not dry_run:
+            with gitignore.open("a", encoding="utf-8") as handle:
+                handle.write("\n# Arbiter scan output\narbiter-out/\n")
+
+    print("")
+    print("Next: `omni doctor` starts the registered MCP server for real, and `omni gate` now runs")
+    print("`arbiter gate --changed` whenever source changes. For CI, see ci/github-action in the")
+    print("arbiter checkout, or run `arbiter gate .` after the test step.")
+    return status
+
+
+def run_arbiter_install(args: argparse.Namespace) -> int:
+    target_root = Path(args.target).resolve()
+    if not target_root.is_dir():
+        print(f"Target is not a directory: {target_root}", file=sys.stderr)
+        return 1
+    print(f"Arbiter alongside OmniEngineering in {target_root}")
+    print(f"Mode: {'dry-run' if args.dry_run else 'apply'}")
+    print("")
+    return arbiter_install(target_root, args.source, skip_pip=args.skip_pip, dry_run=args.dry_run)
 
 
 def run_update(args: argparse.Namespace) -> int:
@@ -3459,12 +3765,26 @@ def run_requirement_update(args: argparse.Namespace) -> int:
     return 0
 
 
-DEFECT_CATEGORY = re.compile(r"defect|bug|fix|regress|incident|failure", re.IGNORECASE)
+DEFAULT_DEFECT_CATEGORY_PATTERN = r"defect|bug|fix|regress|incident|failure"
+DEFECT_CATEGORY = re.compile(DEFAULT_DEFECT_CATEGORY_PATTERN, re.IGNORECASE)
+
+
+def defect_category_pattern() -> re.Pattern[str]:
+    """Which requirement categories count as defect work, and so need a failure-ledger entry to complete.
+    Projects name their categories as they like (`developer-tooling`, `Defect`, `incident`), so the ruleset's
+    `configuration.defect_category_pattern` overrides the default; an invalid pattern falls back to it."""
+    value = project_configuration().get("defect_category_pattern")
+    if isinstance(value, str) and value.strip():
+        try:
+            return re.compile(value, re.IGNORECASE)
+        except re.error:
+            pass
+    return DEFECT_CATEGORY
 
 
 def run_requirement_complete(args: argparse.Namespace) -> int:
     found = find_requirement(args.id)
-    if found is not None and DEFECT_CATEGORY.search(str(found[2].get("category", ""))):
+    if found is not None and defect_category_pattern().search(str(found[2].get("category", ""))):
         requirement_id = str(found[2].get("id"))
         reason = (getattr(args, "no_failure_entry", None) or "").strip()
         if not failures_referencing(requirement_id):
@@ -3486,23 +3806,57 @@ def run_requirement_complete(args: argparse.Namespace) -> int:
 
 
 def run_requirement_archive(args: argparse.Namespace) -> int:
+    """Sweep terminal requirements out of the live registry.
+
+    By default every `withdrawn` entry and every `completed` entry older than the `--keep-recent` most recent
+    ones moves to the archive. `--id` picks specific entries instead; a pending, blocked or proposed one is
+    refused rather than silently moved, because archiving live work hides it from every session.
+    """
     active = load_json(REQUIREMENTS_PATH)
     items = active.get("requirements", [])
-    completed_positions = [
-        index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "completed"
-    ]
-    keep_positions = set(completed_positions[-args.keep_recent:]) if args.keep_recent > 0 else set()
-    archive_positions = [index for index in completed_positions if index not in keep_positions]
+    if not isinstance(items, list):
+        print(f"{REQUIREMENTS_PATH} must contain a requirements array", file=sys.stderr)
+        return 1
+
+    wanted = set(split_csv(getattr(args, "id", None)))
+    if wanted:
+        by_id = {str(item.get("id")): item for item in items if isinstance(item, dict)}
+        unknown = sorted(wanted - set(by_id))
+        if unknown:
+            print(f"Not in the active registry: {', '.join(unknown)}", file=sys.stderr)
+            return 1
+        refused = sorted(rid for rid in wanted if by_id[rid].get("status") not in TERMINAL_REQUIREMENT_STATUSES)
+        if refused:
+            for rid in refused:
+                print(
+                    f"Refusing to archive {rid}: status is '{by_id[rid].get('status')}'. "
+                    f"Only {' or '.join(sorted(TERMINAL_REQUIREMENT_STATUSES))} requirements may be archived.",
+                    file=sys.stderr,
+                )
+            return 1
+        archive_positions = [
+            index for index, item in enumerate(items) if isinstance(item, dict) and str(item.get("id")) in wanted
+        ]
+        keep_note = ""
+    else:
+        completed_positions = [
+            index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "completed"
+        ]
+        keep_positions = set(completed_positions[-args.keep_recent:]) if args.keep_recent > 0 else set()
+        archive_positions = [index for index in completed_positions if index not in keep_positions] + [
+            index for index, item in enumerate(items) if isinstance(item, dict) and item.get("status") == "withdrawn"
+        ]
+        archive_positions.sort()
+        keep_note = f" (all non-terminal + the {args.keep_recent} most recent completed)"
     if not archive_positions:
         print("Nothing to archive.")
         return 0
 
     to_archive = [items[index] for index in archive_positions]
     remaining = [item for index, item in enumerate(items) if index not in set(archive_positions)]
-    print(
-        f"Archiving {len(to_archive)} completed requirement(s); "
-        f"{len(remaining)} stay active (all non-completed + the {args.keep_recent} most recent completed)."
-    )
+    print(f"Archiving {len(to_archive)} requirement(s); {len(remaining)} stay active{keep_note}.")
+    for item in to_archive:
+        print(f"  {item.get('id')}  [{item.get('status')}]  {item.get('title', '')}")
     if args.dry_run:
         print("Dry run: no files written.")
         return 0
@@ -3599,7 +3953,7 @@ def gate_changed_paths(base: str | None) -> set[str]:
 # Kept in step with every validation type a check function below actually implements. A rule can declare a
 # validation the gate does not (yet) execute; gate_rules() silently skips those rather than crashing on them,
 # but "declared and silently never checked" is exactly the trap this set exists to avoid falling into by accident.
-EXECUTABLE_VALIDATION_TYPES = {"co_changed", "requirement_registry_entry", "content_forbidden"}
+EXECUTABLE_VALIDATION_TYPES = {"co_changed", "requirement_registry_entry", "content_forbidden", "command"}
 
 
 def gate_rules() -> list[dict[str, Any]]:
@@ -3703,6 +4057,49 @@ def _gate_check_content_forbidden(rule: dict[str, Any], validation: dict[str, An
     return f"{rule_id}: {example}"
 
 
+def _gate_check_command(rule: dict[str, Any], validation: dict[str, Any], changed: set[str], base: str | None) -> str | None:
+    """Run the project's own check -- a scanner, a test suite, a linter -- as a gate. The command runs only
+    when a changed path matches `when_changed` (minus `ignore`), `{base}` in `run` is the gate's base commit,
+    and a non-zero exit, a timeout, or an executable that is not on PATH all fail the rule: an unrunnable
+    check is not a pass. The last lines of its output ride along so the failure says why, not just that."""
+    when = [str(p) for p in validation.get("when_changed", ["**"])]
+    ignore = [str(p) for p in validation.get("ignore", [])]
+    if not any(matches_any(p, when) and not matches_any(p, ignore) for p in changed):
+        return None
+    rule_id = str(rule["id"])
+    run = str(validation.get("run", "")).strip()
+    if not run:
+        return f"{rule_id}: command validation has no `run` to execute"
+    rendered = run.replace("{base}", base or "HEAD")
+    try:
+        argv = shlex.split(rendered)
+    except ValueError as exc:
+        return f"{rule_id}: cannot parse `{rendered}`: {exc}"
+    if not argv:
+        return f"{rule_id}: command validation has no `run` to execute"
+    executable = shutil.which(argv[0])
+    if executable is None:
+        return f"{rule_id}: `{argv[0]}` is not on PATH, so `{rendered}` could not run (an unrunnable check is not a pass)"
+    try:
+        timeout = float(validation.get("timeout", 600))
+    except (TypeError, ValueError):
+        timeout = 600.0
+    try:
+        completed = subprocess.run(
+            [executable, *argv[1:]], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return f"{rule_id}: `{rendered}` did not finish within {timeout:.0f}s"
+    except OSError as exc:
+        return f"{rule_id}: `{rendered}` could not start: {exc}"
+    if completed.returncode == 0:
+        return None
+    output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+    tail = [line for line in output.strip().splitlines() if line.strip()][-5:]
+    detail = "".join(f"\n    {line}" for line in tail)
+    return f"{rule_id}: `{rendered}` exited {completed.returncode}{detail}"
+
+
 def gate_waivers(base: str | None) -> dict[str, str]:
     if not GATE_WAIVERS_PATH.is_file():
         return {}
@@ -3738,6 +4135,8 @@ def gate_evaluate(changed: set[str], waivers: dict[str, str], base: str | None =
             failure = _gate_check_requirement_registry_entry(rule, validation, changed, base)
         elif vtype == "content_forbidden":
             failure = _gate_check_content_forbidden(rule, validation, changed)
+        elif vtype == "command":
+            failure = _gate_check_command(rule, validation, changed, base)
         else:
             continue
         if failure is None:
@@ -4320,6 +4719,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     adopt_parser.add_argument(
+        "--with-arbiter",
+        nargs="?",
+        const=ARBITER_DEFAULT_SOURCE,
+        default=None,
+        metavar="SOURCE",
+        help=(
+            "Also install Arbiter (a local checkout path, a git+https URL, or a pip spec; "
+            f"default {ARBITER_DEFAULT_SOURCE}) and wire it in: .mcp.json, the completion.arbiter_gate "
+            "command rule, a starter arbiter.yaml."
+        ),
+    )
+    adopt_parser.add_argument(
+        "--skip-pip",
+        action="store_true",
+        help="With --with-arbiter: write the wiring but do not pip install (arbiter is already installed).",
+    )
+    adopt_parser.add_argument(
         "--include-cli",
         action="store_true",
         help="Copy ./omni and make_ai.py.",
@@ -4527,8 +4943,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     requirement_archive = requirement_subparsers.add_parser(
         "archive",
-        help="Move older completed requirements into requirements-archive.json to keep the live registry small.",
+        help="Move older completed (and all withdrawn) requirements into requirements-archive.json to keep the live registry small.",
     )
+    requirement_archive.add_argument("--id", help="Comma-separated requirement IDs to archive instead of the default sweep; each must be completed or withdrawn.")
     requirement_archive.add_argument("--keep-recent", type=int, default=25, help="Completed requirements to keep active (default 25).")
     requirement_archive.add_argument("--dry-run", action="store_true", help="Report what would move without writing.")
 
@@ -4554,6 +4971,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp_tools = mcp_subparsers.add_parser("tools", help="List the available tools without starting the server (for a quick check, or piping into a client's config).")
     mcp_tools.add_argument("--json", action="store_true", help="Print the full tool specs (name, description, input schema) as JSON.")
+
+    arbiter_parser = subparsers.add_parser("arbiter", help="Install and wire the Arbiter evaluator beside this workspace.")
+    arbiter_subparsers = arbiter_parser.add_subparsers(dest="arbiter_command")
+    arbiter_install_parser = arbiter_subparsers.add_parser(
+        "install",
+        help="pip install Arbiter and register it: .mcp.json, the completion.arbiter_gate command rule, a starter arbiter.yaml.",
+    )
+    arbiter_install_parser.add_argument("--source", default=ARBITER_DEFAULT_SOURCE,
+                                        help=f"Local checkout, git+https URL or pip spec (default {ARBITER_DEFAULT_SOURCE}).")
+    arbiter_install_parser.add_argument("--target", default=".", help="Project root (default: current directory).")
+    arbiter_install_parser.add_argument("--skip-pip", action="store_true", help="Write the wiring only; arbiter is already installed.")
+    arbiter_install_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing or installing.")
 
     hook_parser = subparsers.add_parser("hook", help="Install assistant hooks that enforce the gate.")
     hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
@@ -4672,6 +5101,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_gate(args)
     if command == "waive":
         return run_waive(args)
+    if command == "arbiter":
+        if args.arbiter_command == "install":
+            return run_arbiter_install(args)
+        parser.error("arbiter requires a subcommand (install)")
     if command == "hook":
         if args.hook_command == "install":
             return run_hook_install(args)

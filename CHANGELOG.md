@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-10-09
+
+### Completed
+
+- `REQ-033` | Feature | Arbiter installs alongside the workspace.
+  - `omni adopt --with-arbiter [SOURCE]` and, for a repository adopted earlier, `omni arbiter install
+    --source SOURCE` pip-install `arbiter-eval[mcp]` (editable from a local checkout, or from the GitHub
+    URL by default) and write the wiring the two tools need to meet: the `arbiter` server in `.mcp.json`,
+    a `completion.arbiter_gate` rule of type `command` in the completion rulepack so `omni gate` runs
+    `arbiter gate --changed <base>`, a starter `arbiter.yaml`, and `arbiter-out/` in `.gitignore`. Each
+    step is skipped when already present and nothing is overwritten, so the command is safe to rerun;
+    `--skip-pip` writes the wiring only and `--dry-run` reports it. The arbiter repository itself was the
+    first consumer, by hand, in its REQ-031 and REQ-032; this makes the same wiring one command for every
+    other adopter.
+
+- `REQ-032` | Feature | The gate can run the project's own check, and defect work is recognised by a
+  configurable pattern.
+  - A fourth validation type, `command`: `{"type": "command", "run": "arbiter gate --changed {base}",
+    "when_changed": ["src/**"], "timeout": 600}` runs a scanner, a test suite or a linter as part of
+    `omni gate` whenever a changed path matches. `run` is split like a shell line, `{base}` is the gate's
+    base commit, and a non-zero exit, a timeout, or an executable missing from `PATH` all fail the rule with
+    the last lines of output attached -- an unrunnable check is not a pass. The first consumer is the arbiter
+    adopter, whose `arbiter gate` now runs inside `omni gate`, so the workspace enforces the product's own
+    standard instead of only the changelog and registry co-change.
+  - `omni requirement complete` decided whether a requirement was defect work (and so needs a failure-ledger
+    entry) with a hardcoded regex over the category name. A project whose categories are `developer-tooling`
+    or `compliance` never triggered it. `configuration.defect_category_pattern` in the ruleset now overrides
+    that regex; the default is unchanged and an invalid pattern falls back to it.
+
+- `REQ-031` | Feature | Two improvements ported back from the arbiter adopter's fork of `make_ai.py`.
+  - A requirement can now be `withdrawn`: a terminal status like `completed`, for work that was decided
+    against rather than finished. `omni requirement archive` moves every withdrawn entry along with the
+    completed ones older than `--keep-recent`, and `--id REQ-001,REQ-002` archives exactly the named entries,
+    refusing a pending, blocked or proposed one outright (exit 1, nothing written) instead of silently hiding
+    live work from every session that loads the registry. The schema enum and the ruleset's requirement
+    template name the new status.
+  - `omni doctor` checks `.mcp.json` by starting the servers it registers, not by reading the file: each stdio
+    server is launched with its configured command, args and env, taken through the real `initialize` and
+    `tools/list` handshake over newline-delimited JSON-RPC, and must answer with at least one tool within 30s.
+    A registration that looks right but no longer starts (an SDK whose shape moved, an entry point renamed, a
+    command not on PATH) is exactly the failure a static check cannot see, and the assistant would otherwise
+    fall back to shelling out without saying so. Remote `url` servers are reported as not probed. `.mcp.json`
+    is now an allowed root file. Tests exercise the probe against `omni mcp serve` itself, so the server and
+    the check are verified against each other.
+  - Two graph fixes found while re-syncing the arbiter adopter: `exclude_code_globs` in `.ai/graph-config.json`
+    keeps named directories (test corpora with planted defects, vendored examples, generated output) out of
+    the code layer while they stay tracked and readable, so their symbols are never attributed to the project;
+    and a changelog that keeps dated `###` sections under one `## [Unreleased]` heading now yields one dated
+    entry per section instead of a single undated block. `omni doctor` also stopped reporting the requirements
+    registry as "partially readable" whenever an unrelated earlier check had failed.
+
 ## 2026-09-22
 
 ### Completed

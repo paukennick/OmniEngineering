@@ -425,6 +425,30 @@ default, and requires `--force` before replacing anything. A successful
 source path and git commit adopted from -- this is what `omni update` (below)
 diffs against later.
 
+### Arbiter alongside the workspace
+
+[Arbiter](https://github.com/paukennick/arbiter) is the repository evaluator
+this workspace pairs with: it scans the code and refuses to grade what it did
+not inspect, and its gate is the product-side half of `omni gate`. Bring it in
+with the adoption, or add it to a repository adopted earlier:
+
+```bash
+./omni adopt --target ../your-project --include-cli --with-arbiter ../arbiter   # a checkout
+./omni adopt --target ../your-project --include-cli --with-arbiter             # the GitHub URL
+cd ../your-project && ./omni arbiter install --source ../arbiter               # already adopted
+```
+
+Four things land, each skipped when already present and never overwritten:
+the `arbiter-eval[mcp]` package (editable from a checkout, or from the git
+URL), an `arbiter` entry in `.mcp.json` so assistants reach `arbiter_scan`,
+`arbiter_gate` and `arbiter_review_queue` as tools, a `completion.arbiter_gate`
+rule of type `command` in the completion rulepack so `omni gate` runs
+`arbiter gate --changed <base>` whenever source changes, and a starter
+`arbiter.yaml` (fail on critical, fail on new high). `--skip-pip` writes the
+wiring only; `--dry-run` shows it. `omni doctor` then starts the registered
+server for real. Arbiter is a separate, proprietary product; this command
+installs and wires it, it does not vendor it.
+
 ### Updating an adopted workspace
 
 Once a project has adopted OmniEngineering and customized its rules,
@@ -656,6 +680,9 @@ The doctor checks:
 - Workspace file placement.
 - Fallback rule availability.
 - License, notice, and trademark policy presence.
+- Registered MCP servers: every stdio server in `.mcp.json` is launched for real,
+  taken through `initialize` and `tools/list`, and must answer with at least one
+  tool (a registration that no longer starts would otherwise fail silently).
 - Generated project map availability.
 - README architecture references.
 - Changelog presence.
@@ -943,8 +970,9 @@ Only the settings that differ from the defaults belong in `.ai/graph-config.json
 | --- | --- | --- |
 | `requirements_files` | `.ai/requirements/requirements*.json` | your requirements or issues live elsewhere (a JSON list, or an object with `requirements`, of `{id/key, title/summary, status, scope/files}`) |
 | `requirement_id_pattern` | derived from your ids | your ids are unusual (`#42`); by default the exact ids in your registry are matched, so `PROJ-12`, `FEAT_7` and `REQ-001` all work |
-| `changelog_files` | `CHANGELOG.md`, `HISTORY.md`, `docs/CHANGELOG.md`, ... | your changelog is named or placed differently (dated `## 2026-01-31`, versioned `## [1.2.0] - 2026-01-31` and `## v1.2.0 (2026-01-31)` headings all work) |
+| `changelog_files` | `CHANGELOG.md`, `HISTORY.md`, `docs/CHANGELOG.md`, ... | your changelog is named or placed differently (dated `## 2026-01-31`, versioned `## [1.2.0] - 2026-01-31` and `## v1.2.0 (2026-01-31)` headings all work, as do dated `###` sections kept under one `## [Unreleased]` heading) |
 | `test_globs` / `exclude_test_globs` | naming conventions | your tests do not follow them |
+| `exclude_code_globs` | `[]` | directories the code layer must never parse although they are tracked and readable: test corpora with planted defects, vendored examples, generated output (`fixtures/`, `examples/**`) |
 | `test_suites_file`, `failure_ledger` | `.ai/test-suites.json`, `.ai/failures/failure-ledger.json` | you keep them elsewhere |
 | `ci_files` | GitHub, GitLab, Cloud Build, Azure, Jenkins, Makefile | extra CI files hold your test commands |
 | `rules_dir`, `playbook_dirs`, `checklist_dirs` | `.ai/...` | your rules and playbooks live elsewhere |
@@ -1060,7 +1088,9 @@ omni requirement show REQ-042
 omni requirement search "login"
 omni requirement update REQ-042 --status blocked --note "waiting on API key"
 omni requirement complete REQ-042
-omni requirement archive --keep-recent 25   # move old completed entries aside
+omni requirement update REQ-043 --status withdrawn --note "superseded by REQ-050"
+omni requirement archive --keep-recent 25   # move old completed and all withdrawn entries aside
+omni requirement archive --id REQ-041,REQ-043  # or name them; live (pending, blocked) work is refused
 ```
 
 Enforce the completion rulepack instead of trusting the assistant to remember it:
@@ -1078,13 +1108,14 @@ cognitive load," "prefer composition," "use clear names" -- and stay that way
 on purpose: mechanizing them would mean checking a shallow proxy and letting
 the real judgment slide, which is worse than an honest "not machine-checked."
 A rule earns a `validation` block only when there is a real, non-fake check
-for it. Three types exist today:
+for it. Four types exist today:
 
 | `validation.type` | What it actually checks |
 | --- | --- |
 | `co_changed` | When any changed path matches `when_changed` (and not `ignore`), at least one changed path must also match `must_also_change` -- e.g. touching anything requires touching `CHANGELOG.md`. |
 | `requirement_registry_entry` | Every `REQ-###`-shaped ID cited in a commit message since the base, or newly added to `CHANGELOG.md`, must actually exist in the requirements registry -- catches a typo'd or invented ID that `omni doctor`'s registry-schema check cannot see, since that only validates the registry's own shape, never what other files claim about it. |
 | `content_forbidden` | Changed files are scanned for a short list of regex patterns (a private-key header, an AWS-shaped access key, an obviously hardcoded credential). A bounded, honest safety net for the most common accidental leaks, not a claim of exhaustive secret scanning. |
+| `command` | Runs the project's own check as the gate -- a scanner, a test suite, a linter -- when a changed path matches `when_changed` (minus `ignore`). `run` is split like a shell line, `{base}` becomes the gate's base commit, and `timeout` (seconds, default 600) bounds it. A non-zero exit, a timeout, or an executable missing from `PATH` fails the rule with the last lines of output attached: an unrunnable check is not a pass. `gate_status` over MCP runs it too, so keep it to checks that only read. |
 
 Add a rule to a rulepack:
 

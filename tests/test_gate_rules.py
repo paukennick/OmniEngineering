@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -84,7 +85,7 @@ class TestGateRulesSelection(GateRuleFixture):
     def test_every_declared_type_this_module_implements_is_in_the_selection_set(self) -> None:
         # if a new elif branch is added to gate_evaluate() without adding the type here, gate_rules()
         # silently drops it again -- the same bug, reintroduced
-        for vtype in ("co_changed", "requirement_registry_entry", "content_forbidden"):
+        for vtype in ("co_changed", "requirement_registry_entry", "content_forbidden", "command"):
             self.assertIn(vtype, ma.EXECUTABLE_VALIDATION_TYPES)
 
 
@@ -227,6 +228,80 @@ class TestContentForbidden(GateRuleFixture):
         Path("a.py").write_text("hello\n", encoding="utf-8")
         failures, _ = ma.gate_evaluate({"a.py"}, {})
         self.assertEqual(failures, [])
+
+
+class TestCommandValidation(GateRuleFixture):
+    """`command` runs the project's own check as a gate. The executable here is this interpreter, so the
+    tests need nothing installed and still exercise exit codes, output capture, timeouts and PATH."""
+
+    def rule(self, run: str, **extra: object) -> dict:
+        validation = {"type": "command", "run": run, "when_changed": ["src/**"], **extra}
+        return {"id": "x.project_check", "severity": "required", "statement": "s", "validation": validation}
+
+    @staticmethod
+    def py(code: str) -> str:
+        return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+    def test_a_passing_command_is_not_a_failure(self) -> None:
+        self.write_rulepack([self.rule(self.py("import sys; sys.exit(0)"))])
+        self.assertEqual(ma.gate_evaluate({"src/a.py"}, {})[0], [])
+
+    def test_a_failing_command_reports_its_exit_code_and_output_tail(self) -> None:
+        self.write_rulepack([self.rule(self.py("print('first'); print('the real reason'); raise SystemExit(3)"))])
+        failures, _ = ma.gate_evaluate({"src/a.py"}, {})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("exited 3", failures[0])
+        self.assertIn("the real reason", failures[0])
+
+    def test_the_command_runs_only_when_a_matching_path_changed(self) -> None:
+        self.write_rulepack([self.rule(self.py("raise SystemExit(1)"))])
+        self.assertEqual(ma.gate_evaluate({"docs/readme.md"}, {})[0], [])
+        self.assertEqual(len(ma.gate_evaluate({"src/a.py"}, {})[0]), 1)
+
+    def test_ignored_paths_do_not_trigger_it(self) -> None:
+        self.write_rulepack([self.rule(self.py("raise SystemExit(1)"), ignore=["src/generated/**"])])
+        self.assertEqual(ma.gate_evaluate({"src/generated/x.py"}, {})[0], [])
+
+    def test_base_is_substituted(self) -> None:
+        self.write_rulepack([self.rule(self.py("import sys; sys.exit(0 if 'abc123' in sys.argv else 1)") + " {base}")])
+        self.assertEqual(ma.gate_evaluate({"src/a.py"}, {}, base="abc123")[0], [])
+        self.assertEqual(len(ma.gate_evaluate({"src/a.py"}, {}, base="other")[0]), 1)
+
+    def test_a_missing_executable_is_a_failure_not_a_pass(self) -> None:
+        self.write_rulepack([self.rule("omni-gate-test-no-such-tool-xyz --flag")])
+        failures, _ = ma.gate_evaluate({"src/a.py"}, {})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("not on PATH", failures[0])
+
+    def test_a_hanging_command_times_out(self) -> None:
+        self.write_rulepack([self.rule(self.py("import time; time.sleep(30)"), timeout=1)])
+        failures, _ = ma.gate_evaluate({"src/a.py"}, {})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("did not finish within 1s", failures[0])
+
+    def test_a_waiver_still_applies(self) -> None:
+        self.write_rulepack([self.rule(self.py("raise SystemExit(1)"))])
+        failures, waived = ma.gate_evaluate({"src/a.py"}, {"x.project_check": "known red, tracked in REQ-9"})
+        self.assertEqual(failures, [])
+        self.assertEqual(len(waived), 1)
+
+
+class TestDefectCategoryPattern(unittest.TestCase):
+    def test_default_matches_the_usual_names(self) -> None:
+        with mock.patch.object(ma, "project_configuration", return_value={}):
+            pattern = ma.defect_category_pattern()
+        for name in ("Defect", "bug", "hotfix", "regression", "incident"):
+            self.assertTrue(pattern.search(name), name)
+        self.assertFalse(pattern.search("developer-tooling"))
+
+    def test_configuration_overrides_the_default(self) -> None:
+        with mock.patch.object(ma, "project_configuration", return_value={"defect_category_pattern": "tooling|defect"}):
+            pattern = ma.defect_category_pattern()
+        self.assertTrue(pattern.search("developer-tooling"))
+
+    def test_an_invalid_pattern_falls_back_to_the_default(self) -> None:
+        with mock.patch.object(ma, "project_configuration", return_value={"defect_category_pattern": "("}):
+            self.assertIs(ma.defect_category_pattern(), ma.DEFECT_CATEGORY)
 
 
 if __name__ == "__main__":

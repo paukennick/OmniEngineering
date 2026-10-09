@@ -151,6 +151,10 @@ _DEFAULT_GRAPH_CONFIG: dict[str, Any] = {
     # OmniEngineering's own files as embedded in a project. They join the workspace layer and are never counted as
     # the project's tests, suites or coverage targets. OmniEngineering's source repository sets this to [].
     "tooling_paths": ["make_ai.py", "omni_graph.py", "omni", ".ai/*"],
+    # Paths the code layer never parses, on top of .gitignore and .ai/.ignore: test corpora with planted defects,
+    # vendored examples, generated output. They are still readable by an assistant (unlike .ai/.ignore entries) and
+    # still appear in git history; they just never contribute symbols that would be attributed to the project.
+    "exclude_code_globs": [],
 }
 _CONFIG_CACHE: dict[str, tuple[Any, dict[str, Any]]] = {}
 
@@ -391,6 +395,7 @@ def discover_source_files(root: Path, languages: list[str]) -> list[tuple[Path, 
             extensions[ext] = language
 
     ignore_patterns = _read_ignore_patterns(root)
+    excluded = [str(glob) for glob in graph_config(root).get("exclude_code_globs", []) if str(glob).strip()]
     found: list[tuple[Path, str]] = []
 
     def walk(current: Path) -> None:
@@ -404,6 +409,8 @@ def discover_source_files(root: Path, languages: list[str]) -> list[tuple[Path, 
             if is_dir and child.is_symlink():
                 continue  # a symlinked directory can loop back on itself
             if _should_skip(relative, is_dir, ignore_patterns):
+                continue
+            if any(_path_matches_pattern(relative, glob, is_dir) for glob in excluded):
                 continue
             if is_dir:
                 walk(child)
@@ -2399,10 +2406,18 @@ def parse_changelog(text: str) -> list[dict[str, Any]]:
         if match:
             headings.append((number, len(match.group(1)), match.group(2).strip()))
 
-    def datable(heading: str) -> bool:
-        return bool(_DATE_ANY.search(heading) or _VERSION_ANY.search(heading) or re.match(r"(?i)\[?unreleased", heading))
+    def dated(heading: str) -> bool:
+        return bool(_DATE_ANY.search(heading) or _VERSION_ANY.search(heading))
 
-    level = next((lv for lv in (2, 1, 3, 4) if any(h[1] == lv and datable(h[2]) for h in headings)), None)
+    def datable(heading: str) -> bool:
+        return dated(heading) or bool(re.match(r"(?i)\[?unreleased", heading))
+
+    # A level whose headings carry real dates or versions wins over one that only says "Unreleased": a changelog that
+    # keeps dated `###` sections under one `## [Unreleased]` heading has its entries at level 3, not one undated entry
+    # at level 2. Only when no level is dated does an Unreleased-only level count.
+    level = next((lv for lv in (2, 1, 3, 4) if any(h[1] == lv and dated(h[2]) for h in headings)), None)
+    if level is None:
+        level = next((lv for lv in (2, 1, 3, 4) if any(h[1] == lv and datable(h[2]) for h in headings)), None)
     if level is None:
         level = next((lv for lv in (2, 3) if any(h[1] == lv for h in headings)), None)
     if level is None:
